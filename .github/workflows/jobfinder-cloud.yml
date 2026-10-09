@@ -3,7 +3,7 @@ name: JobFinder Cloud Monitor
 on:
   schedule:
     # Every five minutes, offset from the top of the hour.
-    - cron: "3-58/5 * * * *"
+    - cron: "7-57/5 * * * *"
   workflow_dispatch:
 
 permissions:
