@@ -1,0 +1,16 @@
+venv/
+__pycache__/
+*.pyc
+.env
+telegram_config.json
+jobfinder_session.session
+*.session
+*.session-journal
+cvs/
+jobs.jsonl
+sent_applications.jsonl
+auto_results.jsonl
+ai_results.jsonl
+telegram_qr.png
+*.gguf
+.jobfinder_fernet_key
