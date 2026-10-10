@@ -18,6 +18,6 @@ jobs:
           python-version: "3.12"
       - name: Verify bot token and send harmless test message
         env:
-          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_BOT_CHAT_ID: \${{ secrets.TELEGRAM_BOT_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
         run: python telegram_bot_smoke_test.py
