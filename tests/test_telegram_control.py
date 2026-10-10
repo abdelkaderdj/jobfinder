@@ -125,6 +125,48 @@ class TelegramControlTests(unittest.TestCase):
         record = sample_event()["record"]
         self.assertEqual(event_key(record), event_key(dict(record)))
 
+    def test_webhook_test_button_edits_message_without_real_job_action(self):
+        processor = FakeProcessor()
+        bot, _ = self.build_bot(processor)
+        edits = []
+        bot._edit_message = lambda query, text: edits.append((query, text))
+        bot.handle_webhook_event({
+            "update_type": "callback",
+            "action": "test",
+            "pending_id": "accept",
+            "chat_id": "12345",
+            "user_id": "12345",
+            "message_id": "42",
+        })
+        self.assertEqual(processor.calls, [])
+        self.assertTrue(any("نجح اختبار زر القبول" in text for _, text in edits))
+
+    def test_webhook_status_command_replies_to_owner(self):
+        bot, sent = self.build_bot()
+        bot.handle_webhook_event({
+            "update_type": "command",
+            "command": "/status",
+            "chat_id": "12345",
+            "user_id": "12345",
+        })
+        self.assertTrue(any("حالة JobFinder" in text for _, text, _ in sent))
+
+    def test_webhook_event_rejects_unauthorized_user(self):
+        bot, sent = self.build_bot()
+        bot.handle_webhook_event({
+            "update_type": "command",
+            "command": "/status",
+            "chat_id": "12345",
+            "user_id": "99999",
+        })
+        self.assertEqual(sent, [])
+
+    def test_empty_callback_id_is_not_answered_twice(self):
+        bot, _ = self.build_bot()
+        with patch.object(bot, "_api") as api:
+            TelegramJobBot._answer_callback(bot, "", "already acknowledged")
+        api.assert_not_called()
+
     def test_test_accept_button_never_calls_email_sender(self):
         processor = FakeProcessor()
         bot, _ = self.build_bot(processor, allow_review_actions=False)
