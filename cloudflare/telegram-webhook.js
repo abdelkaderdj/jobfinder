@@ -22,7 +22,7 @@ async function telegramApi(env, method, payload) {
     throw new Error("Telegram bot token is not configured");
   }
   const response = await fetch(
-    \`https://api.telegram.org/bot\${env.TELEGRAM_BOT_TOKEN}/\${method}\`,
+    `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -31,7 +31,7 @@ async function telegramApi(env, method, payload) {
   );
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.ok) {
-    throw new Error(\`Telegram API \${method} failed with HTTP \${response.status}\`);
+    throw new Error(`Telegram API ${method} failed with HTTP ${response.status}`);
   }
   return result.result;
 }
@@ -44,12 +44,12 @@ async function dispatchToGitHub(env, inputs) {
   if (!env.GITHUB_DISPATCH_TOKEN) {
     throw new Error("GitHub dispatch token is not configured");
   }
-  const url = \`https://api.github.com/repos/\${owner}/\${repo}/actions/workflows/\${workflow}/dispatches\`;
+  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "accept": "application/vnd.github+json",
-      "authorization": \`Bearer \${env.GITHUB_DISPATCH_TOKEN}\`,
+      "authorization": `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
       "content-type": "application/json",
       "x-github-api-version": "2022-11-28",
       "user-agent": "JobFinder-Telegram-Webhook",
@@ -58,7 +58,7 @@ async function dispatchToGitHub(env, inputs) {
   });
   if (response.status !== 204) {
     // Do not log response body: it may contain repository details.
-    throw new Error(\`GitHub workflow dispatch failed with HTTP \${response.status}\`);
+    throw new Error(`GitHub workflow dispatch failed with HTTP ${response.status}`);
   }
 }
 
