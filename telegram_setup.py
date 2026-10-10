@@ -51,6 +51,24 @@ def main() -> int:
         print("Missing GitHub Secret: TELEGRAM_BOT_TOKEN")
         return 1
 
+    # Verify which bot this token belongs to without ever printing the token.
+    bot_info = api(token, "getMe", {})
+    actual_username = str((bot_info or {}).get("username") or "")
+    if actual_username:
+        print(f"Connected Telegram bot: @{actual_username}")
+    else:
+        print("Telegram token was accepted, but getMe returned no username")
+        return 1
+
+    expected_username = "JobFinderdz_bot"
+    if actual_username.casefold() != expected_username.casefold():
+        print(
+            f"Wrong bot token: expected @{expected_username}, "
+            f"but the token belongs to @{actual_username}. "
+            "Update TELEGRAM_BOT_TOKEN with the token from the intended bot."
+        )
+        return 1
+
     updates = api(
         token,
         "getUpdates",
