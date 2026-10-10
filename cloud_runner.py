@@ -133,10 +133,12 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     # Commands and review callbacks are polled at the start of each cloud run.
     from telegram_control import TelegramJobBot
 
+    telegram_only_mode = os.getenv("JOBFINDER_TELEGRAM_ONLY", "").strip().lower() in {"1", "true", "yes"}
     bot = TelegramJobBot(
         state,
         processor,
         lambda reason: persist_checkpoint(state, fernet, reason, checkpoint_cache),
+        allow_review_actions=not telegram_only_mode,
     )
     processor.set_job_event_callback(bot.on_job_event)
     bot.poll_updates()
@@ -145,7 +147,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     persist_checkpoint(state, fernet, "Telegram controls polled", checkpoint_cache)
 
-    if os.getenv("JOBFINDER_TELEGRAM_ONLY", "").strip().lower() in {"1", "true", "yes"}:
+    if telegram_only_mode:
         print(
             "Telegram-only test mode: commands and notifications processed; "
             "job channels were not scanned and no application emails could be sent."
