@@ -421,16 +421,26 @@ class TelegramJobBot:
             print(f"Telegram bot update polling failed: {type(exc).__name__}")
             return
         if not isinstance(updates, list):
+            print("Telegram poll result was not a list")
             return
+        print(f"Telegram updates received by this run: {len(updates)}")
         for update in updates[:100]:
             if not isinstance(update, dict) or "update_id" not in update:
                 continue
             update_id = int(update["update_id"])
             try:
                 if isinstance(update.get("message"), dict):
-                    self._handle_message(update["message"])
+                    message = update["message"]
+                    text_value = str(message.get("text") or "").strip()
+                    if text_value.startswith("/"):
+                        print(f"Telegram command received: {text_value.split()[0].split('@')[0][:24]}")
+                    self._handle_message(message)
                 elif isinstance(update.get("callback_query"), dict):
-                    self._handle_callback(update["callback_query"])
+                    callback = update["callback_query"]
+                    data_value = str(callback.get("data") or "")
+                    action_value = data_value.split(":")[1] if data_value.startswith("jf:") and len(data_value.split(":")) > 1 else "unknown"
+                    print(f"Telegram callback received: {action_value[:20]}")
+                    self._handle_callback(callback)
             except Exception as exc:
                 print(f"Telegram update handling failed: {type(exc).__name__}")
             self.state["telegram_bot_update_offset"] = update_id + 1
@@ -524,6 +534,7 @@ class TelegramJobBot:
         chat = message.get("chat") or {}
         sender = query.get("from") or {}
         if not self._authorized(chat.get("id"), sender.get("id")):
+            print("Telegram callback rejected: owner authorization did not match")
             if query_id:
                 self._answer_callback(query_id, "غير مصرح لك باستخدام هذا البوت.", True)
             return
@@ -550,6 +561,7 @@ class TelegramJobBot:
                     "لم تُرفض أي وظيفة حقيقية ولم يُرسل أي بريد إلكتروني."
                 )
             self._edit_message(query, result_text)
+            print(f"Telegram test callback completed: {pending_id}")
             return
 
         if not self.allow_review_actions:
