@@ -145,6 +145,13 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     persist_checkpoint(state, fernet, "Telegram controls polled", checkpoint_cache)
 
+    if os.getenv("JOBFINDER_TELEGRAM_ONLY", "").strip().lower() in {"1", "true", "yes"}:
+        print(
+            "Telegram-only test mode: commands and notifications processed; "
+            "job channels were not scanned and no application emails could be sent."
+        )
+        return
+
     if state.get("paused"):
         print("JobFinder is paused by Telegram command; Telegram controls remain active")
         return
