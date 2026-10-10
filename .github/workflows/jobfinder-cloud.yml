@@ -40,6 +40,7 @@ jobs:
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
+          TELEGRAM_WEBHOOK_MODE: ${{ secrets.TELEGRAM_WEBHOOK_URL != '' && '1' || '' }}
         run: python cloud_runner.py
 
       - name: Commit encrypted state only
