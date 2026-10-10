@@ -19,10 +19,29 @@ def api(token: str, method: str, payload: dict) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=20) as response:
             result = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Telegram Bot API request failed: {type(exc).__name__}") from exc
+    except urllib.error.HTTPError as exc:
+        # Telegram error descriptions help distinguish an invalid token from an
+        # active webhook or another API issue. Never print the request URL/token.
+        detail = ""
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            detail = str(body.get("description") or "")
+        except Exception:
+            pass
+        if not detail:
+            detail = "Telegram returned an HTTP error without a readable description"
+        raise RuntimeError(f"Telegram API HTTP {exc.code}: {detail[:180]}") from None
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Could not reach Telegram API ({type(exc).__name__}); retry the workflow"
+        ) from None
+    except (TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Telegram API response could not be read ({type(exc).__name__})"
+        ) from None
     if not isinstance(result, dict) or not result.get("ok"):
-        raise RuntimeError("Telegram rejected the setup request; check the bot token")
+        detail = str(result.get("description") or "Telegram rejected the request") if isinstance(result, dict) else "Unexpected Telegram response"
+        raise RuntimeError(f"Telegram API error: {detail[:180]}")
     return result.get("result")
 
 
@@ -97,5 +116,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as exc:
-        print(f"Telegram setup failed: {type(exc).__name__}")
+        print(f"Telegram setup failed: {str(exc)[:220]}")
         sys.exit(1)
