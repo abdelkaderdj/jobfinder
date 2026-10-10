@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - master
       - feature/telegram-notifications-review-v2
 
 permissions:
