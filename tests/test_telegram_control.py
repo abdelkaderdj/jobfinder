@@ -1,10 +1,18 @@
 import os
 import unittest
+from unittest.mock import patch
+
+os.environ.setdefault("GROQ_API_KEY", "validation-dummy-key")
+os.environ.setdefault("GMAIL_APP_PASSWORD", "validation-dummy-password")
+os.environ.setdefault("GMAIL_ADDRESS", "validation@example.org")
+os.environ.setdefault("JOBFINDER_CANDIDATE_PROFILE", "validation profile")
+os.environ.setdefault("JOBFINDER_CANDIDATE_NAME", "Validation User")
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
 from telegram_control import TelegramJobBot, event_key
+import auto_jobfinder_cloud as processor
 
 
 class FakeProcessor:
@@ -113,6 +121,46 @@ class TelegramControlTests(unittest.TestCase):
     def test_event_key_is_stable(self):
         record = sample_event()["record"]
         self.assertEqual(event_key(record), event_key(dict(record)))
+
+    def sample_review_item(self, can_auto_send=True):
+        event = sample_event()
+        return {
+            "id": "review123",
+            "can_auto_send": can_auto_send,
+            "record": event["record"],
+            "job": event["job"],
+            "post": event["post"],
+            "advertisement": event["advertisement"],
+        }
+
+    def test_processor_blocks_unsafe_review_before_any_send(self):
+        with self.assertRaisesRegex(RuntimeError, "not safe"):
+            processor.send_approved_review(self.sample_review_item(False))
+
+    def test_processor_skips_already_sent_duplicate(self):
+        item = self.sample_review_item(True)
+        with patch.object(processor.os.path, "isfile", return_value=True), \\
+             patch.object(processor, "already_sent_same_job", return_value=(True, {})), \\
+             patch.object(processor, "already_sent", return_value=False), \\
+             patch.object(processor, "send_application") as send, \\
+             patch.object(processor, "save_sent"), \\
+             patch.object(processor, "save_result"):
+            result = processor.send_approved_review(item)
+        self.assertEqual(result["status"], "duplicate")
+        send.assert_not_called()
+
+    def test_processor_sends_only_after_validated_approval(self):
+        item = self.sample_review_item(True)
+        with patch.object(processor.os.path, "isfile", return_value=True), \\
+             patch.object(processor, "already_sent_same_job", return_value=(False, None)), \\
+             patch.object(processor, "already_sent", return_value=False), \\
+             patch.object(processor, "send_application") as send, \\
+             patch.object(processor, "save_sent") as save_sent, \\
+             patch.object(processor, "save_result"):
+            result = processor.send_approved_review(item)
+        self.assertEqual(result["status"], "sent")
+        send.assert_called_once()
+        save_sent.assert_called_once()
 
 
 if __name__ == "__main__":
