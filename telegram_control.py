@@ -448,6 +448,8 @@ class TelegramJobBot:
         command = text.split()[0].split("@")[0].lower()
 
         if not self.owner_chat_id:
+            if chat.get("type") != "private":
+                return
             if command in {"/start", "/id"} and chat_id is not None:
                 self._send_message(
                     chat_id,
