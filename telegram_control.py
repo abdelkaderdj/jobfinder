@@ -123,6 +123,10 @@ class TelegramJobBot:
         text: str = "",
         show_alert: bool = False,
     ) -> None:
+        # In webhook mode Telegram has already acknowledged the callback immediately.
+        # Do not attempt to answer it a second time from the delayed GitHub runner.
+        if not callback_id:
+            return
         payload: dict[str, Any] = {"callback_query_id": callback_id}
         if text:
             payload["text"] = text[:180]
@@ -403,6 +407,68 @@ class TelegramJobBot:
                 ),
             )
         self.flush_outbox()
+
+    def handle_webhook_event(self, event: dict[str, Any]) -> None:
+        """Process a minimal, owner-validated Telegram event dispatched by the webhook."""
+        if not isinstance(event, dict):
+            raise RuntimeError("Telegram webhook event is invalid")
+
+        update_type = str(event.get("update_type") or "")
+        chat_id = event.get("chat_id")
+        user_id = event.get("user_id")
+        try:
+            chat_id = int(chat_id)
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            print("Telegram webhook event rejected: invalid chat or user ID")
+            return
+
+        if not self._authorized(chat_id, user_id):
+            print("Telegram webhook event rejected: owner authorization did not match")
+            return
+
+        if update_type == "command":
+            command = str(event.get("command") or "").strip()
+            if command.split("@")[0].lower() not in {
+                "/start", "/help", "/status", "/today", "/pending", "/pause", "/resume"
+            }:
+                print("Telegram webhook command ignored: unsupported command")
+                return
+            self._handle_message({
+                "chat": {"id": chat_id, "type": "private"},
+                "from": {"id": user_id},
+                "text": command,
+            })
+            print(f"Telegram webhook command completed: {command.split()[0][:24]}")
+        elif update_type == "callback":
+            action = str(event.get("action") or "")
+            pending_id = str(event.get("pending_id") or "")
+            allowed_actions = {"approve", "manual", "reject", "test"}
+            if action not in allowed_actions or not pending_id or len(pending_id) > 32:
+                print("Telegram webhook callback rejected: invalid action payload")
+                return
+            try:
+                message_id = int(event.get("message_id"))
+            except (TypeError, ValueError):
+                print("Telegram webhook callback rejected: invalid message ID")
+                return
+            self._handle_callback({
+                # Empty callback ID means the webhook already acknowledged it.
+                "id": "",
+                "from": {"id": user_id},
+                "message": {
+                    "chat": {"id": chat_id, "type": "private"},
+                    "message_id": message_id,
+                },
+                "data": f"jf:{action}:{pending_id}",
+            })
+            print(f"Telegram webhook callback completed: {action}")
+        else:
+            print("Telegram webhook event ignored: unsupported update type")
+            return
+
+        self.flush_outbox()
+        self.deliver_pending_reviews()
 
     def poll_updates(self) -> None:
         if not self.token_configured:
