@@ -57,8 +57,11 @@ def sample_event(decision="REVIEW"):
 
 
 class TelegramControlTests(unittest.TestCase):
-    def build_bot(self, processor=None):
-        bot = TelegramJobBot({}, processor or FakeProcessor(), lambda _reason: None)
+    def build_bot(self, processor=None, allow_review_actions=True):
+        bot = TelegramJobBot(
+            {}, processor or FakeProcessor(), lambda _reason: None,
+            allow_review_actions=allow_review_actions,
+        )
         sent_messages = []
         bot._send_message = lambda chat, text, keyboard=None: (
             sent_messages.append((str(chat), text, keyboard)) or {"message_id": 42}
@@ -121,6 +124,48 @@ class TelegramControlTests(unittest.TestCase):
     def test_event_key_is_stable(self):
         record = sample_event()["record"]
         self.assertEqual(event_key(record), event_key(dict(record)))
+
+    def test_test_accept_button_never_calls_email_sender(self):
+        processor = FakeProcessor()
+        bot, _ = self.build_bot(processor, allow_review_actions=False)
+        bot._handle_callback({
+            "id": "test-callback-accept",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": "jf:test:accept",
+        })
+        self.assertEqual(processor.calls, [])
+        self.assertEqual(bot.state["pending_reviews"], {})
+
+    def test_test_reject_button_never_changes_real_review_state(self):
+        processor = FakeProcessor()
+        bot, _ = self.build_bot(processor, allow_review_actions=False)
+        bot._handle_callback({
+            "id": "test-callback-reject",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 43},
+            "data": "jf:test:reject",
+        })
+        self.assertEqual(processor.calls, [])
+        self.assertEqual(bot.state["pending_reviews"], {})
+        self.assertEqual(bot.state["review_history"], {})
+
+    def test_real_approval_is_blocked_in_test_only_mode(self):
+        processor = FakeProcessor()
+        bot, _ = self.build_bot(processor, allow_review_actions=False)
+        bot.state["pending_reviews"]["real-review"] = {
+            "id": "real-review",
+            "can_auto_send": True,
+            "record": {"application_job_title": "Test"},
+        }
+        bot._handle_callback({
+            "id": "test-callback-real",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 44},
+            "data": "jf:approve:real-review",
+        })
+        self.assertEqual(processor.calls, [])
+        self.assertIn("real-review", bot.state["pending_reviews"])
 
     def sample_review_item(self, can_auto_send=True):
         event = sample_event()
