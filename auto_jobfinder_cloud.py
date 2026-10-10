@@ -57,6 +57,14 @@ client = Groq(
     api_key=GROQ_API_KEY
 )
 
+# Optional cloud Telegram notification callback. The runner wires this at startup.
+JOB_EVENT_CALLBACK = None
+
+
+def set_job_event_callback(callback):
+    global JOB_EVENT_CALLBACK
+    JOB_EVENT_CALLBACK = callback
+
 
 # ============================================================
 # REAL CANDIDATE
@@ -4323,6 +4331,19 @@ def process_post(
             record
         )
 
+        # Emit structured events for the Telegram control bot. Notification failures
+        # never change whether the source post is considered processed.
+        if JOB_EVENT_CALLBACK is not None:
+            try:
+                JOB_EVENT_CALLBACK({
+                    "post": post,
+                    "record": record,
+                    "job": job,
+                    "advertisement": job_section_text if scope_matched else text,
+                })
+            except Exception as exc:
+                print("JOB EVENT CALLBACK ERROR:", type(exc).__name__)
+
         print()
 
         print(
@@ -4424,6 +4445,82 @@ def process_post(
         )
 
     return post_success
+
+
+# ============================================================
+# MANUALLY APPROVED REVIEW APPLICATION
+# ============================================================
+
+def send_approved_review(item):
+    """Send only a review explicitly approved by the authorized Telegram owner."""
+    if not isinstance(item, dict):
+        raise RuntimeError("Review item is invalid")
+    record = item.get("record") or {}
+    job = item.get("job") or {}
+    post = item.get("post") or {}
+    emails = record.get("emails") or []
+    title = str(record.get("application_job_title") or "").strip()
+    cv_path = str(record.get("cv") or "").strip()
+    if not isinstance(job, dict) or not isinstance(record, dict) or not isinstance(post, dict):
+        raise RuntimeError("Review data is incomplete")
+    if item.get("can_auto_send") is not True:
+        raise RuntimeError("This review is not safe for automatic email submission")
+    if record.get("contact_scope_matched") is not True:
+        raise RuntimeError("The job's advertisement section was not matched safely")
+    if len(emails) != 1 or not str(emails[0]).strip():
+        raise RuntimeError("A single unambiguous email recipient is required")
+    if not str(record.get("location_status") or "").startswith("allowed_"):
+        raise RuntimeError("Location eligibility must be confirmed before sending")
+    if not cv_path or not os.path.isfile(cv_path):
+        raise RuntimeError("The selected CV is unavailable")
+    if not title:
+        raise RuntimeError("Job title is missing")
+    email_address = str(emails[0]).strip()
+    key = application_key(post, job, email_address)
+    same_job, _old_record = already_sent_same_job(job, title, [email_address])
+    if same_job or already_sent(key):
+        duplicate_record = dict(record)
+        duplicate_record.update({
+            "decision": "APPLY",
+            "sent": False,
+            "job_duplicate": True,
+            "manual_approval": True,
+            "manual_approval_status": "duplicate_skipped",
+        })
+        save_result(duplicate_record)
+        return {"status": "duplicate"}
+    send_application(
+        email_address,
+        job,
+        cv_path,
+        str(record.get("application_language") or "fr"),
+        str(item.get("advertisement") or ""),
+        title,
+    )
+    save_sent(key, {
+        "source": post.get("source"),
+        "message_id": post.get("message_id"),
+        "job_title": job.get("job_title"),
+        "application_job_title": title,
+        "company": job.get("company", ""),
+        "location": job.get("location", ""),
+        "email": email_address,
+        "cv": cv_path,
+        "application_language": record.get("application_language"),
+        "identity_key": record.get("identity_key"),
+        "manual_approval": True,
+    })
+    sent_record = dict(record)
+    sent_record.update({
+        "decision": "APPLY",
+        "sent": True,
+        "job_duplicate": False,
+        "manual_approval": True,
+        "manual_approval_status": "sent",
+        "manual_approval_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    })
+    save_result(sent_record)
+    return {"status": "sent"}
 
 
 # ============================================================
