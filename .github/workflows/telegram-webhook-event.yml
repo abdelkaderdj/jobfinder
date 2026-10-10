@@ -1,0 +1,98 @@
+name: JobFinder Telegram Webhook Event
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: Telegram event type
+        required: true
+        type: choice
+        options:
+          - command
+          - callback
+      command:
+        description: Validated Telegram command
+        required: false
+        type: string
+      action:
+        description: Validated callback action
+        required: false
+        type: string
+      pending_id:
+        description: Pending review ID or test action
+        required: false
+        type: string
+      chat_id:
+        description: Validated private chat ID
+        required: true
+        type: string
+      user_id:
+        description: Validated Telegram sender ID
+        required: true
+        type: string
+      message_id:
+        description: Original Telegram message ID for callback editing
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jobfinder-cloud-monitor
+  cancel-in-progress: false
+
+jobs:
+  process-telegram-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cloud.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-cloud.txt
+
+      - name: Process one validated Telegram event only
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
+          TELEGRAM_WEBHOOK_MODE: "1"
+          JOBFINDER_TELEGRAM_WEBHOOK_EVENT: "1"
+          JOBFINDER_TELEGRAM_UPDATE_TYPE: ${{ inputs.update_type }}
+          JOBFINDER_TELEGRAM_COMMAND: ${{ inputs.command }}
+          JOBFINDER_TELEGRAM_ACTION: ${{ inputs.action }}
+          JOBFINDER_TELEGRAM_PENDING_ID: ${{ inputs.pending_id }}
+          JOBFINDER_TELEGRAM_CHAT_ID: ${{ inputs.chat_id }}
+          JOBFINDER_TELEGRAM_USER_ID: ${{ inputs.user_id }}
+          JOBFINDER_TELEGRAM_MESSAGE_ID: ${{ inputs.message_id }}
+        run: python cloud_runner.py
+
+      - name: Commit encrypted state only
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cloud_private/state.enc
+          if git diff --cached --quiet; then
+            echo "No encrypted state changes to save."
+          else
+            git commit -m "Update encrypted JobFinder state after Telegram event"
+            git push
+          fi
