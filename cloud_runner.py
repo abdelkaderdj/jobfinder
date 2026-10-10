@@ -20,7 +20,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-RUNNER_VERSION = "2026-10-10-batch-checkpoint-v1"
+RUNNER_VERSION = "2026-10-10-telegram-control-v1"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -128,6 +128,26 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     if SENT_FILE.exists():
         state["sent_applications_jsonl"] = SENT_FILE.read_text(encoding="utf-8")
     checkpoint_cache: dict[str, bytes] = {"payload": _serialized_state(state)}
+
+    # Telegram control bot is independent from the Telethon account session.
+    # Commands and review callbacks are polled at the start of each cloud run.
+    from telegram_control import TelegramJobBot
+
+    bot = TelegramJobBot(
+        state,
+        processor,
+        lambda reason: persist_checkpoint(state, fernet, reason, checkpoint_cache),
+    )
+    processor.set_job_event_callback(bot.on_job_event)
+    bot.poll_updates()
+    bot.flush_outbox()
+    bot.deliver_pending_reviews()
+    state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    persist_checkpoint(state, fernet, "Telegram controls polled", checkpoint_cache)
+
+    if state.get("paused"):
+        print("JobFinder is paused by Telegram command; Telegram controls remain active")
+        return
 
     started = time.monotonic()
     messages_seen = 0
