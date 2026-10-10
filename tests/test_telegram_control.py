@@ -139,28 +139,33 @@ class TelegramControlTests(unittest.TestCase):
 
     def test_processor_skips_already_sent_duplicate(self):
         item = self.sample_review_item(True)
-        with patch.object(processor.os.path, "isfile", return_value=True), \\
-             patch.object(processor, "already_sent_same_job", return_value=(True, {})), \\
-             patch.object(processor, "already_sent", return_value=False), \\
-             patch.object(processor, "send_application") as send, \\
-             patch.object(processor, "save_sent"), \\
-             patch.object(processor, "save_result"):
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "already_sent_same_job", return_value=(True, {})),
+            patch.object(processor, "already_sent", return_value=False),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_sent"),
+            patch.object(processor, "save_result"),
+        ):
             result = processor.send_approved_review(item)
         self.assertEqual(result["status"], "duplicate")
         send.assert_not_called()
 
     def test_processor_sends_only_after_validated_approval(self):
         item = self.sample_review_item(True)
-        with patch.object(processor.os.path, "isfile", return_value=True), \\
-             patch.object(processor, "already_sent_same_job", return_value=(False, None)), \\
-             patch.object(processor, "already_sent", return_value=False), \\
-             patch.object(processor, "send_application") as send, \\
-             patch.object(processor, "save_sent") as save_sent, \\
-             patch.object(processor, "save_result"):
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "already_sent_same_job", return_value=(False, None)),
+            patch.object(processor, "already_sent", return_value=False),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_sent") as save_sent,
+            patch.object(processor, "save_result"),
+        ):
             result = processor.send_approved_review(item)
         self.assertEqual(result["status"], "sent")
         send.assert_called_once()
         save_sent.assert_called_once()
+
 
 
 if __name__ == "__main__":
