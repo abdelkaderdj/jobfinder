@@ -18,5 +18,5 @@ jobs:
           python-version: "3.12"
       - name: Reply to private /start and display chat ID in Telegram
         env:
-          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python telegram_setup.py
