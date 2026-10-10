@@ -22,7 +22,7 @@ jobs:
       - name: Install cloud dependencies
         run: python -m pip install -r requirements-cloud.txt
       - name: Compile changed Python modules
-        run: python -m py_compile cloud_runner.py auto_jobfinder_cloud.py telegram_control.py telegram_setup.py
+        run: python -m py_compile cloud_runner.py auto_jobfinder_cloud.py telegram_control.py
       - name: Run isolated control tests
         env:
           GROQ_API_KEY: gsk_dummy_validation_key
