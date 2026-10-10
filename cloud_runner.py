@@ -19,6 +19,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
+RUNNER_VERSION = "2026-10-10-contact-scope-v2"
 
 
 def required_env(name: str) -> str:
@@ -154,6 +155,7 @@ async def poll_and_process(state: dict[str, Any]) -> None:
 
 
 def main() -> int:
+    print(f"JobFinder cloud runner version: {RUNNER_VERSION}")
     # Fail fast if required application credentials are absent.
     required_env("GROQ_API_KEY")
     required_env("GMAIL_APP_PASSWORD")

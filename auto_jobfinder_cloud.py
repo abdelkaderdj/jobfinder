@@ -317,6 +317,247 @@ def email_domain(email):
     )[-1]
 
 
+
+
+# ============================================================
+# JOB-POST SECTION SCOPING
+# Prevent contact details, accommodation, and language rules from
+# one numbered recruitment notice leaking into another.
+# ============================================================
+
+_RECRUITMENT_MARKER_RE = re.compile(
+    r"(?:recrutement|recrute|offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|"
+    r"job\s+offer|job\s+vacanc(?:y|ies)|hiring|vacancy|vacancies|"
+    r"توظيف|التوظيف|إعلان\s+توظيف|اعلان\s+توظيف|وظائف\s+شاغرة|"
+    r"عرض\s+عمل|فرصة\s+عمل)",
+    flags=re.IGNORECASE,
+)
+
+_NUMBERED_HEADING_RE = re.compile(
+    r"^\s*(\d{1,2})\s*[.)\-–—:]\s*(.+?)\s*$"
+)
+
+_UNNUMBERED_HEADING_RE = re.compile(
+    r"^\s*(?:recrutement|recrute|offre\s+d['’ ]?emploi|"
+    r"job\s+offer|job\s+vacanc(?:y|ies)|hiring|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|توظيف)\b",
+    flags=re.IGNORECASE,
+)
+
+_SCOPE_STOP_WORDS = {
+    "de", "du", "des", "la", "le", "les", "un", "une", "et", "en",
+    "au", "aux", "pour", "with", "the", "a", "an", "and", "of",
+    "in", "at", "to", "for", "on", "as", "junior", "juniors",
+    "مطلوب", "منصب", "وظيفة", "وظائف", "في", "من", "على", "و",
+}
+
+
+def _is_recruitment_section_heading(line: str) -> bool:
+    """Detect clear top-level headings without splitting ordinary numbered requirements."""
+    clean = re.sub(r"^[^\w\d]+", "", (line or "").strip()).strip()
+    if not clean:
+        return False
+
+    numbered = _NUMBERED_HEADING_RE.match(clean)
+    if numbered:
+        heading_text = numbered.group(2)
+        return bool(_RECRUITMENT_MARKER_RE.search(heading_text))
+
+    return bool(_UNNUMBERED_HEADING_RE.match(clean))
+
+
+def split_advertisement_sections(advertisement: str) -> list[str]:
+    """
+    Split a Telegram message into independently headed recruitment notices.
+    If no confident boundary is found, return one section (the full message).
+    """
+    text = str(advertisement or "")
+    lines = text.splitlines()
+    if not lines:
+        return [text] if text else [""]
+
+    starts = [0]
+    for index, line in enumerate(lines):
+        if index == 0:
+            continue
+        if _is_recruitment_section_heading(line):
+            starts.append(index)
+
+    if len(starts) == 1:
+        return [text]
+
+    sections = []
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+        section = "\n".join(lines[start:end]).strip()
+        if section:
+            sections.append(section)
+
+    return sections or [text]
+
+
+def _scope_title_tokens(value: str) -> set[str]:
+    tokens = normalize_text(value).split()
+    return {
+        token for token in tokens
+        if len(token) >= 2 and token not in _SCOPE_STOP_WORDS
+    }
+
+
+def _job_section_score(job: dict, section: str) -> tuple[float, float]:
+    """Return (total score, title score); title relevance is mandatory."""
+    normalized_section = normalize_text(section)
+    section_tokens = set(normalized_section.split())
+    title_candidates = []
+    for field in (
+        "job_title",
+        "application_title_fr",
+        "application_title_en",
+    ):
+        value = str(job.get(field) or "").strip()
+        if value and value not in title_candidates:
+            title_candidates.append(value)
+
+    best_title_score = 0.0
+    for candidate in title_candidates:
+        normalized_title = normalize_text(candidate)
+        if not normalized_title:
+            continue
+        if normalized_title in normalized_section:
+            best_title_score = 1.0
+            break
+
+        tokens = _scope_title_tokens(candidate)
+        if not tokens:
+            continue
+        matched = sum(1 for token in tokens if token in section_tokens)
+        coverage = matched / len(tokens)
+        best_title_score = max(best_title_score, coverage)
+
+    # Company and location are secondary tie-breakers; neither may identify a
+    # section without sufficient job-title evidence.
+    score = best_title_score * 0.80
+
+    company = normalize_text(job.get("company") or "")
+    if company and len(company) >= 3 and company in normalized_section:
+        score += 0.15
+
+    location = normalize_text(job.get("location") or "")
+    if location and len(location) >= 3 and location in normalized_section:
+        score += 0.05
+
+    return min(score, 1.0), best_title_score
+
+
+def resolve_job_section(
+    job: dict,
+    advertisement: str,
+    sections: list[str],
+    total_jobs: int,
+) -> tuple[str, bool, str]:
+    """
+    Map one AI-extracted role to its own advertisement section.
+    Fail closed when independent jobs/contacts cannot be distinguished.
+    """
+    all_emails = extract_emails(advertisement)
+
+    if len(sections) <= 1:
+        # A single email can reasonably be shared by several positions in one
+        # combined advertisement. Multiple emails without section boundaries
+        # are ambiguous, so never fan the same application out to all of them.
+        if len(all_emails) > 1:
+            return "", False, "single section contains multiple email addresses"
+        return advertisement, True, "single advertisement section"
+
+    scored = []
+    for index, section in enumerate(sections):
+        score, title_score = _job_section_score(job, section)
+        scored.append((score, title_score, index, section))
+
+    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    best_score, best_title_score, best_index, best_section = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else 0.0
+
+    if best_title_score < 0.55 or best_score < 0.50:
+        return "", False, "no section confidently matches the job title"
+
+    if len(scored) > 1 and (best_score - second_score) < 0.10:
+        return "", False, "multiple advertisement sections match this job"
+
+    return best_section, True, f"section {best_index + 1} of {len(sections)}"
+
+
+def scoped_accommodation_value(
+    job: dict,
+    job_section: str,
+    has_multiple_sections: bool,
+):
+    """
+    Revalidate AI accommodation extraction against the mapped section.
+    In multi-notice posts, accommodation in another section is not evidence
+    for this role. Explicit local signals override a leaked AI true value.
+    """
+    if not has_multiple_sections:
+        return job.get("accommodation_provided", "unknown")
+
+    signal = accommodation_signal_in_text(job_section)
+    if signal is True:
+        return "true"
+    if signal is False:
+        return "false"
+
+    if accommodation_value(job) is True:
+        return "unknown"
+
+    return job.get("accommodation_provided", "unknown")
+
+
+def accommodation_signal_in_text(text: str):
+    """Return True/False for explicit local housing signals, else None."""
+    normalized = normalize_text(text)
+
+    negative_markers = [
+        "no accommodation",
+        "accommodation not provided",
+        "without accommodation",
+        "no housing",
+        "housing not provided",
+        "sans hebergement",
+        "sans logement",
+        "hebergement non fourni",
+        "logement non fourni",
+        "pas d hebergement",
+        "pas de logement",
+        "لا يوجد سكن",
+        "لا يتوفر سكن",
+        "السكن غير متوفر",
+        "الإقامة غير متوفرة",
+        "الاقامة غير متوفرة",
+        "دون سكن",
+    ]
+    if any(normalize_text(marker) in normalized for marker in negative_markers):
+        return False
+
+    positive_markers = ACCOMMODATION_MARKERS + [
+        "hébergement assuré",
+        "hebergement assure",
+        "logement pris en charge",
+        "hébergement pris en charge",
+        "hebergement pris en charge",
+        "accommodation provided",
+        "housing provided",
+        "full accommodation",
+        "تكفل تام بالسكن",
+        "التكفل بالسكن",
+        "التكفل بالإقامة",
+        "التكفل بالاقامة",
+    ]
+    if any(normalize_text(marker) in normalized for marker in positive_markers):
+        return True
+
+    return None
+
+
 # ============================================================
 # AI JSON HELPERS
 # ============================================================
@@ -506,12 +747,23 @@ candidate genuinely matches the stated requirements.
 VERY IMPORTANT — COMMON / GLOBAL REQUIREMENTS
 ============================================================
 
-The advertisement may contain a general requirements section after
-the list of positions.
+A Telegram message may combine several separate recruitment notices,
+often with numbered headings, different companies, locations, contacts,
+and application methods.
 
-A requirement stated as a general condition for the recruitment
-applies to EVERY position in that advertisement unless the text
-clearly says that it applies only to a specific position.
+Treat each numbered/separately headed recruitment notice as its own scope.
+Company, location, accommodation, application method, and email addresses
+inside one notice belong only to positions in that notice unless the text
+explicitly says otherwise.
+
+Only a condition clearly presented as a common requirement for ALL listed
+positions applies across multiple positions/notices. Never copy an email,
+WhatsApp number, accommodation condition, CV-language instruction, or
+company from a different separately headed notice.
+
+For each position, the "emails" array must include only email addresses
+clearly associated with that position's own notice. Do not return every
+email in the complete Telegram message for every position.
 
 Examples of common requirements:
 
@@ -1197,20 +1449,13 @@ def explicit_accommodation_in_ad(
     text
 ):
 
-    normalized = normalize_text(
-        text
-    )
-
-    return any(
-        normalize_text(marker) in normalized
-        for marker in ACCOMMODATION_MARKERS
-    )
+    return accommodation_signal_in_text(text) is True
 
 
 def enforce_location_rule(
     job,
     decision,
-    advertisement
+    job_section_text
 ):
 
     category = job_location_category(
@@ -1248,7 +1493,7 @@ def enforce_location_rule(
     if (
         accommodation is None
         and explicit_accommodation_in_ad(
-            advertisement
+            job_section_text
         )
     ):
 
@@ -3631,34 +3876,11 @@ def process_post(
         f"Found {len(jobs)} job position(s)"
     )
 
-    # ========================================================
-    # APPLICATION LANGUAGE
-    # ========================================================
-
-    application_language, language_reason = (
-        determine_application_language(
-            text,
-            result
-        )
-    )
-
-    print(
-        "APPLICATION LANGUAGE:",
-        application_language
-    )
-
-    print(
-        "LANGUAGE REASON:",
-        language_reason
-    )
-
-    # ========================================================
-    # REAL EMAILS FROM THE ADVERTISEMENT
-    # ========================================================
-
-    advertisement_emails = extract_emails(
-        text
-    )
+    # Separate independent recruitment notices where the message has clear
+    # numbered/hiring headings. Contact data is scoped per job, not per message.
+    job_sections = split_advertisement_sections(text)
+    has_multiple_sections = len(job_sections) > 1
+    print(f"Detected {len(job_sections)} recruitment section(s)")
 
     # ========================================================
     # PROCESS EACH DISTINCT POSITION
@@ -3674,6 +3896,28 @@ def process_post(
         ):
 
             continue
+
+        job_section_text, scope_matched, scope_reason = resolve_job_section(
+            job,
+            text,
+            job_sections,
+            len(jobs),
+        )
+
+        print(
+            "JOB CONTACT SCOPE:",
+            scope_reason,
+            "| matched" if scope_matched else "| ambiguous; automatic send disabled",
+        )
+
+        language_context = job_section_text if scope_matched else ""
+        application_language, language_reason = determine_application_language(
+            language_context,
+            {"jobs": [job]},
+        )
+
+        print("APPLICATION LANGUAGE:", application_language)
+        print("LANGUAGE REASON:", language_reason)
 
         decision = str(
             job.get(
@@ -3696,71 +3940,67 @@ def process_post(
         # LOCATION SAFETY LAYER
         # ====================================================
 
+        scoped_job = dict(job)
+        scoped_job["accommodation_provided"] = scoped_accommodation_value(
+            job,
+            job_section_text if scope_matched else "",
+            has_multiple_sections,
+        )
+
         (
             decision,
             location_status,
             location_reason
         ) = enforce_location_rule(
-            job,
+            scoped_job,
             decision,
-            text
+            job_section_text if scope_matched else "",
         )
 
         # ====================================================
-        # EMAILS FROM AI + REGEX
+        # POSITION-SCOPED EMAILS ONLY
+        # Do not combine AI-returned emails or addresses from the whole post.
         # ====================================================
 
-        ai_emails = job.get(
-            "emails",
-            []
-        )
-
-        if not isinstance(
-            ai_emails,
-            list
-        ):
-
-            ai_emails = []
-
-        combined_emails = []
-
-        for email in ai_emails:
-
-            email = str(
-                email
-            ).strip()
-
-            if email:
-
-                combined_emails.append(
-                    email
-                )
-
-        combined_emails.extend(
-            advertisement_emails
-        )
-
+        scoped_emails = extract_emails(job_section_text) if scope_matched else []
         emails = []
         seen_emails = set()
 
-        for email in combined_emails:
-
-            clean = email.strip()
-
+        for email in scoped_emails:
+            clean = str(email).strip()
             key = clean.lower()
+            if clean and key not in seen_emails:
+                seen_emails.add(key)
+                emails.append(clean)
 
-            if (
-                clean
-                and key not in seen_emails
-            ):
-
-                seen_emails.add(
-                    key
+        # Automatic emailing is only permitted when both the job section
+        # and exactly one email recipient are unambiguous.
+        contact_review_reason = ""
+        if decision == "APPLY":
+            if not scope_matched:
+                decision = "REVIEW"
+                contact_review_reason = (
+                    "Could not safely identify this position's own advertisement "
+                    "section; automatic sending is disabled."
+                )
+            elif len(emails) == 0:
+                decision = "REVIEW"
+                contact_review_reason = (
+                    "No email address is present in this position's own section. "
+                    "The advertisement may require WhatsApp or another manual method."
+                )
+            elif len(emails) > 1:
+                decision = "REVIEW"
+                contact_review_reason = (
+                    "Multiple email addresses appear in this position's section; "
+                    "the intended recipient is ambiguous, so nothing was sent."
                 )
 
-                emails.append(
-                    clean
-                )
+        final_reason = str(job.get("reason") or "").strip()
+        if contact_review_reason:
+            final_reason = (
+                (final_reason + " ") if final_reason else ""
+            ) + contact_review_reason
 
         # ====================================================
         # APPLICATION TITLE
@@ -3850,7 +4090,7 @@ def process_post(
                 ),
 
             "accommodation_provided":
-                job.get(
+                scoped_job.get(
                     "accommodation_provided",
                     "unknown"
                 ),
@@ -3888,9 +4128,7 @@ def process_post(
                 ),
 
             "reason":
-                job.get(
-                    "reason"
-                ),
+                final_reason,
 
             "emails":
                 emails,
@@ -3900,6 +4138,12 @@ def process_post(
 
             "identity_key":
                 identity_key,
+
+            "contact_scope":
+                scope_reason,
+
+            "contact_scope_matched":
+                scope_matched,
 
             "sent":
                 False,
@@ -4152,9 +4396,12 @@ def process_post(
         )
 
         print(
-            "EMAILS:",
+            "SCOPED EMAILS:",
             f"{len(record['emails'])} address(es) [redacted]"
         )
+
+        if contact_review_reason:
+            print("CONTACT REVIEW:", contact_review_reason)
 
         print(
             "JOB DUPLICATE:",
