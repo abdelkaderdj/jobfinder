@@ -45,10 +45,11 @@ def event_key(record: dict[str, Any]) -> str:
 class TelegramJobBot:
     """Telegram Bot API helper for notifications and owner-only review controls."""
 
-    def __init__(self, state: dict[str, Any], processor, persist_callback):
+    def __init__(self, state: dict[str, Any], processor, persist_callback, allow_review_actions: bool = True):
         self.state = state
         self.processor = processor
         self.persist_callback = persist_callback
+        self.allow_review_actions = allow_review_actions
         self.token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         self.owner_chat_id = os.getenv("TELEGRAM_BOT_CHAT_ID", "").strip()
         self.state.setdefault("pending_reviews", {})
@@ -533,6 +534,32 @@ class TelegramJobBot:
             self._answer_callback(query_id, "زر غير صالح.", True)
             return
         _, action, pending_id = pieces
+
+        # Test callbacks are deliberately no-op: they can never access real reviews
+        # or invoke the email sender, even when runner is in Telegram-only mode.
+        if action == "test" and pending_id in {"accept", "reject"}:
+            self._answer_callback(query_id, "زر الاختبار يعمل.")
+            if pending_id == "accept":
+                result_text = (
+                    "✅ نجح اختبار زر القبول.\n"
+                    "لم تتغير حالة أي وظيفة ولم يُرسل أي بريد إلكتروني."
+                )
+            else:
+                result_text = (
+                    "✅ نجح اختبار زر الرفض.\n"
+                    "لم تُرفض أي وظيفة حقيقية ولم يُرسل أي بريد إلكتروني."
+                )
+            self._edit_message(query, result_text)
+            return
+
+        if not self.allow_review_actions:
+            self._answer_callback(
+                query_id,
+                "وضع الاختبار فقط: لم يتم تنفيذ قرار الوظيفة.",
+                True,
+            )
+            return
+
         pending = self.state.setdefault("pending_reviews", {})
         item = pending.get(pending_id)
         if not isinstance(item, dict):
