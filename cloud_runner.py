@@ -134,6 +134,8 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     from telegram_control import TelegramJobBot
 
     telegram_only_mode = os.getenv("JOBFINDER_TELEGRAM_ONLY", "").strip().lower() in {"1", "true", "yes"}
+    telegram_webhook_mode = os.getenv("TELEGRAM_WEBHOOK_MODE", "").strip().lower() in {"1", "true", "yes"}
+    webhook_event_mode = os.getenv("JOBFINDER_TELEGRAM_WEBHOOK_EVENT", "").strip().lower() in {"1", "true", "yes"}
     bot = TelegramJobBot(
         state,
         processor,
@@ -141,11 +143,31 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         allow_review_actions=not telegram_only_mode,
     )
     processor.set_job_event_callback(bot.on_job_event)
-    bot.poll_updates()
+
+    if webhook_event_mode:
+        event = {
+            "update_type": os.getenv("JOBFINDER_TELEGRAM_UPDATE_TYPE", ""),
+            "command": os.getenv("JOBFINDER_TELEGRAM_COMMAND", ""),
+            "action": os.getenv("JOBFINDER_TELEGRAM_ACTION", ""),
+            "pending_id": os.getenv("JOBFINDER_TELEGRAM_PENDING_ID", ""),
+            "chat_id": os.getenv("JOBFINDER_TELEGRAM_CHAT_ID", ""),
+            "user_id": os.getenv("JOBFINDER_TELEGRAM_USER_ID", ""),
+            "message_id": os.getenv("JOBFINDER_TELEGRAM_MESSAGE_ID", ""),
+        }
+        bot.handle_webhook_event(event)
+        state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        persist_checkpoint(state, fernet, "Telegram webhook event processed", checkpoint_cache)
+        print("Telegram webhook event mode: event handled; job channels were not scanned.")
+        return
+
+    if telegram_webhook_mode:
+        print("Telegram webhook mode active; getUpdates polling is disabled")
+    else:
+        bot.poll_updates()
     bot.flush_outbox()
     bot.deliver_pending_reviews()
     state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    persist_checkpoint(state, fernet, "Telegram controls polled", checkpoint_cache)
+    persist_checkpoint(state, fernet, "Telegram controls checked", checkpoint_cache)
 
     if telegram_only_mode:
         print(
