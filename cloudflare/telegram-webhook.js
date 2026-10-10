@@ -92,7 +92,12 @@ async function handleMessage(update, env) {
   const command = rawCommand.split("@")[0].toLowerCase();
   if (!COMMANDS.has(command)) return;
 
-  await sendCommandAcknowledgement(env, chat.id, command);
+  try {
+    await sendCommandAcknowledgement(env, chat.id, command);
+  } catch (error) {
+    // The dispatch should still proceed if the brief acknowledgement message fails.
+    console.error("Telegram command acknowledgement failed:", error.message);
+  }
   try {
     await dispatchToGitHub(env, {
       update_type: "command",
