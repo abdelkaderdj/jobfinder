@@ -451,32 +451,86 @@ class TelegramJobBot:
         for old_record in reversed(rejected[-500:]):
             if not isinstance(old_record, dict):
                 continue
+            old_title = str(
+                old_record.get("application_job_title")
+                or old_record.get("job_title")
+                or ""
+            ).strip()
             same_post = (
                 current_source
                 and current_message_id
                 and current_source == str(old_record.get("source") or "")
                 and current_message_id == str(old_record.get("message_id") or "")
             )
-            if same_post:
-                similarity_fn = getattr(self.processor, "title_similarity", None)
-                if callable(similarity_fn):
-                    similarity = similarity_fn(
-                        application_title,
-                        old_record.get("application_job_title") or old_record.get("job_title") or "",
-                    )
-                    if similarity >= 0.82:
-                        return "تم منع تكرار وظيفة سبق رفضها يدويًا."
+
+            # Prefer the processor's domain-aware identity matcher.
+            similarity_fn = getattr(self.processor, "title_similarity", None)
+            if callable(similarity_fn):
+                similarity = similarity_fn(application_title, old_title)
+            else:
+                # A deterministic fallback keeps the guard fail-safe in tests
+                # and degraded modes where the processor helper is unavailable.
+                from difflib import SequenceMatcher
+                normalize = lambda value: " ".join(str(value or "").casefold().split())
+                similarity = SequenceMatcher(
+                    None, normalize(application_title), normalize(old_title)
+                ).ratio()
+
+            old_emails = old_record.get("emails") or []
+            old_email = str(old_record.get("email") or "").strip()
+            old_email_set = {str(email).strip().casefold() for email in old_emails if str(email).strip()}
+            if old_email:
+                old_email_set.add(old_email.casefold())
+            same_email = bool(
+                {email.casefold() for email in current_emails}.intersection(old_email_set)
+            )
+
+            normalize_company = getattr(self.processor, "normalize_company", None)
+            normalize_location = getattr(self.processor, "normalize_location", None)
+            current_company_raw = str(job.get("company") or "").strip()
+            old_company_raw = str(old_record.get("company") or "").strip()
+            current_location_raw = str(job.get("location") or "").strip()
+            old_location_raw = str(old_record.get("location") or "").strip()
+            current_company = (
+                normalize_company(current_company_raw) if callable(normalize_company)
+                else current_company_raw.casefold()
+            )
+            old_company = (
+                normalize_company(old_company_raw) if callable(normalize_company)
+                else old_company_raw.casefold()
+            )
+            current_location = (
+                normalize_location(current_location_raw) if callable(normalize_location)
+                else current_location_raw.casefold()
+            )
+            old_location = (
+                normalize_location(old_location_raw) if callable(normalize_location)
+                else old_location_raw.casefold()
+            )
+            location_compatible = (
+                not current_location or not old_location
+                or current_location == old_location
+                or current_location in old_location
+                or old_location in current_location
+            )
+            same_company = bool(current_company and old_company and current_company == old_company)
+
+            if similarity >= 0.82 and (
+                same_post
+                or (same_email and location_compatible)
+                or (same_company and location_compatible)
+            ):
+                return "تم منع تكرار وظيفة سبق رفضها يدويًا."
 
             identity_fn = getattr(self.processor, "same_job_identity", None)
-            if not callable(identity_fn):
-                continue
-            for email in current_emails or [""]:
-                try:
-                    if identity_fn(job, application_title, email, old_record):
-                        return "تم منع تكرار وظيفة سبق رفضها يدويًا."
-                except Exception as exc:
-                    print("PREVIOUS REJECTION MATCH ERROR:", type(exc).__name__)
-                    raise
+            if callable(identity_fn):
+                for email in current_emails or [""]:
+                    try:
+                        if identity_fn(job, application_title, email, old_record):
+                            return "تم منع تكرار وظيفة سبق رفضها يدويًا."
+                    except Exception as exc:
+                        print("PREVIOUS REJECTION MATCH ERROR:", type(exc).__name__)
+                        raise
         return ""
 
     def on_job_event(self, event: dict[str, Any]) -> None:
