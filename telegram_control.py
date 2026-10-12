@@ -237,7 +237,7 @@ class TelegramJobBot:
         sent_count = len(self._sent_records_today())
         paused = bool(self.state.get("paused"))
         return (
-            "🤖 JobFinder — لوحة التحكم\n\n"
+            "📡 حالة JobFinder — لوحة التحكم\n\n"
             f"الحالة: {'⏸ متوقف مؤقتًا' if paused else '🟢 نشط'}\n"
             f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
