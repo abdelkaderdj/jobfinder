@@ -2330,6 +2330,22 @@ def choose_cv(
     return None
 
 
+
+def cv_attachment_filename(cv_path):
+    """Return a recruiter-friendly filename while keeping private storage names internal."""
+    internal_name = os.path.basename(str(cv_path or "")).lower()
+    filenames = {
+        "cv_ats_en.pdf": "DJEZIRI_ABDELKADER_CV_ATS_EN.pdf",
+        "cv_ats_fr.pdf": "DJEZIRI_ABDELKADER_CV_ATS_FR.pdf",
+        "cv_normal_en.pdf": "DJEZIRI_ABDELKADER_CV_EN.pdf",
+        "cv_normal_fr.pdf": "DJEZIRI_ABDELKADER_CV_FR.pdf",
+    }
+    return filenames.get(
+        internal_name,
+        os.path.basename(str(cv_path or "CV.pdf")) or "CV.pdf",
+    )
+
+
 # ============================================================
 # SENT APPLICATIONS
 # + JOB DEDUPLICATION
@@ -3801,7 +3817,7 @@ def send_application(
         cv_data,
         maintype="application",
         subtype="pdf",
-        filename=os.path.basename(
+        filename=cv_attachment_filename(
             cv_path
         )
     )
