@@ -323,5 +323,24 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         )
 
 
+    def test_email_attachment_uses_named_english_ats_filename(self):
+        self.assertEqual(
+            processor.cv_attachment_filename("/runner/cvs/cv_ats_en.pdf"),
+            "DJEZIRI_ABDELKADER_CV_ATS_EN.pdf",
+        )
+
+    def test_email_attachment_uses_named_french_ats_filename(self):
+        self.assertEqual(
+            processor.cv_attachment_filename("/runner/cvs/cv_ats_fr.pdf"),
+            "DJEZIRI_ABDELKADER_CV_ATS_FR.pdf",
+        )
+
+    def test_email_attachment_fallback_keeps_original_filename(self):
+        self.assertEqual(
+            processor.cv_attachment_filename("/runner/cvs/other_cv.pdf"),
+            "other_cv.pdf",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
