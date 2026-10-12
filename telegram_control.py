@@ -258,6 +258,7 @@ class TelegramJobBot:
             f"📚 سجلات إرسال بلا توقيت: {undated_sent_count}\n"
             f"🔎 الإعلانات المحللة اليوم: {stats.get('analyzed', 0)}\n"
             f"❌ المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+            f"♻️ وظائف مكررة تم تجاوزها: {stats.get('duplicates', 0)}\n"
             f"⚠️ محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
             "استخدم الأزرار أسفل الشاشة للتنقل."
         )
@@ -272,9 +273,21 @@ class TelegramJobBot:
                 "sent": 0,
                 "review": 0,
                 "rejected": 0,
+                "duplicates": 0,
                 "send_failed": 0,
             }
             self.state["daily_stats"] = stats
+        elif "duplicates" not in stats:
+            # Migrate same-day legacy counters. With APPLY/REVIEW/REJECT as the
+            # only decisions, the residual are previously uncounted APPLY duplicates.
+            analyzed = int(stats.get("analyzed", 0))
+            classified = (
+                int(stats.get("sent", 0))
+                + int(stats.get("review", 0))
+                + int(stats.get("rejected", 0))
+                + int(stats.get("send_failed", 0))
+            )
+            stats["duplicates"] = max(0, analyzed - classified)
         return stats
 
     def _count_event_once(self, record: dict[str, Any]) -> None:
@@ -293,7 +306,9 @@ class TelegramJobBot:
             stats["rejected"] = int(stats.get("rejected", 0)) + 1
         elif decision == "APPLY" and record.get("sent"):
             stats["sent"] = int(stats.get("sent", 0)) + 1
-        elif decision == "APPLY" and not record.get("job_duplicate"):
+        elif decision == "APPLY" and record.get("job_duplicate"):
+            stats["duplicates"] = int(stats.get("duplicates", 0)) + 1
+        elif decision == "APPLY":
             stats["send_failed"] = int(stats.get("send_failed", 0)) + 1
 
     def _enqueue(self, key: str, text: str) -> None:
@@ -672,6 +687,7 @@ class TelegramJobBot:
                 f"طلبات مسجلة الإرسال اليوم: {sent_count}\n"
                 f"مراجعات جديدة اليوم: {stats.get('review', 0)}\n"
                 f"المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+                f"وظائف مكررة تم تجاوزها: {stats.get('duplicates', 0)}\n"
                 f"محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
                 "ملاحظة: تُحتسب الطلبات حسب توقيت الإرسال المسجل؛ السجلات القديمة بلا توقيت لا تُنسب إلى اليوم تخمينًا."
             )
