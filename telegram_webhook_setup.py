@@ -62,6 +62,26 @@ def main() -> int:
         "allowed_updates": ["message", "callback_query"],
         "drop_pending_updates": False,
     })
+    try:
+        api(token, "setMyCommands", {
+            "scope": {"type": "all_private_chats"},
+            "language_code": "ar",
+            "commands": [
+                {"command": "start", "description": "القائمة الرئيسية"},
+                {"command": "help", "description": "شرح استخدام البوت"},
+                {"command": "status", "description": "حالة النظام وآخر تشغيل"},
+                {"command": "today", "description": "ملخص الإحصائيات اليوم"},
+                {"command": "pending", "description": "الوظائف التي تنتظر قرارك"},
+                {"command": "pause", "description": "إيقاف فحص الوظائف مؤقتًا"},
+                {"command": "resume", "description": "استئناف فحص الوظائف"},
+            ],
+        })
+        print("Arabic Telegram command menu configured.")
+    except RuntimeError as exc:
+        # Keep the already-configured webhook usable if the optional command menu
+        # cannot be updated; the persistent reply keyboard remains available.
+        print(f"Could not update Telegram command menu: {str(exc)[:160]}")
+
     info = api(token, "getWebhookInfo", {})
     print(f"Webhook configured for @{username}: {bool(info.get('url'))}")
     print(f"Pending Telegram updates: {int(info.get('pending_update_count') or 0)}")
