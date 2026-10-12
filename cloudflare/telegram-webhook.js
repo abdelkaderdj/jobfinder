@@ -7,6 +7,7 @@ const COMMANDS = new Set([
   "/pending",
   "/pause",
   "/resume",
+  "/toggle",
 ]);
 
 const CALLBACK_ACTIONS = new Set(["approve", "manual", "reject", "test"]);
@@ -17,8 +18,7 @@ const BUTTON_COMMANDS = new Map([
   ["📨 طلبات اليوم", "/sent"],
   ["📊 ملخص اليوم", "/today"],
   ["📡 حالة النظام", "/status"],
-  ["⏸ إيقاف مؤقت", "/pause"],
-  ["▶️ استئناف", "/resume"],
+  ["⏯ تشغيل/إيقاف", "/toggle"],
   ["❓ المساعدة", "/help"],
 ]);
 
@@ -26,8 +26,8 @@ const MAIN_KEYBOARD = {
   keyboard: [
     [{ text: "🏠 الرئيسية" }, { text: "📥 المراجعات المعلقة" }],
     [{ text: "📨 طلبات اليوم" }, { text: "📊 ملخص اليوم" }],
-    [{ text: "📡 حالة النظام" }, { text: "⏸ إيقاف مؤقت" }],
-    [{ text: "▶️ استئناف" }, { text: "❓ المساعدة" }],
+    [{ text: "📡 حالة النظام" }, { text: "⏯ تشغيل/إيقاف" }],
+    [{ text: "❓ المساعدة" }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -97,13 +97,14 @@ async function registerBotCommands(env) {
       { command: "today", description: "ملخص وإحصائيات اليوم" },
       { command: "pause", description: "إيقاف فحص الإعلانات مؤقتًا" },
       { command: "resume", description: "استئناف فحص الإعلانات" },
+      { command: "toggle", description: "تبديل حالة التشغيل الحالية" },
       { command: "help", description: "مساعدة JobFinder" },
     ],
   });
 }
 
 async function sendCommandAcknowledgement(env, chatId, command) {
-  const text = command === "/pause" || command === "/resume"
+  const text = command === "/pause" || command === "/resume" || command === "/toggle"
     ? "⏳ استلمت الأمر، جارٍ تحديث حالة JobFinder…"
     : "⏳ استلمت الأمر، جارٍ تجهيز الرد…";
   await telegramApi(env, "sendMessage", {

@@ -19,20 +19,18 @@ MAIN_MENU_BUTTONS = {
     "📨 طلبات اليوم": "/sent",
     "📊 ملخص اليوم": "/today",
     "📡 حالة النظام": "/status",
-    "⏸ إيقاف مؤقت": "/pause",
-    "▶️ استئناف": "/resume",
+    "⏯ تشغيل/إيقاف": "/toggle",
     "❓ المساعدة": "/help",
 }
 
 
 def main_menu_keyboard(paused: bool = False) -> dict[str, Any]:
-    """Persistent Arabic navigation; job-specific decisions use inline buttons."""
-    runtime_button = "▶️ استئناف" if paused else "⏸ إيقاف مؤقت"
+    """Persistent Arabic navigation; one state-aware toggle avoids stale duplicate controls."""
     return {
         "keyboard": [
             [{"text": "🏠 الرئيسية"}, {"text": "📥 المراجعات المعلقة"}],
             [{"text": "📨 طلبات اليوم"}, {"text": "📊 ملخص اليوم"}],
-            [{"text": "📡 حالة النظام"}, {"text": runtime_button}],
+            [{"text": "📡 حالة النظام"}, {"text": "⏯ تشغيل/إيقاف"}],
             [{"text": "❓ المساعدة"}],
         ],
         "resize_keyboard": True,
@@ -205,6 +203,20 @@ class TelegramJobBot:
         except (TypeError, ValueError, OverflowError):
             return None
 
+    def _sent_records_without_timestamp(self) -> list[dict[str, Any]]:
+        raw = self.state.get("sent_applications_jsonl", "")
+        if not isinstance(raw, str):
+            return []
+        records: list[dict[str, Any]] = []
+        for line in raw.splitlines():
+            try:
+                record = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(record, dict) and self._parse_local_datetime(record.get("sent_at")) is None:
+                records.append(record)
+        return records
+
     def _sent_records_today(self) -> list[dict[str, Any]]:
         today = now_local().date()
         raw = self.state.get("sent_applications_jsonl", "")
@@ -235,6 +247,7 @@ class TelegramJobBot:
         stats = self._today_stats()
         pending_count = len(self.state.get("pending_reviews") or {})
         sent_count = len(self._sent_records_today())
+        undated_sent_count = len(self._sent_records_without_timestamp())
         paused = bool(self.state.get("paused"))
         return (
             "📡 حالة JobFinder — لوحة التحكم\n\n"
@@ -242,6 +255,7 @@ class TelegramJobBot:
             f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
             f"📨 طلبات مسجلة اليوم: {sent_count}\n"
+            f"📚 سجلات إرسال بلا توقيت: {undated_sent_count}\n"
             f"🔎 الإعلانات المحللة اليوم: {stats.get('analyzed', 0)}\n"
             f"❌ المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
             f"⚠️ محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
@@ -515,7 +529,7 @@ class TelegramJobBot:
         if update_type == "command":
             command = str(event.get("command") or "").strip()
             if command.split("@")[0].lower() not in {
-                "/start", "/help", "/status", "/today", "/sent", "/pending", "/pause", "/resume"
+                "/start", "/help", "/status", "/today", "/sent", "/pending", "/pause", "/resume", "/toggle"
             }:
                 print("Telegram webhook command ignored: unsupported command")
                 return
@@ -642,7 +656,8 @@ class TelegramJobBot:
                 "📡 حالة النظام — الحالة وآخر تشغيل\n"
                 "⏸ إيقاف مؤقت — إيقاف فحص الإعلانات الجديدة\n"
                 "▶️ استئناف — إعادة الفحص\n"
-                "📨 طلبات اليوم — الوظائف التي سُجّل إرسالها اليوم\n\n"
+                "📨 طلبات اليوم — الوظائف التي سُجّل إرسالها اليوم\n"
+                "⏯ تشغيل/إيقاف — تبديل الحالة حسب وضع النظام الحالي\n\n"
                 "أزرار قبول/رفض الوظيفة تظهر تحت رسالة الوظيفة نفسها."
             )
         elif command == "/status":
@@ -664,12 +679,34 @@ class TelegramJobBot:
             records = self._sent_records_today()
             today = now_local().date().isoformat()
             if not records:
-                self._send_owner(
-                    f"📨 طلبات التوظيف — {today}\n\n"
-                    "لا توجد طلبات مسجلة بتاريخ اليوم.\n\n"
-                    "تُعرض هنا الطلبات الجديدة التي تحتوي سجلًا زمنيًا؛ "
-                    "أما السجلات القديمة التي لا تحمل توقيتًا فلا يمكن نسبها إلى اليوم بدقة."
-                )
+                undated_records = self._sent_records_without_timestamp()
+                lines = [
+                    f"📨 طلبات التوظيف — {today}",
+                    "",
+                    "لا توجد طلبات يمكن تأكيد توقيتها لهذا اليوم.",
+                ]
+                if undated_records:
+                    lines.extend([
+                        "",
+                        f"📚 توجد {len(undated_records)} سجلات إرسال قديمة بلا توقيت محفوظ.",
+                        "لا نحتسبها ضمن اليوم حتى لا ننسب طلبًا إلى تاريخ غير مؤكد.",
+                        "",
+                        "سجلات بلا توقيت (للمراجعة):",
+                    ])
+                    for index, record in enumerate(undated_records[:5], start=1):
+                        title = safe_text(record.get("application_job_title") or record.get("job_title"), 180)
+                        company = safe_text(record.get("company"), 140)
+                        lines.append(f"{index}. 💼 {title}")
+                        if company:
+                            lines.append(f"🏢 {company}")
+                    if len(undated_records) > 5:
+                        lines.append(f"تُعرض أول 5 سجلات من أصل {len(undated_records)}.")
+                else:
+                    lines.extend([
+                        "",
+                        "ستظهر هنا الطلبات الجديدة التي تحمل توقيت إرسال محفوظًا.",
+                    ])
+                self._send_owner("\n".join(lines))
             else:
                 lines = [
                     f"📨 طلبات التوظيف المسجلة اليوم — {today}",
@@ -693,6 +730,12 @@ class TelegramJobBot:
                     ])
                 if len(records) > 10:
                     lines.append(f"يعرض آخر 10 طلبات من أصل {len(records)}.")
+                undated_records = self._sent_records_without_timestamp()
+                if undated_records:
+                    lines.extend([
+                        "",
+                        f"ℹ️ توجد أيضًا {len(undated_records)} سجلات بلا توقيت؛ لم تُحتسب ضمن طلبات اليوم.",
+                    ])
                 self._send_owner("\n".join(lines))
         elif command == "/pending":
             pending_items = list((self.state.get("pending_reviews") or {}).values())
@@ -716,6 +759,14 @@ class TelegramJobBot:
             self.state["paused"] = False
             self._save("JobFinder resumed by owner")
             self._send_owner("▶️ استؤنفت معالجة الإعلانات الجديدة.")
+        elif command == "/toggle":
+            paused = not bool(self.state.get("paused"))
+            self.state["paused"] = paused
+            self._save("JobFinder toggled by owner")
+            if paused:
+                self._send_owner("⏸️ أوقفت معالجة الإعلانات الجديدة. ستظل أوامر البوت والمراجعات متاحة.")
+            else:
+                self._send_owner("▶️ استؤنفت معالجة الإعلانات الجديدة.")
 
     def _handle_callback(self, query: dict[str, Any]) -> None:
         query_id = str(query.get("id") or "")

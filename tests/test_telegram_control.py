@@ -91,13 +91,28 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("📡 حالة النظام", labels)
         self.assertNotIn("▶️ استئناف", labels)
 
-    def test_main_menu_keyboard_shows_only_the_relevant_runtime_action(self):
+    def test_main_menu_keyboard_uses_single_state_aware_toggle_action(self):
         active = [button["text"] for row in main_menu_keyboard(False)["keyboard"] for button in row]
         paused = [button["text"] for row in main_menu_keyboard(True)["keyboard"] for button in row]
-        self.assertIn("⏸ إيقاف مؤقت", active)
-        self.assertNotIn("▶️ استئناف", active)
-        self.assertIn("▶️ استئناف", paused)
-        self.assertNotIn("⏸ إيقاف مؤقت", paused)
+        self.assertIn("⏯ تشغيل/إيقاف", active)
+        self.assertIn("⏯ تشغيل/إيقاف", paused)
+        for labels in (active, paused):
+            self.assertNotIn("⏸ إيقاف مؤقت", labels)
+            self.assertNotIn("▶️ استئناف", labels)
+
+    def test_toggle_menu_button_switches_saved_runtime_state(self):
+        bot, sent = self.build_bot()
+        message = {
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "⏯ تشغيل/إيقاف",
+        }
+        bot._handle_message(message)
+        self.assertTrue(bot.state["paused"])
+        self.assertIn("أوقفت معالجة الإعلانات", sent[-1][1])
+        bot._handle_message(message)
+        self.assertFalse(bot.state["paused"])
+        self.assertIn("استؤنفت معالجة الإعلانات", sent[-1][1])
 
     def test_sent_today_lists_only_records_with_todays_algeria_timestamp(self):
         bot, sent = self.build_bot()
@@ -132,8 +147,8 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("Technicien de Maintenance", sent[0][1])
         self.assertIn("Today Company", sent[0][1])
         self.assertNotIn("Old Job", sent[0][1])
-        self.assertNotIn("Legacy Job", sent[0][1])
-        self.assertIn("📨 طلبات التوظيف المسجلة اليوم", sent[0][1])
+        self.assertIn("Legacy Job", sent[0][1])
+        self.assertIn("📚 توجد 1 سجلات إرسال قديمة بلا توقيت محفوظ", sent[0][1])
 
     def test_start_dashboard_displays_key_metrics_and_persistent_menu(self):
         bot, sent = self.build_bot()
@@ -146,6 +161,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("لوحة التحكم", sent[0][1])
         self.assertIn("المراجعات المعلقة", sent[0][1])
         self.assertIn("طلبات مسجلة اليوم", sent[0][1])
+        self.assertIn("سجلات إرسال بلا توقيت", sent[0][1])
         self.assertTrue(sent[0][2]["is_persistent"])
 
     def test_main_menu_button_routes_to_status_command(self):
