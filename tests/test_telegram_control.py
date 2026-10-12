@@ -193,6 +193,35 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("حالة JobFinder", sent[0][1])
         self.assertTrue(sent[0][2]["is_persistent"])
 
+    def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
+        cases = [
+            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW"),
+            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW"),
+            ({"job_title": "Commercial(e)", "score": 91}, "APPLY"),
+            ({"job_title": "Agents Polyvalents", "score": 88}, "APPLY"),
+        ]
+        for job, decision in cases:
+            with self.subTest(job=job["job_title"]):
+                final, reason = processor.enforce_candidate_fit_rule(job, decision)
+                self.assertEqual(final, "REJECT")
+                self.assertTrue(reason)
+
+    def test_candidate_fit_gate_keeps_strong_mechanical_role(self):
+        final, reason = processor.enforce_candidate_fit_rule(
+            {"job_title": "Junior Mechanical Maintenance Technician", "score": 75},
+            "APPLY",
+        )
+        self.assertEqual(final, "APPLY")
+        self.assertEqual(reason, "")
+
+    def test_generic_technician_title_cannot_auto_send(self):
+        final, reason = processor.enforce_candidate_fit_rule(
+            {"job_title": "Technicien", "score": 75},
+            "APPLY",
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertTrue(reason)
+
     def test_review_is_queued_and_shows_controls(self):
         bot, sent = self.build_bot()
         bot.on_job_event(sample_event())
@@ -244,6 +273,34 @@ class TelegramControlTests(unittest.TestCase):
         })
         self.assertNotIn(pending_id, bot.state["pending_reviews"])
         self.assertEqual(bot.state["review_history"][pending_id]["status"], "rejected")
+        self.assertEqual(len(bot.state["rejected_job_history"]), 1)
+
+    def test_previously_rejected_job_is_blocked_across_reposts(self):
+        bot, sent = self.build_bot()
+        first = sample_event("REVIEW")
+        bot.on_job_event(first)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        bot._handle_callback({
+            "id": "reject-first",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:reject:{pending_id}",
+        })
+
+        repost = sample_event("APPLY")
+        repost["post"]["message_id"] = 99
+        repost["record"]["message_id"] = 99
+        reason = bot.pre_send_guard_for_job(
+            repost["job"],
+            repost["record"]["application_job_title"],
+            repost["record"]["emails"],
+            repost["post"],
+        )
+        self.assertIn("سبق رفضها", reason)
+        before = len(sent)
+        bot.on_job_event(repost)
+        self.assertEqual(len(bot.state["pending_reviews"]), 0)
+        self.assertEqual(len(sent), before)
 
     def test_unauthorized_user_cannot_approve(self):
         processor = FakeProcessor()

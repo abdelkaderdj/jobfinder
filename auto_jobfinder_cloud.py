@@ -59,13 +59,20 @@ client = Groq(
     api_key=GROQ_API_KEY
 )
 
-# Optional cloud Telegram notification callback. The runner wires this at startup.
+# Optional callbacks wired by the cloud runner.
 JOB_EVENT_CALLBACK = None
+JOB_PRE_SEND_GUARD = None
 
 
 def set_job_event_callback(callback):
     global JOB_EVENT_CALLBACK
     JOB_EVENT_CALLBACK = callback
+
+
+def set_job_pre_send_guard(callback):
+    """Install a fail-closed guard against jobs the owner has manually rejected."""
+    global JOB_PRE_SEND_GUARD
+    JOB_PRE_SEND_GUARD = callback
 
 
 # ============================================================
@@ -271,6 +278,110 @@ def normalize_text(text):
         " ",
         text
     ).strip()
+
+
+UNRELATED_ROLE_TITLE_PATTERNS = (
+    r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
+    r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
+    r"\breceptionniste\b", r"\breceptionist\b",
+    r"\bassistant(e)? de direction\b", r"\bassistant e de direction\b",
+    r"\bsecretaire\b", r"\bagent de securite\b", r"\bsecurity guard\b",
+    r"\bsecurity officer\b", r"\bgardien\b",
+    r"\btoxicologie\b", r"\btoxicologue\b", r"\btoxicology\b",
+    r"\btoxicologist\b", r"\blaborantin\b",
+    r"\btechnicien de laboratoire\b", r"\blaboratory technician\b",
+    r"\bbiologiste\b", r"\bmicrobiologiste\b", r"\bbiologist\b",
+    r"\bmicrobiologist\b", r"\bchimiste\b", r"\bchemist\b",
+    r"\bpharmacien\b", r"\binfirmier\b", r"\bnurse\b",
+    r"\bcomptable\b", r"\baccountant\b", r"\bressources humaines\b",
+    r"\bhuman resources\b", r"\bhr officer\b", r"\bassistant administratif\b",
+    r"\bserveur\b", r"\bcuisinier\b", r"\bchef de cuisine\b",
+    r"\bتجاري\b", r"\bمبيعات\b", r"\bتسويق\b", r"\bاستقبال\b",
+    r"\bحارس\b", r"\bامن\b", r"\bأمن\b", r"\bسموم\b",
+    r"\bمختبر\b", r"\bمخبر\b", r"\bبيولوج\b", r"\bميكروبيولوج\b",
+    r"\bكيميائي\b", r"\bمحاسب\b", r"\bموارد بشرية\b",
+    r"\bسكرتير\b", r"\bسكرتيرة\b",
+)
+
+STRONG_RELEVANT_ROLE_PATTERNS = (
+    r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
+    r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
+    r"\bproduction\b", r"\bmanufactur\w*\b", r"\bfabrication\b",
+    r"\bindustr\w*\b", r"\benergy\b", r"\benergie\b", r"\benergetique\b",
+    r"\bengineer\w*\b", r"\bingenieur\w*\b", r"\bpump\w*\b",
+    r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
+    r"\bturbine\w*\b", r"\brotating\b", r"\bequipment\b",
+    r"\bequipement\w*\b", r"\breliability\b", r"\bfiabilite\b",
+    r"\batelier\b", r"\bmethodes\b", r"\bmethods\b",
+    r"\bautomation\b", r"\bautomatisation\b", r"\bautomatisme\b",
+    r"\binstrumentation\b", r"\belectromechanical\b",
+    r"\belectromecanique\b", r"\belectromecanicien\w*\b",
+    r"\bpiping\b", r"\btuyauterie\b", r"\bchaudronnerie\b",
+    r"\bwelding\b", r"\bsoudure\b", r"\bhvac\b", r"\bclimatisation\b",
+    r"\bhydraulique\b", r"\bprocess\b", r"\bquality control\b",
+    r"\bميكانيك\w*\b", r"\bصيانة\b", r"\bإنتاج\b", r"\bانتاج\b",
+    r"\bمعدات\b", r"\bطاقة\b", r"\bمصانع\b", r"\bالآلات\b",
+)
+
+GENERIC_TECHNICAL_ROLE_PATTERNS = (
+    r"\btechnicien\w*\b", r"\btechnician\w*\b",
+    r"\btechnical\b", r"\btechnique\w*\b",
+    r"\boperateur\w*\b", r"\boperator\w*\b",
+    r"\belectricien\w*\b", r"\belectrical\b", r"\btechnologie\b",
+    r"\bتقني\w*\b", r"\bفني\w*\b", r"\bكهربائي\w*\b",
+)
+
+
+def enforce_candidate_fit_rule(job, decision, advertisement=""):
+    """Deterministic safety gate: reject obvious mismatches and weak-score roles."""
+    decision = str(decision or "REJECT").upper().strip()
+    if decision == "REJECT":
+        return "REJECT", ""
+
+    title = str(
+        job.get("job_title")
+        or job.get("application_title_fr")
+        or job.get("application_title_en")
+        or ""
+    ).strip()
+    normalized_title = normalize_text(title)
+
+    try:
+        score = float(job.get("score"))
+    except (TypeError, ValueError):
+        score = None
+
+    if score is not None and (score < 35 or score > 100):
+        return (
+            "REJECT",
+            f"الحاجز الآمن رفض الوظيفة: تقييم المطابقة {score:g}/100 أقل من الحد الأدنى 35/100 أو خارج النطاق.",
+        )
+
+    if not normalized_title:
+        return "REJECT", "الحاجز الآمن رفض الوظيفة لأن المسمى الوظيفي غير واضح."
+
+    for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
+        if re.search(pattern, normalized_title):
+            return (
+                "REJECT",
+                "الحاجز الآمن رفض الوظيفة لأنها خارج مسارات الميكانيك والصيانة والصناعة والإنتاج المستهدفة.",
+            )
+
+    if any(re.search(pattern, normalized_title) for pattern in STRONG_RELEVANT_ROLE_PATTERNS):
+        return decision, ""
+
+    if any(re.search(pattern, normalized_title) for pattern in GENERIC_TECHNICAL_ROLE_PATTERNS):
+        if decision == "APPLY":
+            return (
+                "REVIEW",
+                "المسمى تقني عام ولا يثبت وحده ملاءمة الوظيفة؛ خُفّض القرار إلى المراجعة ومنع الإرسال التلقائي.",
+            )
+        return decision, ""
+
+    return (
+        "REJECT",
+        "الحاجز الآمن رفض الوظيفة لأن المسمى لا يثبت ارتباطًا واضحًا بالميكانيك أو الصيانة أو الصناعة أو الإنتاج أو الطاقة.",
+    )
 
 
 def contains_arabic(text):
@@ -4046,6 +4157,15 @@ def process_post(
 
         original_ai_decision = decision
 
+        # Deterministic fit checks override the AI when the score is weak
+        # or the role title is clearly unrelated. A broad technical title
+        # cannot authorize an automatic application by itself.
+        decision, role_fit_reason = enforce_candidate_fit_rule(
+            job,
+            decision,
+            job_section_text if scope_matched else text,
+        )
+
         # ====================================================
         # LOCATION SAFETY LAYER
         # ====================================================
@@ -4111,6 +4231,10 @@ def process_post(
             final_reason = (
                 (final_reason + " ") if final_reason else ""
             ) + contact_review_reason
+        if role_fit_reason:
+            final_reason = (
+                (final_reason + " ") if final_reason else ""
+            ) + role_fit_reason
 
         # ====================================================
         # APPLICATION TITLE
@@ -4122,6 +4246,25 @@ def process_post(
                 application_language
             )
         )
+
+        # Check manual rejection history before any email can be sent.
+        # Fail closed if the guard fails, to prevent an unsafe application.
+        pre_send_guard_reason = ""
+        if decision != "REJECT" and JOB_PRE_SEND_GUARD is not None:
+            try:
+                pre_send_guard_reason = str(
+                    JOB_PRE_SEND_GUARD(job, application_title, emails, post) or ""
+                ).strip()
+            except Exception as exc:
+                print("PRE-SEND SAFETY CHECK ERROR:", type(exc).__name__)
+                pre_send_guard_reason = (
+                    "تم منع الإرسال تلقائيًا لتعذر التحقق من سجل الرفض السابق."
+                )
+            if pre_send_guard_reason:
+                decision = "REJECT"
+                final_reason = (
+                    (final_reason + " ") if final_reason else ""
+                ) + pre_send_guard_reason
 
         # ====================================================
         # CV

@@ -430,10 +430,74 @@ class TelegramJobBot:
                 if self._deliver_review(item):
                     count += 1
 
+    def pre_send_guard_for_job(
+        self,
+        job: dict[str, Any],
+        application_title: str,
+        emails: list[str] | None,
+        post: dict[str, Any] | None = None,
+    ) -> str:
+        """Block a job that matches a prior owner rejection, including reposts."""
+        if not isinstance(job, dict) or not str(application_title or "").strip():
+            return ""
+        rejected = self.state.get("rejected_job_history", [])
+        if not isinstance(rejected, list):
+            return ""
+        current_post = post if isinstance(post, dict) else {}
+        current_source = str(current_post.get("source") or "")
+        current_message_id = str(current_post.get("message_id") or "")
+        current_emails = [str(email).strip() for email in (emails or []) if str(email).strip()]
+
+        for old_record in reversed(rejected[-500:]):
+            if not isinstance(old_record, dict):
+                continue
+            same_post = (
+                current_source
+                and current_message_id
+                and current_source == str(old_record.get("source") or "")
+                and current_message_id == str(old_record.get("message_id") or "")
+            )
+            if same_post:
+                similarity_fn = getattr(self.processor, "title_similarity", None)
+                if callable(similarity_fn):
+                    similarity = similarity_fn(
+                        application_title,
+                        old_record.get("application_job_title") or old_record.get("job_title") or "",
+                    )
+                    if similarity >= 0.82:
+                        return "تم منع تكرار وظيفة سبق رفضها يدويًا."
+
+            identity_fn = getattr(self.processor, "same_job_identity", None)
+            if not callable(identity_fn):
+                continue
+            for email in current_emails or [""]:
+                try:
+                    if identity_fn(job, application_title, email, old_record):
+                        return "تم منع تكرار وظيفة سبق رفضها يدويًا."
+                except Exception as exc:
+                    print("PREVIOUS REJECTION MATCH ERROR:", type(exc).__name__)
+                    raise
+        return ""
+
     def on_job_event(self, event: dict[str, Any]) -> None:
         record = event.get("record") or {}
         if not isinstance(record, dict):
             return
+        decision = str(record.get("decision") or "").upper()
+        if decision in {"APPLY", "REVIEW"}:
+            job = event.get("job") or {}
+            post = event.get("post") or {}
+            reason = self.pre_send_guard_for_job(
+                job if isinstance(job, dict) else {},
+                str(record.get("application_job_title") or record.get("job_title") or ""),
+                record.get("emails") or [],
+                post if isinstance(post, dict) else {},
+            )
+            if reason:
+                record["decision"] = "REJECT"
+                record["reason"] = (
+                    (str(record.get("reason") or "").strip() + " ") + reason
+                ).strip()
         self._count_event_once(record)
         self._save("Job event counters updated")
         decision = str(record.get("decision") or "").upper()
@@ -902,7 +966,33 @@ class TelegramJobBot:
         self._save("Review approval result processed")
 
     def _resolve_review(self, pending_id: str, status: str) -> None:
-        self.state.setdefault("pending_reviews", {}).pop(pending_id, None)
+        pending = self.state.setdefault("pending_reviews", {})
+        item = pending.get(pending_id)
+        if status == "rejected" and isinstance(item, dict):
+            record = item.get("record") or {}
+            post = item.get("post") or {}
+            emails = record.get("emails") or []
+            rejected_record = {
+                "status": "rejected",
+                "at": iso_now(),
+                "source": post.get("source"),
+                "message_id": post.get("message_id"),
+                "job_title": record.get("job_title"),
+                "application_job_title": record.get("application_job_title") or record.get("job_title"),
+                "company": record.get("company", ""),
+                "location": record.get("location", ""),
+                "email": str(emails[0]).strip() if emails else "",
+                "emails": emails,
+                "identity_key": record.get("identity_key", ""),
+            }
+            rejected_history = self.state.setdefault("rejected_job_history", [])
+            if not isinstance(rejected_history, list):
+                rejected_history = []
+                self.state["rejected_job_history"] = rejected_history
+            rejected_history.append(rejected_record)
+            del rejected_history[:-500]
+
+        pending.pop(pending_id, None)
         history = self.state.setdefault("review_history", {})
         history[pending_id] = {"status": status, "at": iso_now()}
         if len(history) > 500:

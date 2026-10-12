@@ -143,6 +143,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         allow_review_actions=not telegram_only_mode,
     )
     processor.set_job_event_callback(bot.on_job_event)
+    processor.set_job_pre_send_guard(bot.pre_send_guard_for_job)
 
     if webhook_event_mode:
         event = {
