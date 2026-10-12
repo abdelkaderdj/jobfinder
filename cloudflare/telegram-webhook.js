@@ -3,6 +3,7 @@ const COMMANDS = new Set([
   "/help",
   "/status",
   "/today",
+  "/sent",
   "/pending",
   "/pause",
   "/resume",
@@ -13,6 +14,7 @@ const CALLBACK_ACTIONS = new Set(["approve", "manual", "reject", "test"]);
 const BUTTON_COMMANDS = new Map([
   ["🏠 الرئيسية", "/start"],
   ["📥 المراجعات المعلقة", "/pending"],
+  ["📨 طلبات اليوم", "/sent"],
   ["📊 ملخص اليوم", "/today"],
   ["📡 حالة النظام", "/status"],
   ["⏸ إيقاف مؤقت", "/pause"],
@@ -23,9 +25,9 @@ const BUTTON_COMMANDS = new Map([
 const MAIN_KEYBOARD = {
   keyboard: [
     [{ text: "🏠 الرئيسية" }, { text: "📥 المراجعات المعلقة" }],
-    [{ text: "📊 ملخص اليوم" }, { text: "📡 حالة النظام" }],
-    [{ text: "⏸ إيقاف مؤقت" }, { text: "▶️ استئناف" }],
-    [{ text: "❓ المساعدة" }],
+    [{ text: "📨 طلبات اليوم" }, { text: "📊 ملخص اليوم" }],
+    [{ text: "📡 حالة النظام" }, { text: "⏸ إيقاف مؤقت" }],
+    [{ text: "▶️ استئناف" }, { text: "❓ المساعدة" }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -85,6 +87,21 @@ async function dispatchToGitHub(env, inputs) {
   }
 }
 
+async function registerBotCommands(env) {
+  await telegramApi(env, "setMyCommands", {
+    commands: [
+      { command: "start", description: "الرئيسية ولوحة التحكم" },
+      { command: "status", description: "حالة النظام وآخر تشغيل" },
+      { command: "pending", description: "المراجعات التي تنتظر قرارك" },
+      { command: "sent", description: "طلبات التوظيف المسجلة اليوم" },
+      { command: "today", description: "ملخص وإحصائيات اليوم" },
+      { command: "pause", description: "إيقاف فحص الإعلانات مؤقتًا" },
+      { command: "resume", description: "استئناف فحص الإعلانات" },
+      { command: "help", description: "مساعدة JobFinder" },
+    ],
+  });
+}
+
 async function sendCommandAcknowledgement(env, chatId, command) {
   const text = command === "/pause" || command === "/resume"
     ? "⏳ استلمت الأمر، جارٍ تحديث حالة JobFinder…"
@@ -116,6 +133,14 @@ async function handleMessage(update, env) {
   const rawCommand = BUTTON_COMMANDS.get(messageText) || messageText.split(/\s+/)[0] || "";
   const command = rawCommand.split("@")[0].toLowerCase();
   if (!COMMANDS.has(command)) return;
+
+  if (command === "/start") {
+    try {
+      await registerBotCommands(env);
+    } catch (error) {
+      console.error("Telegram command menu update failed:", error.message);
+    }
+  }
 
   try {
     await sendCommandAcknowledgement(env, chat.id, command);

@@ -5,7 +5,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,7 @@ MAX_OUTBOX_PER_RUN = 10
 MAIN_MENU_BUTTONS = {
     "🏠 الرئيسية": "/start",
     "📥 المراجعات المعلقة": "/pending",
+    "📨 طلبات اليوم": "/sent",
     "📊 ملخص اليوم": "/today",
     "📡 حالة النظام": "/status",
     "⏸ إيقاف مؤقت": "/pause",
@@ -24,13 +25,14 @@ MAIN_MENU_BUTTONS = {
 }
 
 
-def main_menu_keyboard() -> dict[str, Any]:
-    """Persistent owner menu; inline keyboards remain reserved for job decisions."""
+def main_menu_keyboard(paused: bool = False) -> dict[str, Any]:
+    """Persistent Arabic navigation; job-specific decisions use inline buttons."""
+    runtime_button = "▶️ استئناف" if paused else "⏸ إيقاف مؤقت"
     return {
         "keyboard": [
             [{"text": "🏠 الرئيسية"}, {"text": "📥 المراجعات المعلقة"}],
-            [{"text": "📊 ملخص اليوم"}, {"text": "📡 حالة النظام"}],
-            [{"text": "⏸ إيقاف مؤقت"}, {"text": "▶️ استئناف"}],
+            [{"text": "📨 طلبات اليوم"}, {"text": "📊 ملخص اليوم"}],
+            [{"text": "📡 حالة النظام"}, {"text": runtime_button}],
             [{"text": "❓ المساعدة"}],
         ],
         "resize_keyboard": True,
@@ -137,7 +139,7 @@ class TelegramJobBot:
         if not self.owner_configured:
             return False
         if keyboard is None:
-            keyboard = main_menu_keyboard()
+            keyboard = main_menu_keyboard(paused=bool(self.state.get("paused")))
         try:
             self._send_message(self.owner_chat_id, text, keyboard)
             return True
@@ -190,6 +192,61 @@ class TelegramJobBot:
             return False
         # The intended control channel is the owner's private chat, not a group.
         return user_id is None or str(user_id) == self.owner_chat_id
+
+    def _parse_local_datetime(self, value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=LOCAL_ZONE)
+            return parsed.astimezone(LOCAL_ZONE)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def _sent_records_today(self) -> list[dict[str, Any]]:
+        today = now_local().date()
+        raw = self.state.get("sent_applications_jsonl", "")
+        if not isinstance(raw, str):
+            return []
+        records: list[dict[str, Any]] = []
+        for line in raw.splitlines():
+            try:
+                record = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            sent_at = self._parse_local_datetime(record.get("sent_at"))
+            if sent_at and sent_at.date() == today:
+                records.append(record)
+        records.sort(key=lambda item: str(item.get("sent_at") or ""), reverse=True)
+        return records
+
+    def _last_run_display(self) -> str:
+        raw = self.state.get("last_run_at")
+        parsed = self._parse_local_datetime(raw)
+        if parsed:
+            return parsed.strftime("%Y-%m-%d %H:%M")
+        return safe_text(raw, 100) if raw else "غير متوفر"
+
+    def _dashboard_text(self) -> str:
+        stats = self._today_stats()
+        pending_count = len(self.state.get("pending_reviews") or {})
+        sent_count = len(self._sent_records_today())
+        paused = bool(self.state.get("paused"))
+        return (
+            "🤖 JobFinder — لوحة التحكم\n\n"
+            f"الحالة: {'⏸ متوقف مؤقتًا' if paused else '🟢 نشط'}\n"
+            f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n\n"
+            f"📥 المراجعات المعلقة: {pending_count}\n"
+            f"📨 طلبات مسجلة اليوم: {sent_count}\n"
+            f"🔎 الإعلانات المحللة اليوم: {stats.get('analyzed', 0)}\n"
+            f"❌ المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+            f"⚠️ محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
+            "استخدم الأزرار أسفل الشاشة للتنقل."
+        )
 
     def _today_stats(self) -> dict[str, Any]:
         today = now_local().date().isoformat()
@@ -458,7 +515,7 @@ class TelegramJobBot:
         if update_type == "command":
             command = str(event.get("command") or "").strip()
             if command.split("@")[0].lower() not in {
-                "/start", "/help", "/status", "/today", "/pending", "/pause", "/resume"
+                "/start", "/help", "/status", "/today", "/sent", "/pending", "/pause", "/resume"
             }:
                 print("Telegram webhook command ignored: unsupported command")
                 return
@@ -575,16 +632,7 @@ class TelegramJobBot:
             return
 
         if command == "/start":
-            pending_count = len(self.state.get("pending_reviews") or {})
-            paused = bool(self.state.get("paused"))
-            last_run = safe_text(self.state.get("last_run_at"), 100) if self.state.get("last_run_at") else "غير متوفر"
-            self._send_owner(
-                "👋 مرحبًا بك في JobFinder\n\n"
-                f"الحالة: {'متوقف مؤقتًا' if paused else 'نشط'}\n"
-                f"المراجعات المعلقة: {pending_count}\n"
-                f"آخر تشغيل: {last_run}\n\n"
-                "اختر الخدمة من لوحة الأزرار أسفل الشاشة."
-            )
+            self._send_owner("👋 مرحبًا بك في JobFinder\n\n" + self._dashboard_text())
         elif command == "/help":
             self._send_owner(
                 "🤖 مساعدة JobFinder\n\n"
@@ -593,30 +641,59 @@ class TelegramJobBot:
                 "📊 ملخص اليوم — إحصائيات اليوم\n"
                 "📡 حالة النظام — الحالة وآخر تشغيل\n"
                 "⏸ إيقاف مؤقت — إيقاف فحص الإعلانات الجديدة\n"
-                "▶️ استئناف — إعادة الفحص\n\n"
+                "▶️ استئناف — إعادة الفحص\n"
+                "📨 طلبات اليوم — الوظائف التي سُجّل إرسالها اليوم\n\n"
                 "أزرار قبول/رفض الوظيفة تظهر تحت رسالة الوظيفة نفسها."
             )
         elif command == "/status":
-            pending_count = len(self.state.get("pending_reviews") or {})
-            paused = bool(self.state.get("paused"))
-            last_run = safe_text(self.state.get("last_run_at"), 100) if self.state.get("last_run_at") else "غير متوفر"
-            self._send_owner(
-                "📡 حالة JobFinder\n\n"
-                f"الحالة: {'متوقف مؤقتًا' if paused else 'نشط'}\n"
-                f"مراجعات معلقة: {pending_count}\n"
-                f"آخر تشغيل: {last_run}"
-            )
+            self._send_owner(self._dashboard_text())
         elif command == "/today":
             stats = self._today_stats()
+            sent_count = len(self._sent_records_today())
             self._save("Daily stats checked")
             self._send_owner(
-                f"📊 ملخص JobFinder — {stats.get('date')}\n\n"
+                f"📊 ملخص JobFinder — {stats.get('date')} (توقيت الجزائر)\n\n"
                 f"الإعلانات المحللة: {stats.get('analyzed', 0)}\n"
-                f"الطلبات المرسلة: {stats.get('sent', 0)}\n"
-                f"تحتاج إلى مراجعة: {stats.get('review', 0)}\n"
-                f"المرفوضة: {stats.get('rejected', 0)}\n"
-                f"محاولات الإرسال التي لم تتأكد: {stats.get('send_failed', 0)}"
+                f"طلبات مسجلة الإرسال اليوم: {sent_count}\n"
+                f"مراجعات جديدة اليوم: {stats.get('review', 0)}\n"
+                f"المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+                f"محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
+                "ملاحظة: تُحتسب الطلبات حسب توقيت الإرسال المسجل؛ السجلات القديمة بلا توقيت لا تُنسب إلى اليوم تخمينًا."
             )
+        elif command == "/sent":
+            records = self._sent_records_today()
+            today = now_local().date().isoformat()
+            if not records:
+                self._send_owner(
+                    f"📨 طلبات التوظيف — {today}\n\n"
+                    "لا توجد طلبات مسجلة بتاريخ اليوم.\n\n"
+                    "تُعرض هنا الطلبات الجديدة التي تحتوي سجلًا زمنيًا؛ "
+                    "أما السجلات القديمة التي لا تحمل توقيتًا فلا يمكن نسبها إلى اليوم بدقة."
+                )
+            else:
+                lines = [
+                    f"📨 طلبات التوظيف المسجلة اليوم — {today}",
+                    f"عدد الطلبات المسجلة: {len(records)}",
+                    "",
+                ]
+                for index, record in enumerate(records[:10], start=1):
+                    sent_at = self._parse_local_datetime(record.get("sent_at"))
+                    time_label = sent_at.strftime("%H:%M") if sent_at else "وقت غير متوفر"
+                    title = safe_text(record.get("application_job_title") or record.get("job_title"), 180)
+                    company = safe_text(record.get("company"), 140)
+                    location = safe_text(record.get("location"), 140)
+                    cv = os.path.basename(str(record.get("cv") or "")) or "غير محددة"
+                    email = safe_text(record.get("email"), 180)
+                    lines.extend([
+                        f"{index}. 💼 {title}",
+                        f"🏢 {company} | 📍 {location}",
+                        f"🕒 {time_label} | 📄 {cv}",
+                        f"📧 {email}",
+                        "",
+                    ])
+                if len(records) > 10:
+                    lines.append(f"يعرض آخر 10 طلبات من أصل {len(records)}.")
+                self._send_owner("\n".join(lines))
         elif command == "/pending":
             pending_items = list((self.state.get("pending_reviews") or {}).values())
             if not pending_items:
@@ -692,6 +769,9 @@ class TelegramJobBot:
 
         if action == "reject":
             self._resolve_review(pending_id, "rejected")
+            stats = self._today_stats()
+            stats["rejected"] = int(stats.get("rejected", 0)) + 1
+            self._save("Manual review rejection counted")
             self._answer_callback(query_id, "تم رفض الوظيفة.")
             self._edit_message(
                 query,

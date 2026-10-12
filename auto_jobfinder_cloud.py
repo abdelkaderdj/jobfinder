@@ -2,6 +2,8 @@ import os
 import json
 import time
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import smtplib
 import unicodedata
 from difflib import SequenceMatcher
@@ -2448,6 +2450,12 @@ def save_sent(
         "key": key,
         **data
     }
+    # Record an explicit Algeria-local timestamp so daily reports don't infer
+    # dates from the GitHub runner's UTC clock.
+    record.setdefault(
+        "sent_at",
+        datetime.now(ZoneInfo("Africa/Algiers")).isoformat(timespec="seconds"),
+    )
 
     with open(
         SENT_FILE,

@@ -12,7 +12,7 @@ os.environ.setdefault("JOBFINDER_CANDIDATE_NAME", "Validation User")
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
-from telegram_control import TelegramJobBot, event_key
+from telegram_control import TelegramJobBot, event_key, main_menu_keyboard, now_local
 import auto_jobfinder_cloud as processor
 
 
@@ -85,8 +85,67 @@ class TelegramControlTests(unittest.TestCase):
         self.assertTrue(keyboard["resize_keyboard"])
         labels = [button["text"] for row in keyboard["keyboard"] for button in row]
         self.assertIn("📥 المراجعات المعلقة", labels)
+        self.assertIn("📨 طلبات اليوم", labels)
         self.assertIn("📊 ملخص اليوم", labels)
         self.assertIn("📡 حالة النظام", labels)
+        self.assertNotIn("▶️ استئناف", labels)
+
+    def test_main_menu_keyboard_shows_only_the_relevant_runtime_action(self):
+        active = [button["text"] for row in main_menu_keyboard(False)["keyboard"] for button in row]
+        paused = [button["text"] for row in main_menu_keyboard(True)["keyboard"] for button in row]
+        self.assertIn("⏸ إيقاف مؤقت", active)
+        self.assertNotIn("▶️ استئناف", active)
+        self.assertIn("▶️ استئناف", paused)
+        self.assertNotIn("⏸ إيقاف مؤقت", paused)
+
+    def test_sent_today_lists_only_records_with_todays_algeria_timestamp(self):
+        bot, sent = self.build_bot()
+        today = now_local().date().isoformat()
+        bot.state["sent_applications_jsonl"] = "\n".join([
+            json.dumps({
+                "key": "today",
+                "sent_at": f"{today}T10:45:00+01:00",
+                "application_job_title": "Technicien de Maintenance",
+                "company": "Today Company",
+                "location": "Oran",
+                "email": "today@example.org",
+                "cv": "/runner/cvs/cv_ats_fr.pdf",
+            }),
+            json.dumps({
+                "key": "old",
+                "sent_at": "2020-01-01T10:45:00+01:00",
+                "application_job_title": "Old Job",
+                "company": "Old Company",
+            }),
+            json.dumps({
+                "key": "legacy",
+                "application_job_title": "Legacy Job",
+            }),
+        ])
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/sent",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("Technicien de Maintenance", sent[0][1])
+        self.assertIn("Today Company", sent[0][1])
+        self.assertNotIn("Old Job", sent[0][1])
+        self.assertNotIn("Legacy Job", sent[0][1])
+        self.assertIn("📨 طلبات التوظيف المسجلة اليوم", sent[0][1])
+
+    def test_start_dashboard_displays_key_metrics_and_persistent_menu(self):
+        bot, sent = self.build_bot()
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/start",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("لوحة التحكم", sent[0][1])
+        self.assertIn("المراجعات المعلقة", sent[0][1])
+        self.assertIn("طلبات مسجلة اليوم", sent[0][1])
+        self.assertTrue(sent[0][2]["is_persistent"])
 
     def test_main_menu_button_routes_to_status_command(self):
         bot, sent = self.build_bot()
@@ -367,6 +426,26 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertEqual(
             processor.cv_attachment_filename("/runner/cvs/other_cv.pdf"),
             "other_cv.pdf",
+        )
+
+    def test_save_sent_adds_algeria_local_timestamp(self):
+        from datetime import datetime
+        from tempfile import TemporaryDirectory
+        from zoneinfo import ZoneInfo
+
+        with TemporaryDirectory() as temp_dir:
+            sent_path = os.path.join(temp_dir, "sent_applications.jsonl")
+            with patch.object(processor, "SENT_FILE", sent_path):
+                processor.save_sent("timestamp-test", {
+                    "application_job_title": "Test Job",
+                })
+            with open(sent_path, "r", encoding="utf-8") as handle:
+                record = json.loads(handle.readline())
+        sent_at = datetime.fromisoformat(record["sent_at"])
+        self.assertIsNotNone(sent_at.tzinfo)
+        self.assertEqual(
+            sent_at.astimezone(ZoneInfo("Africa/Algiers")).date(),
+            now_local().date(),
         )
 
 
