@@ -10,6 +10,29 @@ const COMMANDS = new Set([
 
 const CALLBACK_ACTIONS = new Set(["approve", "manual", "reject", "test"]);
 
+const BUTTON_COMMANDS = new Map([
+  ["🏠 الرئيسية", "/start"],
+  ["📥 المراجعات المعلقة", "/pending"],
+  ["📊 ملخص اليوم", "/today"],
+  ["📡 حالة النظام", "/status"],
+  ["⏸ إيقاف مؤقت", "/pause"],
+  ["▶️ استئناف", "/resume"],
+  ["❓ المساعدة", "/help"],
+]);
+
+const MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: "🏠 الرئيسية" }, { text: "📥 المراجعات المعلقة" }],
+    [{ text: "📊 ملخص اليوم" }, { text: "📡 حالة النظام" }],
+    [{ text: "⏸ إيقاف مؤقت" }, { text: "▶️ استئناف" }],
+    [{ text: "❓ المساعدة" }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+  one_time_keyboard: false,
+  input_field_placeholder: "اختر من القائمة…",
+};
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -69,6 +92,7 @@ async function sendCommandAcknowledgement(env, chatId, command) {
   await telegramApi(env, "sendMessage", {
     chat_id: chatId,
     text,
+    reply_markup: MAIN_KEYBOARD,
     disable_web_page_preview: true,
   });
 }
@@ -88,7 +112,8 @@ async function handleMessage(update, env) {
     return;
   }
 
-  const rawCommand = message.text.trim().split(/\s+/)[0] || "";
+  const messageText = message.text.trim();
+  const rawCommand = BUTTON_COMMANDS.get(messageText) || messageText.split(/\s+/)[0] || "";
   const command = rawCommand.split("@")[0].toLowerCase();
   if (!COMMANDS.has(command)) return;
 
