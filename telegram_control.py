@@ -13,6 +13,32 @@ from zoneinfo import ZoneInfo
 LOCAL_ZONE = ZoneInfo("Africa/Algiers")
 MAX_OUTBOX_PER_RUN = 10
 
+MAIN_MENU_BUTTONS = {
+    "🏠 الرئيسية": "/start",
+    "📥 المراجعات المعلقة": "/pending",
+    "📊 ملخص اليوم": "/today",
+    "📡 حالة النظام": "/status",
+    "⏸ إيقاف مؤقت": "/pause",
+    "▶️ استئناف": "/resume",
+    "❓ المساعدة": "/help",
+}
+
+
+def main_menu_keyboard() -> dict[str, Any]:
+    """Persistent owner menu; inline keyboards remain reserved for job decisions."""
+    return {
+        "keyboard": [
+            [{"text": "🏠 الرئيسية"}, {"text": "📥 المراجعات المعلقة"}],
+            [{"text": "📊 ملخص اليوم"}, {"text": "📡 حالة النظام"}],
+            [{"text": "⏸ إيقاف مؤقت"}, {"text": "▶️ استئناف"}],
+            [{"text": "❓ المساعدة"}],
+        ],
+        "resize_keyboard": True,
+        "is_persistent": True,
+        "one_time_keyboard": False,
+        "input_field_placeholder": "اختر من القائمة…",
+    }
+
 
 def now_local() -> datetime:
     return datetime.now(LOCAL_ZONE)
@@ -110,6 +136,8 @@ class TelegramJobBot:
     def _send_owner(self, text: str, keyboard: dict[str, Any] | None = None) -> bool:
         if not self.owner_configured:
             return False
+        if keyboard is None:
+            keyboard = main_menu_keyboard()
         try:
             self._send_message(self.owner_chat_id, text, keyboard)
             return True
@@ -520,9 +548,14 @@ class TelegramJobBot:
         chat_id = chat.get("id")
         user_id = sender.get("id")
         text = str(message.get("text") or "").strip()
-        if not text.startswith("/"):
+        if not text:
             return
-        command = text.split()[0].split("@")[0].lower()
+        if text in MAIN_MENU_BUTTONS:
+            command = MAIN_MENU_BUTTONS[text]
+        elif text.startswith("/"):
+            command = text.split()[0].split("@")[0].lower()
+        else:
+            return
 
         if not self.owner_chat_id:
             if chat.get("type") != "private":
@@ -541,14 +574,27 @@ class TelegramJobBot:
         if not self._authorized(chat_id, user_id):
             return
 
-        if command in {"/start", "/help"}:
+        if command == "/start":
+            pending_count = len(self.state.get("pending_reviews") or {})
+            paused = bool(self.state.get("paused"))
+            last_run = safe_text(self.state.get("last_run_at"), 100) if self.state.get("last_run_at") else "غير متوفر"
             self._send_owner(
-                "مرحبًا بك في JobFinder.\n\n"
-                "/status — حالة النظام\n"
-                "/today — ملخص اليوم\n"
-                "/pending — الوظائف التي تنتظر قرارك\n"
-                "/pause — إيقاف معالجة الإعلانات الجديدة\n"
-                "/resume — استئناف المعالجة"
+                "👋 مرحبًا بك في JobFinder\n\n"
+                f"الحالة: {'متوقف مؤقتًا' if paused else 'نشط'}\n"
+                f"المراجعات المعلقة: {pending_count}\n"
+                f"آخر تشغيل: {last_run}\n\n"
+                "اختر الخدمة من لوحة الأزرار أسفل الشاشة."
+            )
+        elif command == "/help":
+            self._send_owner(
+                "🤖 مساعدة JobFinder\n\n"
+                "🏠 الرئيسية — لوحة التحكم\n"
+                "📥 المراجعات المعلقة — عرض الوظائف التي تنتظر قرارك\n"
+                "📊 ملخص اليوم — إحصائيات اليوم\n"
+                "📡 حالة النظام — الحالة وآخر تشغيل\n"
+                "⏸ إيقاف مؤقت — إيقاف فحص الإعلانات الجديدة\n"
+                "▶️ استئناف — إعادة الفحص\n\n"
+                "أزرار قبول/رفض الوظيفة تظهر تحت رسالة الوظيفة نفسها."
             )
         elif command == "/status":
             pending_count = len(self.state.get("pending_reviews") or {})
