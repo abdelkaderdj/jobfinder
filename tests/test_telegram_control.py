@@ -71,6 +71,34 @@ class TelegramControlTests(unittest.TestCase):
         bot._edit_message = lambda *args, **kwargs: None
         return bot, sent_messages
 
+    def test_start_displays_persistent_arabic_main_menu(self):
+        bot, sent = self.build_bot()
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/start",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("مرحبًا بك في JobFinder", sent[0][1])
+        keyboard = sent[0][2]
+        self.assertTrue(keyboard["is_persistent"])
+        self.assertTrue(keyboard["resize_keyboard"])
+        labels = [button["text"] for row in keyboard["keyboard"] for button in row]
+        self.assertIn("📥 المراجعات المعلقة", labels)
+        self.assertIn("📊 ملخص اليوم", labels)
+        self.assertIn("📡 حالة النظام", labels)
+
+    def test_main_menu_button_routes_to_status_command(self):
+        bot, sent = self.build_bot()
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "📡 حالة النظام",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("حالة JobFinder", sent[0][1])
+        self.assertTrue(sent[0][2]["is_persistent"])
+
     def test_review_is_queued_and_shows_controls(self):
         bot, sent = self.build_bot()
         bot.on_job_event(sample_event())
