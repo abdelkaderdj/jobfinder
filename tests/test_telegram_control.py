@@ -147,8 +147,26 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("Technicien de Maintenance", sent[0][1])
         self.assertIn("Today Company", sent[0][1])
         self.assertNotIn("Old Job", sent[0][1])
+        self.assertNotIn("Legacy Job", sent[0][1])
+        self.assertIn("ℹ️ توجد أيضًا 1 سجلات بلا توقيت", sent[0][1])
+
+    def test_sent_shows_legacy_undated_records_when_no_dated_records_exist(self):
+        bot, sent = self.build_bot()
+        bot.state["sent_applications_jsonl"] = json.dumps({
+            "key": "legacy",
+            "application_job_title": "Legacy Job",
+            "company": "Legacy Company",
+        })
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/sent",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("لا توجد طلبات يمكن تأكيد توقيتها لهذا اليوم", sent[0][1])
+        self.assertIn("1 سجلات إرسال قديمة بلا توقيت محفوظ", sent[0][1])
         self.assertIn("Legacy Job", sent[0][1])
-        self.assertIn("📚 توجد 1 سجلات إرسال قديمة بلا توقيت محفوظ", sent[0][1])
+        self.assertIn("Legacy Company", sent[0][1])
 
     def test_start_dashboard_displays_key_metrics_and_persistent_menu(self):
         bot, sent = self.build_bot()
