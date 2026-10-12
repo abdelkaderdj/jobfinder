@@ -1,6 +1,7 @@
 import os
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("GROQ_API_KEY", "validation-dummy-key")
 os.environ.setdefault("GMAIL_APP_PASSWORD", "validation-dummy-password")
@@ -253,6 +254,73 @@ class TelegramControlTests(unittest.TestCase):
         send.assert_called_once()
         save_sent.assert_called_once()
 
+
+
+
+class JobIdentityAndGroqFallbackTests(unittest.TestCase):
+    def test_singular_and_plural_technician_titles_share_identity_tokens(self):
+        self.assertEqual(
+            processor.canonical_title_tokens("Technicien"),
+            processor.canonical_title_tokens("Techniciens"),
+        )
+
+    def test_singular_and_plural_mechanic_titles_detect_same_sent_job(self):
+        email = "hmd.recruit.30@gmail.com"
+        old_job = {
+            "company": "",
+            "location": "Hassi Messaoud, Ouargla, Algeria",
+        }
+        old_record = {
+            "application_job_title": "Mécanicien",
+            "email": email,
+            "company": "",
+            "location": "Hassi Messaoud, Ouargla, Algeria",
+            "identity_key": processor.job_identity_key(
+                old_job, "Mécanicien", email
+            ),
+        }
+        current_job = {"company": "", "location": "Hassi Messaoud"}
+
+        self.assertTrue(
+            processor.same_job_identity(
+                current_job, "Mécaniciens", email, old_record
+            )
+        )
+
+    def test_rate_limited_primary_model_falls_back_without_retrying_it(self):
+        rate_limit_error = RuntimeError("429 rate limit exceeded")
+        rate_limit_error.status_code = 429
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"ok": true}')
+                )
+            ]
+        )
+        create = Mock(side_effect=[rate_limit_error, response])
+        fake_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=create)
+            )
+        )
+        messages = [{"role": "user", "content": "Return a JSON object."}]
+
+        with (
+            patch.object(processor, "client", fake_client),
+            patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+        ):
+            result = processor.groq_json_request(messages)
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(create.call_count, 2)
+        self.assertEqual(
+            create.call_args_list[0].kwargs["model"],
+            "openai/gpt-oss-120b",
+        )
+        self.assertEqual(
+            create.call_args_list[1].kwargs["model"],
+            "openai/gpt-oss-20b",
+        )
 
 
 if __name__ == "__main__":

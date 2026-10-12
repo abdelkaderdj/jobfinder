@@ -642,71 +642,101 @@ def parse_json_response(result):
     )
 
 
+GROQ_MODEL_FALLBACKS = (
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+)
+
+# A model that returns HTTP 429 is skipped for the remainder of this process.
+# The cloud runner is short-lived, so every scheduled run automatically retries
+# the model later without burning the same quota on every job in one batch.
+_RATE_LIMITED_GROQ_MODELS: set[str] = set()
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if status_code == 429:
+        return True
+
+    error_name = type(error).__name__.lower()
+    details = str(error).lower()
+    return (
+        "ratelimit" in error_name
+        or "rate limit" in details
+        or "rate_limit_exceeded" in details
+    )
+
+
 def groq_json_request(
     messages,
     temperature=0,
     max_completion_tokens=1000
 ):
-
-    base_kwargs = {
-
-        "model":
-            "openai/gpt-oss-120b",
-
-        "messages":
-            messages,
-
-        "temperature":
-            temperature,
-
-        "max_completion_tokens":
-            max_completion_tokens,
-
-        "reasoning_effort":
-            "low",
-
-        "reasoning_format":
-            "hidden"
+    common_kwargs = {
+        "messages": messages,
+        "temperature": temperature,
+        "max_completion_tokens": max_completion_tokens,
+        "reasoning_effort": "low",
+        "reasoning_format": "hidden",
     }
 
-    # ========================================================
-    # JSON MODE
-    # ========================================================
+    last_error = None
 
-    try:
+    for model_name in GROQ_MODEL_FALLBACKS:
+        if model_name in _RATE_LIMITED_GROQ_MODELS:
+            continue
 
-        response = client.chat.completions.create(
-            **base_kwargs,
-            response_format={
-                "type": "json_object"
-            }
-        )
+        request_kwargs = {
+            **common_kwargs,
+            "model": model_name,
+        }
 
-        return parse_json_response(
-            response.choices[0]
-            .message
-            .content
-        )
+        try:
+            response = client.chat.completions.create(
+                **request_kwargs,
+                response_format={"type": "json_object"},
+            )
+            return parse_json_response(response.choices[0].message.content)
 
-    except Exception as first_error:
+        except Exception as first_error:
+            last_error = first_error
+            if _is_rate_limit_error(first_error):
+                _RATE_LIMITED_GROQ_MODELS.add(model_name)
+                print(
+                    f"AI RATE LIMIT: {model_name}; "
+                    "switching to the next available model"
+                )
+                continue
 
-        print(
-            "JSON MODE RETRY:",
-            repr(first_error)
-        )
+            # Preserve the existing non-JSON fallback for model/JSON-mode issues.
+            print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
-    # ========================================================
-    # NORMAL MODE FALLBACK
-    # ========================================================
+        try:
+            response = client.chat.completions.create(**request_kwargs)
+            return parse_json_response(response.choices[0].message.content)
 
-    response = client.chat.completions.create(
-        **base_kwargs
-    )
+        except Exception as second_error:
+            last_error = second_error
+            if _is_rate_limit_error(second_error):
+                _RATE_LIMITED_GROQ_MODELS.add(model_name)
+                print(
+                    f"AI RATE LIMIT: {model_name}; "
+                    "switching to the next available model"
+                )
+            else:
+                print(
+                    f"AI MODEL RETRY FAILED: {model_name}; "
+                    f"{type(second_error).__name__}"
+                )
 
-    return parse_json_response(
-        response.choices[0]
-        .message
-        .content
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError(
+        "All configured Groq models are rate-limited for this run"
     )
 
 
@@ -2431,6 +2461,15 @@ TITLE_CANONICAL_MAP = {
     "technicienne":
         "technician",
 
+    "techniciens":
+        "technician",
+
+    "techniciennes":
+        "technician",
+
+    "technicians":
+        "technician",
+
     "technician":
         "technician",
 
@@ -2444,6 +2483,15 @@ TITLE_CANONICAL_MAP = {
         "mechanic",
 
     "mécanicien":
+        "mechanic",
+
+    "mecaniciens":
+        "mechanic",
+
+    "mecaniciennes":
+        "mechanic",
+
+    "mechanics":
         "mechanic",
 
     "mechanic":
@@ -2526,6 +2574,24 @@ TITLE_CANONICAL_MAP = {
 
     "electrical":
         "electrical",
+
+    "electricien":
+        "electrician",
+
+    "electricienne":
+        "electrician",
+
+    "electriciens":
+        "electrician",
+
+    "electriciennes":
+        "electrician",
+
+    "electrician":
+        "electrician",
+
+    "electricians":
+        "electrician",
 
     "automaticien":
         "automation",
@@ -2613,6 +2679,12 @@ TITLE_CANONICAL_MAP = {
     "ميكانيكي":
         "mechanic",
 
+    "ميكانيكيين":
+        "mechanic",
+
+    "ميكانيكيون":
+        "mechanic",
+
     "مكانيكي":
         "mechanic",
 
@@ -2638,6 +2710,12 @@ TITLE_CANONICAL_MAP = {
         "operator",
 
     "كهربائي":
+        "electrical",
+
+    "كهربائيين":
+        "electrical",
+
+    "كهربائيون":
         "electrical",
 
     "كهرباء":
