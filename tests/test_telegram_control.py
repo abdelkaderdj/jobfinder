@@ -202,6 +202,36 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("jf:approve:", keyboard[0]["callback_data"])
         self.assertIn("jf:reject:", keyboard[1]["callback_data"])
 
+    def test_apply_duplicate_increments_daily_duplicate_counter(self):
+        bot, _ = self.build_bot()
+        event = sample_event("APPLY")
+        event["record"]["job_duplicate"] = True
+        bot.on_job_event(event)
+        stats = bot._today_stats()
+        self.assertEqual(stats["analyzed"], 1)
+        self.assertEqual(stats["duplicates"], 1)
+        self.assertEqual(stats["send_failed"], 0)
+        self.assertEqual(stats["sent"], 0)
+
+    def test_same_day_legacy_stats_migrate_five_unclassified_apply_duplicates(self):
+        bot, _ = self.build_bot()
+        today = now_local().date().isoformat()
+        bot.state["daily_stats"] = {
+            "date": today,
+            "analyzed": 109,
+            "sent": 0,
+            "review": 9,
+            "rejected": 95,
+            "send_failed": 0,
+        }
+        stats = bot._today_stats()
+        self.assertEqual(stats["duplicates"], 5)
+        self.assertEqual(
+            stats["sent"] + stats["review"] + stats["rejected"]
+            + stats["send_failed"] + stats["duplicates"],
+            stats["analyzed"],
+        )
+
     def test_reject_callback_resolves_review(self):
         bot, _ = self.build_bot()
         bot.on_job_event(sample_event())
