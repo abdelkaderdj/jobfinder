@@ -164,9 +164,37 @@ class TelegramControlTests(unittest.TestCase):
         })
         self.assertEqual(len(sent), 1)
         self.assertIn("لا توجد طلبات يمكن تأكيد توقيتها لهذا اليوم", sent[0][1])
-        self.assertIn("1 سجلات إرسال قديمة بلا توقيت محفوظ", sent[0][1])
+        self.assertIn("1 سجلات محفوظة في سجل الإرسال القديم بلا توقيت", sent[0][1])
+        self.assertIn("لا تخص طلبات اليوم", sent[0][1])
+        self.assertIn("نحتفظ بها لمنع إعادة التقديم", sent[0][1])
         self.assertIn("Legacy Job", sent[0][1])
         self.assertIn("Legacy Company", sent[0][1])
+
+    def test_daily_summary_distinguishes_reviews_and_manual_rejections(self):
+        bot, sent = self.build_bot()
+        today = now_local().date().isoformat()
+        bot.state["daily_stats"] = {
+            "date": today,
+            "analyzed": 155,
+            "sent": 0,
+            "review": 4,
+            "rejected": 151,
+            "manual_rejected": 4,
+            "duplicates": 0,
+            "send_failed": 0,
+            "manual_rejections_reconciled": True,
+        }
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/today",
+        })
+        report = sent[-1][1]
+        self.assertIn("الوظائف التي جرى تقييمها اليوم: 155", report)
+        self.assertIn("مراجعات جديدة اليوم: 4", report)
+        self.assertIn("المرفوضة تلقائيًا اليوم: 151", report)
+        self.assertIn("مراجعات رُفضت يدويًا اليوم: 4", report)
+        self.assertIn("الرفض اليدوي يُحسب منفصلًا", report)
 
     def test_start_dashboard_displays_key_metrics_and_persistent_menu(self):
         bot, sent = self.build_bot()
@@ -260,6 +288,56 @@ class TelegramControlTests(unittest.TestCase):
             + stats["send_failed"] + stats["duplicates"],
             stats["analyzed"],
         )
+
+    def test_manual_review_rejection_does_not_inflate_automatic_rejects(self):
+        bot, _ = self.build_bot()
+        bot.on_job_event(sample_event("REVIEW"))
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        before = dict(bot._today_stats())
+        self.assertEqual(before["analyzed"], 1)
+        self.assertEqual(before["review"], 1)
+        self.assertEqual(before["rejected"], 0)
+
+        bot._handle_callback({
+            "id": "manual-reject-counter",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:reject:{pending_id}",
+        })
+        stats = bot._today_stats()
+        self.assertEqual(stats["analyzed"], 1)
+        self.assertEqual(stats["review"], 1)
+        self.assertEqual(stats["rejected"], 0)
+        self.assertEqual(stats["manual_rejected"], 1)
+
+    def test_legacy_manual_rejections_are_reconciled_once(self):
+        bot, _ = self.build_bot()
+        today = now_local().date().isoformat()
+        timestamp = now_local().isoformat(timespec="seconds")
+        bot.state["daily_stats"] = {
+            "date": today,
+            "analyzed": 155,
+            "sent": 0,
+            "review": 4,
+            "rejected": 155,
+            "duplicates": 0,
+            "send_failed": 0,
+        }
+        bot.state["review_history"] = {
+            f"manual-{index}": {"status": "rejected", "at": timestamp}
+            for index in range(4)
+        }
+
+        first = bot._today_stats()
+        self.assertEqual(first["analyzed"], 155)
+        self.assertEqual(first["review"], 4)
+        self.assertEqual(first["rejected"], 151)
+        self.assertEqual(first["manual_rejected"], 4)
+        self.assertTrue(first["manual_rejections_reconciled"])
+
+        second = bot._today_stats()
+        self.assertEqual(second["rejected"], 151)
+        self.assertEqual(second["manual_rejected"], 4)
 
     def test_reject_callback_resolves_review(self):
         bot, _ = self.build_bot()
