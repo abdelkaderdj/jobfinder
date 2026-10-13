@@ -57,7 +57,7 @@ jobs:
           else
             git commit -m "Update encrypted JobFinder state after Telegram test"
             for attempt in 1 2 3; do
-              git fetch origin master
+              git fetch origin +refs/heads/master:refs/remotes/origin/master
               if ! git rebase origin/master; then
                 git rebase --abort || true
                 echo "State checkpoint rebase conflicted; refusing to overwrite remote state." >&2
