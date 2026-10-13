@@ -148,7 +148,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("Today Company", sent[0][1])
         self.assertNotIn("Old Job", sent[0][1])
         self.assertNotIn("Legacy Job", sent[0][1])
-        self.assertIn("ℹ️ توجد أيضًا 1 سجلات بلا توقيت", sent[0][1])
+        self.assertIn("سجلات إرسال قديمة بلا توقيت محفوظ؛ ليست طلبات اليوم", sent[0][1])
 
     def test_sent_shows_legacy_undated_records_when_no_dated_records_exist(self):
         bot, sent = self.build_bot()
@@ -207,7 +207,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("لوحة التحكم", sent[0][1])
         self.assertIn("المراجعات المعلقة", sent[0][1])
         self.assertIn("طلبات مسجلة اليوم", sent[0][1])
-        self.assertIn("سجلات إرسال بلا توقيت", sent[0][1])
+        self.assertIn("سجلات إرسال قديمة بلا توقيت", sent[0][1])
         self.assertTrue(sent[0][2]["is_persistent"])
 
     def test_main_menu_button_routes_to_status_command(self):
