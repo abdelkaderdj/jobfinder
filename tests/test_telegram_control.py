@@ -1,6 +1,8 @@
 import json
 import os
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -15,6 +17,7 @@ os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
 from telegram_control import TelegramJobBot, event_key, main_menu_keyboard, now_local
 import auto_jobfinder_cloud as processor
+from auto_jobfinder_cloud import log_job_result_safely
 
 
 class FakeProcessor:
@@ -408,6 +411,49 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(len(processor.calls), 1)
         self.assertNotIn(pending_id, bot.state["pending_reviews"])
         self.assertEqual(bot.state["review_history"][pending_id]["status"], "sent")
+
+    def test_public_workflow_logs_redact_job_identity_and_reasons(self):
+        output = StringIO()
+        record = {
+            "job_title": "Highly Private Test Role",
+            "application_job_title": "Confidential Application Title",
+            "company": "Private Employer Name",
+            "location": "Private City Name",
+            "location_status": "allowed_local",
+            "accommodation_provided": "provided",
+            "decision": "REVIEW",
+            "original_ai_decision": "APPLY",
+            "score": 75,
+            "language": "fr",
+            "application_language": "fr",
+            "application_language_reason": "Private employer instructions",
+            "application_cv_language": "fr",
+            "cv": "/private/cvs/private-cv.pdf",
+            "emails": ["private-contact@example.org"],
+            "job_duplicate": False,
+            "sent": False,
+            "reason": "Private candidate-specific rejection reason",
+            "location_reason": "Private location details",
+        }
+        with redirect_stdout(output):
+            log_job_result_safely(record, "Private contact review details")
+
+        rendered = output.getvalue()
+        for secret_detail in (
+            "Highly Private Test Role",
+            "Confidential Application Title",
+            "Private Employer Name",
+            "Private City Name",
+            "private-contact@example.org",
+            "Private candidate-specific rejection reason",
+            "Private location details",
+            "Private contact review details",
+        ):
+            self.assertNotIn(secret_detail, rendered)
+        self.assertIn("DECISION: REVIEW", rendered)
+        self.assertIn("SCORE: 75", rendered)
+        self.assertIn("SCOPED EMAIL COUNT: 1", rendered)
+        self.assertIn("SENT: False", rendered)
 
     def test_event_key_is_stable(self):
         record = sample_event()["record"]

@@ -3941,8 +3941,7 @@ def send_application(
         )
     )
 
-    print("Sending application (recipient hidden in public logs)")
-    print("Subject:", subject)
+    print("Sending application (recipient and subject hidden in public logs)")
 
     server = None
     accepted = False
@@ -4043,6 +4042,22 @@ def save_result(
         )
 
 
+def log_job_result_safely(record, contact_review_reason=None):
+    """Write useful diagnostics without exposing job or candidate details in public Actions logs."""
+    print("JOB RESULT: identifying details redacted from public workflow logs")
+    print("DECISION:", record.get("decision"))
+    print("ORIGINAL AI DECISION:", record.get("original_ai_decision"))
+    print("SCORE:", record.get("score"))
+    print("LOCATION ELIGIBILITY:", record.get("location_status"))
+    print("APPLICATION LANGUAGE:", record.get("application_language"))
+    print("REQUESTED CV LANGUAGE:", record.get("application_cv_language"))
+    print("SCOPED EMAIL COUNT:", len(record.get("emails") or []))
+    print("JOB DUPLICATE:", bool(record.get("job_duplicate")))
+    print("SENT:", bool(record.get("sent")))
+    if contact_review_reason:
+        print("CONTACT REVIEW: present (details redacted)")
+
+
 # ============================================================
 # PROCESS ONE POST
 # ============================================================
@@ -4127,8 +4142,7 @@ def process_post(
 
         print(
             "JOB CONTACT SCOPE:",
-            scope_reason,
-            "| matched" if scope_matched else "| ambiguous; automatic send disabled",
+            "matched" if scope_matched else "ambiguous; automatic send disabled",
         )
 
         language_context = job_section_text if scope_matched else ""
@@ -4138,7 +4152,7 @@ def process_post(
         )
 
         print("APPLICATION LANGUAGE:", application_language)
-        print("LANGUAGE REASON:", language_reason)
+        print("LANGUAGE REASON: details redacted from public workflow logs")
 
         decision = str(
             job.get(
@@ -4590,104 +4604,7 @@ def process_post(
                 print("JOB EVENT CALLBACK ERROR:", type(exc).__name__)
 
         print()
-
-        print(
-            "JOB:",
-            record["job_title"]
-        )
-
-        print(
-            "APPLICATION JOB TITLE:",
-            record["application_job_title"]
-        )
-
-        print(
-            "COMPANY:",
-            record["company"]
-        )
-
-        print(
-            "LOCATION:",
-            record["location"]
-        )
-
-        print(
-            "LOCATION STATUS:",
-            record["location_status"]
-        )
-
-        print(
-            "ACCOMMODATION:",
-            record["accommodation_provided"]
-        )
-
-        print(
-            "DECISION:",
-            record["decision"]
-        )
-
-        print(
-            "ORIGINAL AI DECISION:",
-            record["original_ai_decision"]
-        )
-
-        print(
-            "SCORE:",
-            record["score"]
-        )
-
-        print(
-            "ADVERTISEMENT LANGUAGE:",
-            record["language"]
-        )
-
-        print(
-            "APPLICATION LANGUAGE:",
-            record["application_language"]
-        )
-
-        print(
-            "LANGUAGE REASON:",
-            record["application_language_reason"]
-        )
-
-        print(
-            "REQUESTED CV LANGUAGE:",
-            record["application_cv_language"]
-        )
-
-        print(
-            "CV:",
-            os.path.basename(record["cv"]) if record["cv"] else None
-        )
-
-        print(
-            "SCOPED EMAILS:",
-            f"{len(record['emails'])} address(es) [redacted]"
-        )
-
-        if contact_review_reason:
-            print("CONTACT REVIEW:", contact_review_reason)
-
-        print(
-            "JOB DUPLICATE:",
-            record["job_duplicate"]
-        )
-
-        print(
-            "SENT:",
-            record["sent"]
-        )
-
-        print(
-            "REASON:",
-            record["reason"]
-        )
-
-        print(
-            "LOCATION REASON:",
-            record["location_reason"]
-        )
+        log_job_result_safely(record, contact_review_reason)
 
     return post_success
 
