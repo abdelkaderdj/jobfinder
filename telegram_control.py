@@ -255,13 +255,29 @@ class TelegramJobBot:
             f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
             f"📨 طلبات مسجلة اليوم: {sent_count}\n"
-            f"📚 سجلات إرسال بلا توقيت: {undated_sent_count}\n"
-            f"🔎 الإعلانات المحللة اليوم: {stats.get('analyzed', 0)}\n"
+            f"📚 سجلات إرسال قديمة بلا توقيت: {undated_sent_count}\n"
+            f"🔎 الوظائف التي جرى تقييمها اليوم: {stats.get('analyzed', 0)}\n"
             f"❌ المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+            f"🛑 مراجعات رُفضت يدويًا اليوم: {stats.get('manual_rejected', 0)}\n"
             f"♻️ وظائف مكررة تم تجاوزها: {stats.get('duplicates', 0)}\n"
             f"⚠️ محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
             "استخدم الأزرار أسفل الشاشة للتنقل."
         )
+
+    def _manual_rejections_today(self) -> int:
+        """Count reviews manually rejected today, using the resolution timestamp."""
+        today = now_local().date()
+        history = self.state.get("review_history", {})
+        if not isinstance(history, dict):
+            return 0
+        count = 0
+        for item in history.values():
+            if not isinstance(item, dict) or item.get("status") != "rejected":
+                continue
+            resolved_at = self._parse_local_datetime(item.get("at"))
+            if resolved_at and resolved_at.date() == today:
+                count += 1
+        return count
 
     def _today_stats(self) -> dict[str, Any]:
         today = now_local().date().isoformat()
@@ -273,21 +289,48 @@ class TelegramJobBot:
                 "sent": 0,
                 "review": 0,
                 "rejected": 0,
+                "manual_rejected": 0,
                 "duplicates": 0,
                 "send_failed": 0,
+                # Fresh counters already use the corrected definitions.
+                "manual_rejections_reconciled": True,
             }
             self.state["daily_stats"] = stats
-        elif "duplicates" not in stats:
-            # Migrate same-day legacy counters. With APPLY/REVIEW/REJECT as the
-            # only decisions, the residual are previously uncounted APPLY duplicates.
-            analyzed = int(stats.get("analyzed", 0))
-            classified = (
-                int(stats.get("sent", 0))
-                + int(stats.get("review", 0))
-                + int(stats.get("rejected", 0))
-                + int(stats.get("send_failed", 0))
-            )
-            stats["duplicates"] = max(0, analyzed - classified)
+        else:
+            # The old version counted a manual review rejection as an automatic
+            # rejection too. Split those historical counts exactly once after
+            # deployment, based on review_history timestamps.
+            if not stats.get("manual_rejections_reconciled"):
+                manual_rejections = self._manual_rejections_today()
+                old_rejected = max(0, int(stats.get("rejected", 0)))
+                reconciled = min(old_rejected, manual_rejections)
+                stats["rejected"] = old_rejected - reconciled
+                stats["manual_rejected"] = max(
+                    int(stats.get("manual_rejected", 0)),
+                    manual_rejections,
+                )
+                stats["manual_rejections_reconciled"] = True
+
+            stats.setdefault("manual_rejected", 0)
+            # Migrate same-day legacy counters. Infer only duplicate APPLY
+            # events that the old schema did not count as a separate category.
+            if "duplicates" not in stats:
+                analyzed = max(0, int(stats.get("analyzed", 0)))
+                classified = (
+                    max(0, int(stats.get("sent", 0)))
+                    + max(0, int(stats.get("review", 0)))
+                    + max(0, int(stats.get("rejected", 0)))
+                    + max(0, int(stats.get("send_failed", 0)))
+                )
+                stats["duplicates"] = max(0, analyzed - classified)
+
+        # Normalize new fields and tolerate old/partial state without crashing
+        # the Telegram command handler.
+        for key in ("analyzed", "sent", "review", "rejected", "manual_rejected", "duplicates", "send_failed"):
+            try:
+                stats[key] = max(0, int(stats.get(key, 0)))
+            except (TypeError, ValueError):
+                stats[key] = 0
         return stats
 
     def _count_event_once(self, record: dict[str, Any]) -> None:
@@ -801,13 +844,15 @@ class TelegramJobBot:
             self._save("Daily stats checked")
             self._send_owner(
                 f"📊 ملخص JobFinder — {stats.get('date')} (توقيت الجزائر)\n\n"
-                f"الإعلانات المحللة: {stats.get('analyzed', 0)}\n"
+                f"الوظائف التي جرى تقييمها اليوم: {stats.get('analyzed', 0)}\n"
                 f"طلبات مسجلة الإرسال اليوم: {sent_count}\n"
                 f"مراجعات جديدة اليوم: {stats.get('review', 0)}\n"
                 f"المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
+                f"مراجعات رُفضت يدويًا اليوم: {stats.get('manual_rejected', 0)}\n"
                 f"وظائف مكررة تم تجاوزها: {stats.get('duplicates', 0)}\n"
                 f"محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
-                "ملاحظة: تُحتسب الطلبات حسب توقيت الإرسال المسجل؛ السجلات القديمة بلا توقيت لا تُنسب إلى اليوم تخمينًا."
+                "ملاحظة: «مراجعات جديدة» تعني وظائف صُنّفت للمراجعة أولًا؛ الرفض اليدوي يُحسب منفصلًا ولا يُضاف إلى الرفض التلقائي.\n"
+                "تُحتسب الطلبات حسب توقيت الإرسال المسجل؛ السجلات القديمة بلا توقيت لا تُنسب إلى اليوم تخمينًا."
             )
         elif command == "/sent":
             records = self._sent_records_today()
@@ -822,10 +867,11 @@ class TelegramJobBot:
                 if undated_records:
                     lines.extend([
                         "",
-                        f"📚 توجد {len(undated_records)} سجلات إرسال قديمة بلا توقيت محفوظ.",
-                        "لا نحتسبها ضمن اليوم حتى لا ننسب طلبًا إلى تاريخ غير مؤكد.",
+                        f"📚 توجد {len(undated_records)} سجلات محفوظة في سجل الإرسال القديم بلا توقيت.",
+                        "الإصدار السابق لم يكن يحفظ وقت الإرسال؛ هذه السجلات لا تخص طلبات اليوم، ولا يثبت السجل وحده وصول البريد إلى صندوق الوارد.",
+                        "نحتفظ بها لمنع إعادة التقديم على الوظائف نفسها.",
                         "",
-                        "سجلات بلا توقيت (للمراجعة):",
+                        "أول سجلات قديمة (ليست طلبات اليوم):",
                     ])
                     for index, record in enumerate(undated_records[:5], start=1):
                         title = safe_text(record.get("application_job_title") or record.get("job_title"), 180)
@@ -868,7 +914,7 @@ class TelegramJobBot:
                 if undated_records:
                     lines.extend([
                         "",
-                        f"ℹ️ توجد أيضًا {len(undated_records)} سجلات بلا توقيت؛ لم تُحتسب ضمن طلبات اليوم.",
+                        f"ℹ️ توجد أيضًا {len(undated_records)} سجلات إرسال قديمة بلا توقيت محفوظ؛ ليست طلبات اليوم وتبقى محفوظة لمنع التكرار.",
                     ])
                 self._send_owner("\n".join(lines))
         elif command == "/pending":
@@ -953,9 +999,10 @@ class TelegramJobBot:
             return
 
         if action == "reject":
-            self._resolve_review(pending_id, "rejected")
+            # Migrate old daily counters before adding the current rejection to history.
             stats = self._today_stats()
-            stats["rejected"] = int(stats.get("rejected", 0)) + 1
+            self._resolve_review(pending_id, "rejected")
+            stats["manual_rejected"] = int(stats.get("manual_rejected", 0)) + 1
             self._save("Manual review rejection counted")
             self._answer_callback(query_id, "تم رفض الوظيفة.")
             self._edit_message(
