@@ -96,5 +96,20 @@ jobs:
             echo "No encrypted state changes to save."
           else
             git commit -m "Update encrypted JobFinder state after Telegram event"
-            git push
+            for attempt in 1 2 3; do
+              git fetch origin +refs/heads/master:refs/remotes/origin/master
+              if ! git rebase origin/master; then
+                git rebase --abort || true
+                echo "State checkpoint rebase conflicted; refusing to overwrite remote state." >&2
+                exit 1
+              fi
+              if git push origin HEAD:master; then
+                echo "Encrypted JobFinder state saved."
+                exit 0
+              fi
+              echo "Remote master moved during state checkpoint push; retrying (${attempt}/3)." >&2
+              sleep 2
+            done
+            echo "Unable to save encrypted state checkpoint after 3 attempts." >&2
+            exit 1
           fi
