@@ -4198,8 +4198,10 @@ def process_post(
 
     # Schema-valid empty output can silently drop a real job ad. Retry once
     # with an explicit extraction prompt; if still empty, queue no-send review.
-    if not jobs and looks_like_vacancy_ad(text):
-        print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+    force_vacancy_review = bool(post.get("force_vacancy_review"))
+    if not jobs and (looks_like_vacancy_ad(text) or force_vacancy_review):
+        trigger = "forced recovery" if force_vacancy_review else "vacancy signals"
+        print(f"AI EMPTY EXTRACTION: {trigger}; retrying extraction once")
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
             retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []

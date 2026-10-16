@@ -467,12 +467,15 @@ class TelegramControlTests(unittest.TestCase):
         ))
 
     def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
+        # Known missed posts are forced through rescue even without a recognized
+        # vacancy keyword, so a second empty result cannot disappear silently.
         post = {
             "source": "ajob58dz",
             "channel": "ajob58dz",
             "message_id": 7654,
             "date": "2026-10-15T22:21:14+00:00",
-            "text": "OFFRE D’EMPLOI — Technicien de Maintenance à Oran. Envoyez CV à jobs@example.org",
+            "text": "Technicien de Maintenance mécanique — Alger. CV: jobs@example.org",
+            "force_vacancy_review": True,
         }
         events = []
         with (
