@@ -69,8 +69,9 @@ def make_markdown(report: dict[str, Any]) -> str:
         "# JobFinder — تدقيق تجريبي لآخر 48 ساعة",
         "",
         f"- الفترة UTC: {summary['window_start_utc']} إلى {summary['window_end_utc']}",
-        f"- الرسائل النصية التي جُمعت: {summary['posts_collected']}",
-        f"- الرسائل التي جرى تحليلها: {summary['posts_processed']}",
+        f"- الرسائل النصية في النافذة الزمنية: {summary['posts_collected_in_window']}",
+        f"- الرسائل التي أُدخلت إلى التدقيق: {summary['posts_processed']}",
+        f"- المصادر المفحوصة: {len(summary['channels'])}",
         f"- المناصب التي قيّمها النظام: {summary['positions_evaluated']}",
         f"- APPLY: {summary['decisions'].get('APPLY', 0)}",
         f"- REVIEW: {summary['decisions'].get('REVIEW', 0)}",
@@ -81,6 +82,13 @@ def make_markdown(report: dict[str, Any]) -> str:
         f"- محاولات إرسال بريد تم منعها في الاختبار: {summary['email_attempts_suppressed']}",
         "",
         "**هذه محاكاة قراءة فقط. لم يُرسل أي بريد، ولم تُعدّل مؤشرات القنوات أو حالة البوت.**",
+        "",
+        "## الرسائل التي جُمعت حسب القناة",
+        "",
+    ]
+    for channel, count in summary["channels"].items():
+        lines.append(f"- {channel}: {count} رسالة")
+    lines.extend([
         "",
         "## الوظائف التي قيّمها النظام",
         "",
@@ -115,7 +123,7 @@ def make_markdown(report: dict[str, Any]) -> str:
     if report.get("truncated"):
         lines.extend([
             "",
-            "**تنبيه:** وصل التدقيق إلى حد الرسائل المحدد؛ النتائج تخص أحدث الرسائل ضمن الحد وليست تعدادًا كاملًا للفترة.",
+            "**تنبيه:** وصل التدقيق إلى حد الرسائل المحدد؛ النتائج تخص أحدث الرسائل ضمن الحد وليست مراجعة كاملة لكل إعلان في الفترة.",
         ])
     return "\n".join(lines) + "\n"
 
@@ -196,7 +204,8 @@ async def run_audit() -> dict[str, Any]:
         await client.disconnect()
 
     audit_posts.sort(key=lambda item: item["date_utc"])
-    truncated = len(audit_posts) > MAX_AUDIT_POSTS
+    total_posts_collected = len(audit_posts)
+    truncated = total_posts_collected > MAX_AUDIT_POSTS
     if truncated:
         audit_posts = audit_posts[-MAX_AUDIT_POSTS:]
 
@@ -296,7 +305,7 @@ async def run_audit() -> dict[str, Any]:
         "summary": {
             "window_start_utc": cutoff.isoformat(timespec="seconds"),
             "window_end_utc": now.isoformat(timespec="seconds"),
-            "posts_collected": len(audit_posts),
+            "posts_collected_in_window": total_posts_collected,
             "posts_processed": len(output_posts),
             "positions_evaluated": positions_evaluated,
             "decisions": dict(decisions),
