@@ -23,7 +23,7 @@ CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
 # This post was consumed after the AI returned zero positions despite a
 # recruitment-like heading. Re-evaluate it once after extraction recovery ships.
 RECOVERY_POSTS_ONCE = (("ajob58dz", 7654),)
-RUNNER_VERSION = "2026-10-16-vacancy-recovery-v1"
+RUNNER_VERSION = "2026-10-16-vacancy-recovery-v2"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -211,7 +211,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         if not await client.is_user_authorized():
             raise RuntimeError("Telegram session is not authorized; renew TELEGRAM_SESSION")
 
-        recovery_state = state.setdefault("post_recovery_v1", {})
+        recovery_state = state.setdefault("post_recovery_v2", {})
         for recovery_channel, recovery_message_id in RECOVERY_POSTS_ONCE:
             recovery_key = f"{recovery_channel}:{recovery_message_id}"
             prior_status = recovery_state.get(recovery_key)
@@ -265,6 +265,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
                 "message_id": recovery_message_id,
                 "date": recovered_message.date.isoformat() if recovered_message.date else "",
                 "text": recovered_text,
+                "force_vacancy_review": True,
             }
             print(f"POST RECOVERY: reprocessing known zero-extraction post {recovery_key}")
             messages_seen += 1
