@@ -7,7 +7,11 @@ import urllib.request
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import sys
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
