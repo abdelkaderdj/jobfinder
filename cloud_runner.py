@@ -224,6 +224,46 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
             try:
                 entity = await client.get_entity(channel)
                 current_cursor = last_ids.get(channel)
+
+                # One-time read-only diagnostic: compare the persisted cursor with
+                # Telegram's latest message ID/date. This distinguishes genuinely
+                # quiet channels from stale/ahead cursors that can silently yield
+                # zero messages. No advertisement text is logged or stored here.
+                cursor_diagnostics = state.setdefault("channel_cursor_diagnostics_v1", {})
+                if not cursor_diagnostics.get(channel):
+                    latest_messages = await client.get_messages(entity, limit=1)
+                    latest_message = latest_messages[0] if latest_messages else None
+                    latest_id = int(latest_message.id) if latest_message else 0
+                    latest_date = (
+                        latest_message.date.isoformat()
+                        if latest_message is not None and latest_message.date
+                        else "unavailable"
+                    )
+                    try:
+                        cursor_number = int(current_cursor) if current_cursor is not None else None
+                    except (TypeError, ValueError):
+                        cursor_number = None
+                    newer_available = (
+                        latest_id > cursor_number if cursor_number is not None else None
+                    )
+                    id_gap = latest_id - cursor_number if cursor_number is not None else None
+                    print(
+                        f"[{channel}] CURSOR DIAGNOSTIC: stored_cursor={cursor_number}; "
+                        f"latest_message_id={latest_id}; latest_message_date={latest_date}; "
+                        f"latest_is_newer={newer_available}; id_gap={id_gap}"
+                    )
+                    cursor_diagnostics[channel] = {
+                        "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "stored_cursor": cursor_number,
+                        "latest_message_id": latest_id,
+                        "latest_message_date": latest_date,
+                        "latest_is_newer": newer_available,
+                    }
+                    state["channel_cursor_diagnostics_v1"] = cursor_diagnostics
+                    persist_checkpoint(
+                        state, fernet, f"one-time cursor diagnostic for {channel}", checkpoint_cache
+                    )
+
                 if current_cursor is None:
                     latest = await client.get_messages(entity, limit=1)
                     latest_id = int(latest[0].id) if latest else 0
