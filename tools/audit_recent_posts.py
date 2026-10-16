@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.error
+import urllib.request
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 from telethon import TelegramClient
@@ -23,7 +25,6 @@ from cloud_runner import (
 WINDOW_HOURS = 48
 PER_CHANNEL_SCAN_LIMIT = 180
 MAX_AUDIT_POSTS = 60
-OUTPUT_DIR = BASE_DIR / "audit_output"
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -313,36 +314,78 @@ async def run_audit() -> dict[str, Any]:
     return report
 
 
+def send_private_report_to_telegram(markdown: str, summary: dict[str, Any]) -> None:
+    """Send the detailed report only to the configured owner's private Telegram chat."""
+    token = required_env("TELEGRAM_BOT_TOKEN")
+    chat_id = required_env("TELEGRAM_BOT_CHAT_ID")
+    if not token or not chat_id:
+        raise RuntimeError("Private Telegram report destination is not configured")
+
+    caption = (
+        "📊 انتهى تدقيق JobFinder لآخر 48 ساعة.\n"
+        f"الرسائل: {summary['posts_processed']} | "
+        f"الوظائف المقيمة: {summary['positions_evaluated']}\n"
+        f"APPLY: {summary['decisions'].get('APPLY', 0)} | "
+        f"REVIEW: {summary['decisions'].get('REVIEW', 0)} | "
+        f"REJECT: {summary['decisions'].get('REJECT', 0)}\n"
+        "هذا اختبار قراءة فقط؛ لم يُرسل أي بريد توظيف ولم تُغيّر مؤشرات القنوات."
+    )
+    boundary = "----JobFinderAudit" + uuid.uuid4().hex
+    parts: list[bytes] = []
+
+    def add_field(name: str, value: str) -> None:
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        )
+        parts.append(value.encode("utf-8"))
+        parts.append(b"\r\n")
+
+    add_field("chat_id", chat_id)
+    add_field("caption", caption)
+    add_field("parse_mode", "HTML")
+
+    document = markdown.encode("utf-8")
+    parts.append(f"--{boundary}\r\n".encode())
+    parts.append(
+        b'Content-Disposition: form-data; name="document"; filename="JobFinder_Audit_48h.md"\r\n'
+    )
+    parts.append(b"Content-Type: text/markdown; charset=utf-8\r\n\r\n")
+    parts.append(document)
+    parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendDocument",
+        data=b"".join(parts),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Could not deliver the private audit report to Telegram") from exc
+    if not isinstance(result, dict) or not result.get("ok"):
+        raise RuntimeError("Telegram rejected the private audit report")
+
+
 def main() -> int:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     try:
         report = asyncio.run(run_audit())
+        summary = report["summary"]
+        markdown = make_markdown(report)
+        send_private_report_to_telegram(markdown, summary)
     except Exception as exc:
-        error_report = {
-            "audit_mode": "read-only dry run",
-            "email_sending_enabled": False,
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:300],
-        }
-        (OUTPUT_DIR / "audit_48h.json").write_text(
-            json.dumps(error_report, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        # Keep public Actions output aggregate-only; never print post text or decision reasons.
         print(json.dumps({"audit_failed": True, "error_type": type(exc).__name__}))
         return 1
 
-    (OUTPUT_DIR / "audit_48h.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    print(json.dumps(summary, ensure_ascii=False))
+    print(
+        "READ-ONLY AUDIT COMPLETE: detailed report delivered only to the configured "
+        "private Telegram chat; no job emails sent and no cursor/state checkpoint written."
     )
-    (OUTPUT_DIR / "audit_48h.md").write_text(
-        make_markdown(report),
-        encoding="utf-8",
-    )
-    # Never print job titles, company names, contact details, post text, or
-    # candidate-specific rejection reasons to public Actions logs.
-    print(json.dumps(report["summary"], ensure_ascii=False))
-    print("READ-ONLY AUDIT COMPLETE: no emails sent and no cursor/state checkpoint written.")
     return 0
 
 
