@@ -92,7 +92,7 @@ def make_markdown(report: dict[str, Any]) -> str:
         "",
         "## الوظائف التي قيّمها النظام",
         "",
-    ]
+    ])
     for post in report["posts"]:
         lines.append(
             f"### {post['source']} / {post['message_id']} — "
