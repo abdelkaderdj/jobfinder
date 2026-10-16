@@ -1093,7 +1093,8 @@ class TelegramJobBot:
             record = item.get("record") or {}
             counted = self.state.setdefault("counted_job_events", [])
             record_key = event_key(record) if isinstance(record, dict) else ""
-            if isinstance(counted, list) and record_key and record_key in counted:
+            was_counted = isinstance(counted, list) and bool(record_key) and record_key in counted
+            if was_counted:
                 counted.remove(record_key)
                 stats = self.state.get("daily_stats")
                 if isinstance(stats, dict) and stats.get("date") == now_local().date().isoformat():
