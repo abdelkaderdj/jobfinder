@@ -1090,6 +1090,23 @@ class TelegramJobBot:
             if item_source != source or item_message_id != message_id:
                 continue
 
+            record = item.get("record") or {}
+            counted = self.state.setdefault("counted_job_events", [])
+            record_key = event_key(record) if isinstance(record, dict) else ""
+            if isinstance(counted, list) and record_key and record_key in counted:
+                counted.remove(record_key)
+                stats = self.state.get("daily_stats")
+                if isinstance(stats, dict) and stats.get("date") == now_local().date().isoformat():
+                    try:
+                        stats["analyzed"] = max(0, int(stats.get("analyzed", 0)) - 1)
+                    except (TypeError, ValueError):
+                        stats["analyzed"] = 0
+                    if str(record.get("decision") or "").upper() == "REVIEW":
+                        try:
+                            stats["review"] = max(0, int(stats.get("review", 0)) - 1)
+                        except (TypeError, ValueError):
+                            stats["review"] = 0
+
             pending.pop(pending_id, None)
             history[pending_id] = {
                 "status": "ignored_non_job",
