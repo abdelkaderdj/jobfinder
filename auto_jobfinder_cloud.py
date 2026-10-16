@@ -4075,12 +4075,12 @@ def log_job_result_safely(record, contact_review_reason=None):
 # ============================================================
 VACANCY_SIGNAL_RE = re.compile(
     r"(?:"
-    r"offre\\s+d['’ ]?emploi|offre\\s+de\\s+recrutement|avis\\s+de\\s+recrutement|"
-    r"recrutement|recrute|recrutons|job\\s+offer|job\\s+vacanc(?:y|ies)|"
-    r"we\\s+are\\s+hiring|hiring|vacanc(?:y|ies)|position[s]?\\s+à\\s+pourvoir|"
-    r"nous\\s+recherchons|"
-    r"إعلان\\s+توظيف|اعلان\\s+توظيف|عرض\\s+عمل|عروض\\s+عمل|فرصة\\s+عمل|"
-    r"وظائف\\s+شاغرة|فتح\\s+باب\\s+التوظيف|نبحث\\s+عن|مطلوب(?:ة|ين)?|"
+    r"offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
+    r"recrutement|recrute|recrutons|job\s+offer|job\s+vacanc(?:y|ies)|"
+    r"we\s+are\s+hiring|hiring|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|"
+    r"nous\s+recherchons|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|عروض\s+عمل|فرصة\s+عمل|"
+    r"وظائف\s+شاغرة|فتح\s+باب\s+التوظيف|نبحث\s+عن|مطلوب(?:ة|ين)?|"
     r"تعلن.{0,80}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)"
     r")",
     flags=re.IGNORECASE | re.DOTALL,
