@@ -455,6 +455,55 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("SCOPED EMAIL COUNT: 1", rendered)
         self.assertIn("SENT: False", rendered)
 
+    def test_vacancy_signal_detects_french_and_arabic_job_posts(self):
+        self.assertTrue(processor.looks_like_vacancy_ad(
+            "OFFRE D’EMPLOI — Technicien de Maintenance à Oran"
+        ))
+        self.assertTrue(processor.looks_like_vacancy_ad(
+            "إعلان توظيف: مطلوب تقني صيانة ميكانيكية"
+        ))
+        self.assertFalse(processor.looks_like_vacancy_ad(
+            "Discussion générale sur les transports et la météo"
+        ))
+
+    def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
+        post = {
+            "source": "ajob58dz",
+            "channel": "ajob58dz",
+            "message_id": 7654,
+            "date": "2026-10-15T22:21:14+00:00",
+            "text": "OFFRE D’EMPLOI — Technicien de Maintenance à Oran. Envoyez CV à jobs@example.org",
+        }
+        events = []
+        with (
+            patch.object(
+                processor,
+                "analyze_offer",
+                side_effect=[{"jobs": []}, {"jobs": []}],
+            ) as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        self.assertEqual(analyze.call_count, 2)
+        self.assertFalse(analyze.call_args_list[0].kwargs.get("vacancy_rescue", False))
+        self.assertTrue(analyze.call_args_list[1].kwargs["vacancy_rescue"])
+        save_result.assert_called_once()
+        send_application.assert_not_called()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["post"]["message_id"], 7654)
+        fallback = events[0]["record"]
+        self.assertEqual(fallback["decision"], "REVIEW")
+        self.assertEqual(fallback["original_ai_decision"], "REVIEW")
+        self.assertIsNone(fallback["score"])
+        self.assertFalse(fallback["sent"])
+        self.assertFalse(fallback["contact_scope_matched"])
+        self.assertEqual(fallback["emails"], ["jobs@example.org"])
+        self.assertIn("لن يُرسل أي بريد تلقائي", fallback["reason"])
+
     def test_event_key_is_stable(self):
         record = sample_event()["record"]
         self.assertEqual(event_key(record), event_key(dict(record)))

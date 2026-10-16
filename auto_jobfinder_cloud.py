@@ -857,7 +857,7 @@ def groq_json_request(
 # AI ANALYSIS
 # ============================================================
 
-def analyze_offer(text):
+def analyze_offer(text, vacancy_rescue=False):
 
     prompt = """
 
@@ -1362,6 +1362,20 @@ REAL CANDIDATE
 JOB ADVERTISEMENT
 ============================================================
 """ + text
+
+
+    if vacancy_rescue:
+        prompt += """
+
+VACANCY EXTRACTION RETRY:
+The previous pass returned an empty jobs array. Re-read the COMPLETE
+advertisement carefully. If it advertises one or more positions, return
+each distinct position in the JSON "jobs" array even if the candidate
+does not qualify; use REJECT for an unsuitable position instead of
+omitting it. Return an empty array only when the text truly has no job
+vacancy. Never invent titles, employers, locations, contacts, or
+requirements.
+"""
 
     messages = [
 
@@ -4059,6 +4073,79 @@ def log_job_result_safely(record, contact_review_reason=None):
 
 
 # ============================================================
+VACANCY_SIGNAL_RE = re.compile(
+    r"(?:"
+    r"offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
+    r"recrutement|recrute|recrutons|job\s+offer|job\s+vacanc(?:y|ies)|"
+    r"we\s+are\s+hiring|hiring|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|"
+    r"nous\s+recherchons|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|عروض\s+عمل|فرصة\s+عمل|"
+    r"وظائف\s+شاغرة|فتح\s+باب\s+التوظيف|نبحث\s+عن|مطلوب(?:ة|ين)?|"
+    r"تعلن.{0,80}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)"
+    r")",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def looks_like_vacancy_ad(text):
+    """Conservative multilingual signal used only when AI returns no positions."""
+    return bool(VACANCY_SIGNAL_RE.search(str(text or "")))
+
+
+def emit_unparsed_vacancy_review(post, advertisement):
+    """Keep a recruitment-like post visible for manual review; never auto-send it."""
+    title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
+    source = str(post.get("source") or post.get("channel") or "")
+    emails = extract_emails(advertisement)
+    record = {
+        "source": source,
+        "channel": source,
+        "message_id": post.get("message_id"),
+        "job_title": title,
+        "application_job_title": title,
+        "application_title_fr": "Annonce de recrutement à vérifier manuellement",
+        "application_title_en": "Recruitment advertisement requiring manual review",
+        "company": "",
+        "location": "",
+        "location_status": "unknown_location",
+        "location_reason": "The advertisement was not parsed reliably.",
+        "accommodation_provided": "unknown",
+        "language": "mixed",
+        "application_language": "fr",
+        "application_language_reason": "Manual review only; no automatic application.",
+        "application_cv_language": "",
+        "cv": "",
+        "emails": emails,
+        "decision": "REVIEW",
+        "original_ai_decision": "REVIEW",
+        "score": None,
+        "reason": (
+            "تعذّر استخراج المناصب آليًا رغم وجود مؤشرات توظيف. "
+            "أُحيل الإعلان للمراجعة اليدوية؛ لن يُرسل أي بريد تلقائي من هذه البطاقة."
+        ),
+        "sent": False,
+        "job_duplicate": False,
+        "contact_scope_matched": False,
+        "analysis_fallback": True,
+    }
+    save_result(record)
+    if JOB_EVENT_CALLBACK is None:
+        print("VACANCY EXTRACTION FALLBACK: callback unavailable; post will retry")
+        return False
+    try:
+        JOB_EVENT_CALLBACK({
+            "post": post,
+            "record": record,
+            "job": {"job_title": title, "company": "", "location": ""},
+            "advertisement": str(advertisement or ""),
+        })
+    except Exception as exc:
+        print("VACANCY EXTRACTION FALLBACK CALLBACK ERROR:", type(exc).__name__)
+        return False
+    print("VACANCY EXTRACTION FALLBACK: queued for manual review; automatic send disabled")
+    return True
+
+
 # PROCESS ONE POST
 # ============================================================
 
@@ -4096,27 +4183,44 @@ def process_post(
 
         return False
 
-    jobs = result.get(
-        "jobs",
-        []
-    )
-
-    if not isinstance(
-        jobs,
-        list
-    ):
-
+    if not isinstance(result, dict):
+        print("AI ERROR: analysis response was not a JSON object")
+        return False
+    jobs = result.get("jobs", [])
+    if not isinstance(jobs, list):
         jobs = []
+    jobs = [job for job in jobs if isinstance(job, dict)]
 
-    print(
-        f"Found {len(jobs)} job position(s)"
-    )
-
-    # Separate independent recruitment notices where the message has clear
-    # numbered/hiring headings. Contact data is scoped per job, not per message.
+    # Split independently headed notices before assigning contact details.
     job_sections = split_advertisement_sections(text)
     has_multiple_sections = len(job_sections) > 1
     print(f"Detected {len(job_sections)} recruitment section(s)")
+
+    # Schema-valid empty output can silently drop a real job ad. Retry once
+    # with an explicit extraction prompt; if still empty, queue no-send review.
+    if not jobs and looks_like_vacancy_ad(text):
+        print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+        try:
+            retry_result = analyze_offer(text, vacancy_rescue=True)
+            retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
+            if isinstance(retry_jobs, list):
+                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
+            else:
+                retry_jobs = []
+        except Exception as exc:
+            print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
+            retry_jobs = []
+
+        if retry_jobs:
+            result = retry_result
+            jobs = retry_jobs
+            print(f"AI VACANCY RESCUE: extracted {len(jobs)} position(s)")
+        else:
+            # Do not discard the post silently, and never automatically apply
+            # using a synthetic/uncertain job record.
+            return emit_unparsed_vacancy_review(post, text)
+
+    print(f"Found {len(jobs)} job position(s)")
 
     # ========================================================
     # PROCESS EACH DISTINCT POSITION
