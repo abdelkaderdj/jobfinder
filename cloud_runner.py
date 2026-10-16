@@ -239,7 +239,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
                 # Telegram's latest message ID/date. This distinguishes genuinely
                 # quiet channels from stale/ahead cursors that can silently yield
                 # zero messages. No advertisement text is logged or stored here.
-                cursor_diagnostics = state.setdefault("channel_cursor_diagnostics_v1", {})
+                cursor_diagnostics = state.setdefault("channel_cursor_diagnostics_v2", {})
                 if not cursor_diagnostics.get(channel):
                     latest_messages = await client.get_messages(entity, limit=1)
                     latest_message = latest_messages[0] if latest_messages else None
@@ -269,7 +269,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
                         "latest_message_date": latest_date,
                         "latest_is_newer": newer_available,
                     }
-                    state["channel_cursor_diagnostics_v1"] = cursor_diagnostics
+                    state["channel_cursor_diagnostics_v2"] = cursor_diagnostics
                     persist_checkpoint(
                         state, fernet, f"one-time cursor diagnostic for {channel}", checkpoint_cache
                     )
