@@ -4104,11 +4104,28 @@ _MIGRATION_DISTRESS_SIGNAL_RE = re.compile(
     flags=re.IGNORECASE | re.DOTALL,
 )
 
+# Do not treat a generic channel/header phrase such as "عروض عمل" as proof
+# that the message itself is a vacancy. Strong details take precedence.
+_EXPLICIT_JOB_DETAIL_RE = re.compile(
+    r"(?:recrutement|recrute|recrutons|job\s+offer|job\s+vacanc(?:y|ies)|"
+    r"we\s+are\s+hiring|hiring|postuler|candidature|envoyer|send\s+(?:your\s+)?(?:cv|resume)|"
+    r"apply\s+now|curriculum\s+vitae|\bcv\b|\be-?mail\b|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|توظيف|مطلوب(?:ة|ين)?|منصب|مناصب|وظيفة|"
+    r"وظائف\s+شاغرة|سيرة\s+ذاتية|الترشح|التقديم|أرسل(?:وا)?|إرسال|"
+    r"technicien|technician|maintenance|m[ée]canicien|m[ée]canique|"
+    r"ing[ée]nieur|engineer|op[ée]rateur|production|electricien|électricien|"
+    r"soudeur|magasinier|superviseur|supervisor|commercial|"
+    r"مهندس|تقني|فني|ميكانيكي|صيانة|إنتاج|عامل|موظف|مشرف|مسؤول)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
 
 def looks_like_non_job_social_post(text):
-    """Detect a narrow class of obvious social/distress posts misread as job ads."""
+    """Detect high-confidence social/distress posts without actual job details."""
     body = str(text or "").strip()
-    if not body or looks_like_vacancy_ad(body):
+    if not body:
+        return False
+    if _EXPLICIT_JOB_DETAIL_RE.search(body):
         return False
     return bool(
         _SOCIAL_PRAYER_SIGNAL_RE.search(body)
