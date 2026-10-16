@@ -1113,6 +1113,7 @@ class TelegramJobBot:
                 "at": iso_now(),
                 "source": source,
                 "message_id": message_id,
+                "counters_reconciled": was_counted,
             }
             telegram_message_id = item.get("telegram_message_id")
             if telegram_message_id and self.owner_configured:
@@ -1127,8 +1128,35 @@ class TelegramJobBot:
                 )
             dismissed += 1
 
-        if dismissed:
-            self._save("Known non-job review dismissed")
+        # PRs that cleaned the card before this counter correction landed only
+        # left a history record. Reconcile those counters once as well.
+        stats = self.state.get("daily_stats")
+        counters_reconciled_any = False
+        history = self.state.setdefault("review_history", {})
+        for history_item in history.values():
+            if not isinstance(history_item, dict):
+                continue
+            if (
+                history_item.get("status") != "ignored_non_job"
+                or str(history_item.get("source") or "").strip() != source
+                or str(history_item.get("message_id") or "").strip() != message_id
+                or history_item.get("counters_reconciled")
+            ):
+                continue
+            if isinstance(stats, dict) and stats.get("date") == now_local().date().isoformat():
+                try:
+                    stats["analyzed"] = max(0, int(stats.get("analyzed", 0)) - 1)
+                except (TypeError, ValueError):
+                    stats["analyzed"] = 0
+                try:
+                    stats["review"] = max(0, int(stats.get("review", 0)) - 1)
+                except (TypeError, ValueError):
+                    stats["review"] = 0
+            history_item["counters_reconciled"] = True
+            counters_reconciled_any = True
+
+        if dismissed or counters_reconciled_any:
+            self._save("Known non-job review dismissed and counters reconciled")
         return dismissed
 
     def _resolve_review(self, pending_id: str, status: str) -> None:
