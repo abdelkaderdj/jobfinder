@@ -342,6 +342,35 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(second["rejected"], 151)
         self.assertEqual(second["manual_rejected"], 4)
 
+    def test_known_non_job_review_is_dismissed_without_rejection_or_email(self):
+        bot, _ = self.build_bot()
+        event = sample_event("REVIEW")
+        event["post"]["source"] = "ajob58dz"
+        event["post"]["message_id"] = 7654
+        event["record"]["source"] = "ajob58dz"
+        event["record"]["message_id"] = 7654
+        bot.on_job_event(event)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        edits = []
+        bot._edit_message = lambda query, text: edits.append((query, text))
+
+        dismissed = bot.dismiss_non_job_reviews_for_post(
+            "ajob58dz",
+            7654,
+            "تصحيح: هذا المنشور ليس إعلان توظيف.",
+        )
+
+        self.assertEqual(dismissed, 1)
+        self.assertNotIn(pending_id, bot.state["pending_reviews"])
+        self.assertEqual(
+            bot.state["review_history"][pending_id]["status"],
+            "ignored_non_job",
+        )
+        self.assertEqual(bot.state.get("rejected_job_history", []), [])
+        self.assertEqual(bot._today_stats()["rejected"], 0)
+        self.assertEqual(len(edits), 1)
+        self.assertIn("ليس إعلان توظيف", edits[0][1])
+
     def test_reject_callback_resolves_review(self):
         bot, _ = self.build_bot()
         bot.on_job_event(sample_event())
