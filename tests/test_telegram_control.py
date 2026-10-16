@@ -486,6 +486,48 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("SCOPED EMAIL COUNT: 1", rendered)
         self.assertIn("SENT: False", rendered)
 
+    def test_previously_dismissed_non_job_history_reconciles_today_counters_once(self):
+        bot, _ = self.build_bot()
+        today = now_local().date().isoformat()
+        bot.state["review_history"]["old-false-review"] = {
+            "status": "ignored_non_job",
+            "at": now_local().isoformat(),
+            "source": "ajob58dz",
+            "message_id": "7654",
+        }
+        bot.state["daily_stats"] = {
+            "date": today,
+            "analyzed": 1,
+            "sent": 0,
+            "review": 1,
+            "rejected": 0,
+            "manual_rejected": 0,
+            "duplicates": 0,
+            "send_failed": 0,
+            "manual_rejections_reconciled": True,
+        }
+
+        first = bot.dismiss_non_job_reviews_for_post(
+            "ajob58dz",
+            7654,
+            "تصحيح: هذا المنشور ليس إعلان توظيف.",
+        )
+        self.assertEqual(first, 0)
+        self.assertEqual(bot.state["daily_stats"]["analyzed"], 0)
+        self.assertEqual(bot.state["daily_stats"]["review"], 0)
+        self.assertTrue(
+            bot.state["review_history"]["old-false-review"]["counters_reconciled"]
+        )
+
+        second = bot.dismiss_non_job_reviews_for_post(
+            "ajob58dz",
+            7654,
+            "تصحيح: هذا المنشور ليس إعلان توظيف.",
+        )
+        self.assertEqual(second, 0)
+        self.assertEqual(bot.state["daily_stats"]["analyzed"], 0)
+        self.assertEqual(bot.state["daily_stats"]["review"], 0)
+
     def test_vacancy_signal_detects_french_and_arabic_job_posts(self):
         self.assertTrue(processor.looks_like_vacancy_ad(
             "OFFRE D’EMPLOI — Technicien de Maintenance à Oran"
