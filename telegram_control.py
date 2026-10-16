@@ -473,6 +473,91 @@ class TelegramJobBot:
                 if self._deliver_review(item):
                     count += 1
 
+    def discard_reviews_for_post(self, source: str, message_id: int | str, reason: str) -> int:
+        """Dismiss queued review cards for a known non-job post and correct today's counters."""
+        source = str(source or "").strip()
+        message_id_text = str(message_id or "").strip()
+        if not source or not message_id_text:
+            return 0
+
+        pending = self.state.setdefault("pending_reviews", {})
+        if not isinstance(pending, dict):
+            return 0
+
+        removed = 0
+        counted = self.state.setdefault("counted_job_events", [])
+        stats = self.state.get("daily_stats")
+        today = now_local().date().isoformat()
+
+        for pending_id, item in list(pending.items()):
+            if not isinstance(item, dict):
+                continue
+            post = item.get("post") or {}
+            if (
+                str(post.get("source") or post.get("channel") or "").strip() != source
+                or str(post.get("message_id") or "").strip() != message_id_text
+            ):
+                continue
+
+            record = item.get("record") or {}
+            telegram_message_id = item.get("telegram_message_id")
+            if telegram_message_id and self.owner_configured:
+                correction = (
+                    "⚪ تصحيح من JobFinder\n\n"
+                    "أُعيدت مراجعة هذا المنشور، وتبيّن أنه منشور اجتماعي عن الهجرة والدعاء "
+                    "وليس إعلان توظيف.\n\n"
+                    "أُزيلت بطاقة المراجعة التي أُنشئت بالخطأ. لم يُرسل أي بريد توظيف من هذا المنشور، "
+                    "ولا يلزم منك أي إجراء."
+                )
+                try:
+                    self._api(
+                        "editMessageText",
+                        {
+                            "chat_id": self.owner_chat_id,
+                            "message_id": int(telegram_message_id),
+                            "text": correction,
+                            "disable_web_page_preview": True,
+                            "reply_markup": {"inline_keyboard": []},
+                        },
+                    )
+                except Exception as exc:
+                    print(f"Telegram false-positive review correction failed: {type(exc).__name__}")
+
+            record_key = event_key(record) if isinstance(record, dict) else ""
+            was_counted = isinstance(counted, list) and record_key in counted
+            if was_counted:
+                counted.remove(record_key)
+                if isinstance(stats, dict) and stats.get("date") == today:
+                    try:
+                        stats["analyzed"] = max(0, int(stats.get("analyzed", 0)) - 1)
+                    except (TypeError, ValueError):
+                        stats["analyzed"] = 0
+                    if str(record.get("decision") or "").upper() == "REVIEW":
+                        try:
+                            stats["review"] = max(0, int(stats.get("review", 0)) - 1)
+                        except (TypeError, ValueError):
+                            stats["review"] = 0
+
+            pending.pop(pending_id, None)
+            history = self.state.setdefault("review_history", {})
+            history[pending_id] = {
+                "status": "ignored_non_job",
+                "at": iso_now(),
+                "source": source,
+                "message_id": message_id_text,
+                "reason": safe_text(reason, 240),
+            }
+            removed += 1
+
+        if removed:
+            history = self.state.setdefault("review_history", {})
+            if len(history) > 500:
+                for old_id in list(history.keys())[:-400]:
+                    history.pop(old_id, None)
+            self._save("Known false-positive non-job review dismissed")
+            print(f"FALSE-POSITIVE REVIEW CLEANUP: dismissed {removed} non-job card(s) for {source}/{message_id_text}")
+        return removed
+
     def pre_send_guard_for_job(
         self,
         job: dict[str, Any],
