@@ -20,10 +20,10 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-# This post was consumed after the AI returned zero positions despite a
-# recruitment-like heading. Re-evaluate it once after extraction recovery ships.
-RECOVERY_POSTS_ONCE = (("ajob58dz", 7654),)
-RUNNER_VERSION = "2026-10-16-vacancy-recovery-v2"
+# One previous recovery wrongly force-queued this social post. Dismiss any stale
+# review card without reprocessing it as a job advertisement.
+KNOWN_NON_JOB_REVIEW_CLEANUPS = (("ajob58dz", 7654),)
+RUNNER_VERSION = "2026-10-16-nonjob-filter-v1"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -148,6 +148,18 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     processor.set_job_event_callback(bot.on_job_event)
     processor.set_job_pre_send_guard(bot.pre_send_guard_for_job)
 
+    for cleanup_channel, cleanup_message_id in KNOWN_NON_JOB_REVIEW_CLEANUPS:
+        bot.discard_reviews_for_post(
+            cleanup_channel,
+            cleanup_message_id,
+            "Known false-positive recovery target: social post, not a job advertisement.",
+        )
+        recovery_state = state.get("post_recovery_v2")
+        if isinstance(recovery_state, dict):
+            recovery_state.pop(f"{cleanup_channel}:{cleanup_message_id}", None)
+            if not recovery_state:
+                state.pop("post_recovery_v2", None)
+
     if webhook_event_mode:
         event = {
             "update_type": os.getenv("JOBFINDER_TELEGRAM_UPDATE_TYPE", ""),
@@ -210,86 +222,6 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     try:
         if not await client.is_user_authorized():
             raise RuntimeError("Telegram session is not authorized; renew TELEGRAM_SESSION")
-
-        recovery_state = state.setdefault("post_recovery_v2", {})
-        for recovery_channel, recovery_message_id in RECOVERY_POSTS_ONCE:
-            recovery_key = f"{recovery_channel}:{recovery_message_id}"
-            prior_status = recovery_state.get(recovery_key)
-            if isinstance(prior_status, dict) and prior_status.get("status") in {"processed", "unavailable"}:
-                continue
-            if messages_seen >= MAX_MESSAGES_PER_RUN or time.monotonic() - started >= RUN_BUDGET_SECONDS:
-                print("POST RECOVERY deferred: batch processing limit reached")
-                break
-
-            try:
-                recovery_entity = await client.get_entity(recovery_channel)
-                recovered_message = await client.get_messages(
-                    recovery_entity,
-                    ids=recovery_message_id,
-                )
-                if isinstance(recovered_message, list):
-                    recovered_message = next(
-                        (item for item in recovered_message if item is not None),
-                        None,
-                    )
-            except Exception as exc:
-                print(f"POST RECOVERY lookup failed for {recovery_channel}/{recovery_message_id}: {type(exc).__name__}")
-                continue
-
-            if recovered_message is None:
-                recovery_state[recovery_key] = {
-                    "status": "unavailable",
-                    "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                }
-                persist_checkpoint(
-                    state, fernet, f"recovery post unavailable {recovery_key}", checkpoint_cache
-                )
-                print(f"POST RECOVERY: saved message no longer available for {recovery_key}")
-                continue
-
-            recovered_text = (getattr(recovered_message, "message", None) or "").strip()
-            if not recovered_text:
-                recovery_state[recovery_key] = {
-                    "status": "unavailable",
-                    "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                }
-                persist_checkpoint(
-                    state, fernet, f"recovery post empty {recovery_key}", checkpoint_cache
-                )
-                print(f"POST RECOVERY: message has no text for {recovery_key}")
-                continue
-
-            recovery_post = {
-                "source": recovery_channel,
-                "channel": recovery_channel,
-                "message_id": recovery_message_id,
-                "date": recovered_message.date.isoformat() if recovered_message.date else "",
-                "text": recovered_text,
-                "force_vacancy_review": True,
-            }
-            print(f"POST RECOVERY: reprocessing known zero-extraction post {recovery_key}")
-            messages_seen += 1
-            try:
-                recovered_ok = processor.process_post(recovery_post)
-            except Exception as exc:
-                print(f"POST RECOVERY ERROR for {recovery_key}: {type(exc).__name__}; will retry")
-                recovered_ok = False
-
-            if recovered_ok is False:
-                persist_checkpoint(
-                    state, fernet, f"recovery post held for retry {recovery_key}", checkpoint_cache
-                )
-                print(f"POST RECOVERY: processing incomplete for {recovery_key}; will retry")
-                continue
-
-            recovery_state[recovery_key] = {
-                "status": "processed",
-                "processed_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            persist_checkpoint(
-                state, fernet, f"recovery post processed {recovery_key}", checkpoint_cache
-            )
-            print(f"POST RECOVERY: completed {recovery_key}")
 
         for channel_index in ordered:
             channel = CHANNELS[channel_index]
