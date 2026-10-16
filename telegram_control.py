@@ -1066,6 +1066,54 @@ class TelegramJobBot:
             self._answer_callback(query_id, "تعذر تنفيذ الموافقة. بقيت الوظيفة معلقة.", True)
         self._save("Review approval result processed")
 
+    def dismiss_non_job_reviews_for_post(
+        self,
+        source: str,
+        message_id: int | str,
+        correction_text: str,
+    ) -> int:
+        """Remove a known false-positive review and correct its existing Telegram card."""
+        source = str(source or "").strip()
+        message_id = str(message_id or "").strip()
+        if not source or not message_id:
+            return 0
+
+        pending = self.state.setdefault("pending_reviews", {})
+        history = self.state.setdefault("review_history", {})
+        dismissed = 0
+        for pending_id, item in list(pending.items()):
+            if not isinstance(item, dict):
+                continue
+            post = item.get("post") or {}
+            item_source = str(post.get("source") or post.get("channel") or "").strip()
+            item_message_id = str(post.get("message_id") or "").strip()
+            if item_source != source or item_message_id != message_id:
+                continue
+
+            pending.pop(pending_id, None)
+            history[pending_id] = {
+                "status": "ignored_non_job",
+                "at": iso_now(),
+                "source": source,
+                "message_id": message_id,
+            }
+            telegram_message_id = item.get("telegram_message_id")
+            if telegram_message_id and self.owner_configured:
+                self._edit_message(
+                    {
+                        "message": {
+                            "chat": {"id": self.owner_chat_id},
+                            "message_id": telegram_message_id,
+                        }
+                    },
+                    correction_text,
+                )
+            dismissed += 1
+
+        if dismissed:
+            self._save("Known non-job review dismissed")
+        return dismissed
+
     def _resolve_review(self, pending_id: str, status: str) -> None:
         pending = self.state.setdefault("pending_reviews", {})
         item = pending.get(pending_id)

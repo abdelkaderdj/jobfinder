@@ -342,6 +342,35 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(second["rejected"], 151)
         self.assertEqual(second["manual_rejected"], 4)
 
+    def test_known_non_job_review_is_dismissed_without_rejection_or_email(self):
+        bot, _ = self.build_bot()
+        event = sample_event("REVIEW")
+        event["post"]["source"] = "ajob58dz"
+        event["post"]["message_id"] = 7654
+        event["record"]["source"] = "ajob58dz"
+        event["record"]["message_id"] = 7654
+        bot.on_job_event(event)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        edits = []
+        bot._edit_message = lambda query, text: edits.append((query, text))
+
+        dismissed = bot.dismiss_non_job_reviews_for_post(
+            "ajob58dz",
+            7654,
+            "تصحيح: هذا المنشور ليس إعلان توظيف.",
+        )
+
+        self.assertEqual(dismissed, 1)
+        self.assertNotIn(pending_id, bot.state["pending_reviews"])
+        self.assertEqual(
+            bot.state["review_history"][pending_id]["status"],
+            "ignored_non_job",
+        )
+        self.assertEqual(bot.state.get("rejected_job_history", []), [])
+        self.assertEqual(bot._today_stats()["rejected"], 0)
+        self.assertEqual(len(edits), 1)
+        self.assertIn("ليس إعلان توظيف", edits[0][1])
+
     def test_reject_callback_resolves_review(self):
         bot, _ = self.build_bot()
         bot.on_job_event(sample_event())
@@ -466,16 +495,44 @@ class TelegramControlTests(unittest.TestCase):
             "Discussion générale sur les transports et la météo"
         ))
 
-    def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
-        # Known missed posts are forced through rescue even without a recognized
-        # vacancy keyword, so a second empty result cannot disappear silently.
+    def test_obvious_social_migration_post_is_not_sent_to_ai_or_review(self):
+        post_text = (
+            "اللهم ☝️ في ليلة الجمعة لنا أصدقاء خرجو في قوارب 🚣الهجرة "
+            "يوم الاثنين مازال مابان عليهم والو دعواتكم لهم ربي يسمع "
+            "عائلاتهم خبر الخير 🤲"
+        )
+        self.assertTrue(processor.looks_like_non_job_social_post(post_text))
+        self.assertFalse(processor.looks_like_non_job_social_post(
+            "إعلان توظيف: مطلوب تقني صيانة ميكانيكية في وهران"
+        ))
+
         post = {
             "source": "ajob58dz",
             "channel": "ajob58dz",
             "message_id": 7654,
+            "text": post_text,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        self.assertEqual(events, [])
+
+    def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
+        # Only explicit recruitment-like text may use the empty-extraction fallback.
+        post = {
+            "source": "rcrdz1",
+            "channel": "rcrdz1",
+            "message_id": 7654,
             "date": "2026-10-15T22:21:14+00:00",
-            "text": "Technicien de Maintenance mécanique — Alger. CV: jobs@example.org",
-            "force_vacancy_review": True,
+            "text": "إعلان توظيف: Technicien de Maintenance mécanique — Alger. CV: jobs@example.org",
         }
         events = []
         with (
