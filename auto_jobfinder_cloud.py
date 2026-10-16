@@ -4092,6 +4092,30 @@ def looks_like_vacancy_ad(text):
     return bool(VACANCY_SIGNAL_RE.search(str(text or "")))
 
 
+_SOCIAL_PRAYER_SIGNAL_RE = re.compile(
+    r"(?:اللهم|دعواتكم|ربي.{0,10}يسمع|خبر.{0,10}الخير)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+_MIGRATION_DISTRESS_SIGNAL_RE = re.compile(
+    r"(?:قوارب.{0,12}الهجرة|الهجرة.{0,10}غير.{0,10}الشرعية|"
+    r"خرجو.{0,30}قوارب|خرجوا.{0,30}قوارب|مفقودين|"
+    r"ما.{0,3}زال.{0,50}(?:بان|ظهر)|عائلاتهم.{0,50}(?:خبر|دعوات))",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def looks_like_non_job_social_post(text):
+    """Detect a narrow class of obvious social/distress posts misread as job ads."""
+    body = str(text or "").strip()
+    if not body or looks_like_vacancy_ad(body):
+        return False
+    return bool(
+        _SOCIAL_PRAYER_SIGNAL_RE.search(body)
+        and _MIGRATION_DISTRESS_SIGNAL_RE.search(body)
+    )
+
+
 def emit_unparsed_vacancy_review(post, advertisement):
     """Keep a recruitment-like post visible for manual review; never auto-send it."""
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
@@ -4164,6 +4188,10 @@ def process_post(
 
         return True
 
+    if looks_like_non_job_social_post(text):
+        print("NON-JOB SOCIAL POST FILTER: obvious prayer/migration-distress content; ignored")
+        return True
+
     print(
         "\nAnalyzing new job post..."
     )
@@ -4198,10 +4226,8 @@ def process_post(
 
     # Schema-valid empty output can silently drop a real job ad. Retry once
     # with an explicit extraction prompt; if still empty, queue no-send review.
-    force_vacancy_review = bool(post.get("force_vacancy_review"))
-    if not jobs and (looks_like_vacancy_ad(text) or force_vacancy_review):
-        trigger = "forced recovery" if force_vacancy_review else "vacancy signals"
-        print(f"AI EMPTY EXTRACTION: {trigger}; retrying extraction once")
+    if not jobs and looks_like_vacancy_ad(text):
+        print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
             retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
