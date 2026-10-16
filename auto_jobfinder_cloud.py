@@ -4092,6 +4092,57 @@ def looks_like_vacancy_ad(text):
     return bool(VACANCY_SIGNAL_RE.search(str(text or "")))
 
 
+_NON_JOB_SOCIAL_SIGNAL_GROUPS = (
+    re.compile(
+        r"(?:اللهم|دعواتكم|دعاؤكم|دعاء|ربي\s+يسمع|خبر\s+الخير|"
+        r"prayers?|please\s+pray|condolences?|condoléances|rip\b|"
+        r"pray\s+for|nos\s+prières)",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:قوارب|الهجرة|هجرة\s+غير\s+شرعية|حرقة|مهاجر(?:ون|ين)?|"
+        r"مازال.{0,35}(?:ما\s*)?بان.{0,35}(?:عليهم|عليها)|"
+        r"missing\s+persons?|disappeared|migrants?|migration\s+clandestine|"
+        r"boats?\s+of\s+migrants?)",
+        flags=re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"(?:عائلاتهم|أهاليهم|اهاليهم|أصدقاء.{0,40}(?:خرجوا|خرجو)|"
+        r"يسمع\s+عائلات|دعواتكم\s+لهم|خبر\s+الخير|"
+        r"their\s+famil(?:y|ies)|their\s+loved\s+ones)",
+        flags=re.IGNORECASE | re.DOTALL,
+    ),
+)
+
+_EXPLICIT_JOB_ACTION_RE = re.compile(
+    r"(?:recrutement|recrute|recrutons|job\s+offer|job\s+vacanc(?:y|ies)|"
+    r"we\s+are\s+hiring|hiring|vacanc(?:y|ies)|postuler|candidature|"
+    r"envoyer\s+(?:votre\s+)?cv|send\s+(?:your\s+)?(?:cv|resume)|"
+    r"apply\s+now|curriculum\s+vitae|\bcv\b|\be-?mail\b|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|توظيف|مطلوب(?:ة|ين)?|"
+    r"منصب|مناصب|وظيفة|وظائف\s+شاغرة|سيرة\s+ذاتية|الترشح|التقديم|"
+    r"أرسل(?:وا)?\s+(?:السيرة\s+الذاتية|cv)|إرسال\s+(?:السيرة\s+الذاتية|الترشح))",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def looks_like_non_job_social_post(text):
+    """
+    Detect high-confidence social/news posts that should never become synthetic job cards.
+    A generic channel heading such as 'عروض عمل' is not enough to override these signals.
+    """
+    content = str(text or "").strip()
+    if not content:
+        return False
+    signal_groups = sum(bool(pattern.search(content)) for pattern in _NON_JOB_SOCIAL_SIGNAL_GROUPS)
+    if signal_groups < 2:
+        return False
+    # Explicit recruitment/application details take precedence so real ads are not discarded.
+    if _EXPLICIT_JOB_ACTION_RE.search(content):
+        return False
+    return True
+
+
 def emit_unparsed_vacancy_review(post, advertisement):
     """Keep a recruitment-like post visible for manual review; never auto-send it."""
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
@@ -4164,6 +4215,10 @@ def process_post(
 
         return True
 
+    if looks_like_non_job_social_post(text):
+        print("NON-JOB SOCIAL POST: skipped before AI analysis and review fallback")
+        return True
+
     print(
         "\nAnalyzing new job post..."
     )
@@ -4199,7 +4254,9 @@ def process_post(
     # Schema-valid empty output can silently drop a real job ad. Retry once
     # with an explicit extraction prompt; if still empty, queue no-send review.
     force_vacancy_review = bool(post.get("force_vacancy_review"))
-    if not jobs and (looks_like_vacancy_ad(text) or force_vacancy_review):
+    if not jobs and not looks_like_non_job_social_post(text) and (
+        looks_like_vacancy_ad(text) or force_vacancy_review
+    ):
         trigger = "forced recovery" if force_vacancy_review else "vacancy signals"
         print(f"AI EMPTY EXTRACTION: {trigger}; retrying extraction once")
         try:
