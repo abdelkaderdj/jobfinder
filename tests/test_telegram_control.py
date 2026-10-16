@@ -342,6 +342,53 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(second["rejected"], 151)
         self.assertEqual(second["manual_rejected"], 4)
 
+    def test_known_non_job_review_is_removed_and_telegram_card_is_corrected(self):
+        bot, _ = self.build_bot()
+        bot._api = Mock(return_value={})
+        record = sample_event("REVIEW")["record"]
+        record["source"] = "ajob58dz"
+        record["message_id"] = 7654
+        record["analysis_fallback"] = True
+        pending_id = "false-positive-review"
+        bot.state["pending_reviews"][pending_id] = {
+            "id": pending_id,
+            "created_at": now_local().isoformat(),
+            "notified": True,
+            "telegram_message_id": 987,
+            "record": record,
+            "post": {"source": "ajob58dz", "message_id": 7654},
+        }
+        bot.state["counted_job_events"] = [event_key(record)]
+        bot.state["daily_stats"] = {
+            "date": now_local().date().isoformat(),
+            "analyzed": 1,
+            "sent": 0,
+            "review": 1,
+            "rejected": 0,
+            "manual_rejected": 0,
+            "duplicates": 0,
+            "send_failed": 0,
+            "manual_rejections_reconciled": True,
+        }
+
+        removed = bot.discard_reviews_for_post(
+            "ajob58dz",
+            7654,
+            "Known non-job social post",
+        )
+
+        self.assertEqual(removed, 1)
+        self.assertNotIn(pending_id, bot.state["pending_reviews"])
+        self.assertEqual(bot.state["review_history"][pending_id]["status"], "ignored_non_job")
+        self.assertEqual(bot.state["daily_stats"]["analyzed"], 0)
+        self.assertEqual(bot.state["daily_stats"]["review"], 0)
+        bot._api.assert_called_once()
+        method, payload = bot._api.call_args.args
+        self.assertEqual(method, "editMessageText")
+        self.assertEqual(payload["message_id"], 987)
+        self.assertIn("ليس إعلان توظيف", payload["text"])
+        self.assertEqual(payload["reply_markup"], {"inline_keyboard": []})
+
     def test_reject_callback_resolves_review(self):
         bot, _ = self.build_bot()
         bot.on_job_event(sample_event())
@@ -454,6 +501,41 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("SCORE: 75", rendered)
         self.assertIn("SCOPED EMAIL COUNT: 1", rendered)
         self.assertIn("SENT: False", rendered)
+
+    def test_non_job_social_migration_post_is_not_queued_even_when_recovery_is_forced(self):
+        social_post = (
+            "عروض عمل\n"
+            "اللهم☝️ في ليلة الجمعة\n"
+            "لنا أصدقاء خرجو في قوارب 🚣الهجرة يوم الاثنين "
+            "مازال مابان عليهم والو دعواتكم لهم ربي يسمع عائلاتهم خبر الخير 🤲"
+        )
+        self.assertTrue(processor.looks_like_vacancy_ad(social_post))
+        self.assertTrue(processor.looks_like_non_job_social_post(social_post))
+        self.assertFalse(processor.looks_like_non_job_social_post(
+            "إعلان توظيف: مطلوب تقني صيانة ميكانيكية. أرسل السيرة الذاتية إلى jobs@example.org"
+        ))
+
+        events = []
+        post = {
+            "source": "ajob58dz",
+            "channel": "ajob58dz",
+            "message_id": 7654,
+            "text": social_post,
+            "force_vacancy_review": True,
+        }
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        send_application.assert_not_called()
+        self.assertEqual(events, [])
 
     def test_vacancy_signal_detects_french_and_arabic_job_posts(self):
         self.assertTrue(processor.looks_like_vacancy_ad(
