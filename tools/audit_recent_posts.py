@@ -84,6 +84,7 @@ def make_markdown(report: dict[str, Any]) -> str:
         f"- منشورات اجتماعية واضحة تم تجاوزها: {summary['social_posts_ignored']}",
         f"- منشورات لم يُستخرج منها منصب: {summary['no_position_output']}",
         f"- أخطاء/تحليلات غير مكتملة: {summary['processing_incomplete']}",
+        f"- منشورات أُجّل تحليلها بسبب حدود Groq: {summary['provider_rate_limited_posts']}",
         f"- محاولات إرسال بريد تم منعها في الاختبار: {summary['email_attempts_suppressed']}",
         "",
         "**هذه محاكاة قراءة فقط. لم يُرسل أي بريد، ولم تُعدّل مؤشرات القنوات أو حالة البوت.**",
@@ -208,11 +209,12 @@ async def run_audit() -> dict[str, Any]:
     finally:
         await client.disconnect()
 
-    audit_posts.sort(key=lambda item: item["date_utc"])
+    audit_posts.sort(key=lambda item: item["date_utc"], reverse=True)
     total_posts_collected = len(audit_posts)
     truncated = total_posts_collected > MAX_AUDIT_POSTS
     if truncated:
-        audit_posts = audit_posts[-MAX_AUDIT_POSTS:]
+        # Prioritize the newest actionable offers in a rate-limited audit window.
+        audit_posts = audit_posts[:MAX_AUDIT_POSTS]
 
     # Hard safety barrier: replace all persistence and mail-sending hooks for
     # this run. No callback will update bot counters or queue Telegram cards.
@@ -239,9 +241,10 @@ async def run_audit() -> dict[str, Any]:
     ignored_social = 0
     no_position_output = 0
     processing_incomplete = 0
+    provider_rate_limited_posts = 0
 
     try:
-        for post in audit_posts:
+        for post_index, post in enumerate(audit_posts):
             current_events: list[dict[str, Any]] = []
             processor.JOB_EVENT_CALLBACK = current_events.append
 
@@ -274,6 +277,36 @@ async def run_audit() -> dict[str, Any]:
                 processing_incomplete += 1
                 output_posts.append(base_result)
                 continue
+
+            all_models_rate_limited = (
+                bool(getattr(processor, "GROQ_MODEL_FALLBACKS", ()))
+                and set(processor.GROQ_MODEL_FALLBACKS).issubset(
+                    getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set())
+                )
+            )
+
+            if processor_result is False and all_models_rate_limited:
+                # Stop immediately instead of emitting the same no-model-available
+                # error for every remaining post. Preserve their deferred status.
+                base_result["status"] = "deferred_rate_limit"
+                base_result["error_type"] = "GroqRateLimit"
+                base_result["excerpt"] = post["text"][:600]
+                processing_incomplete += 1
+                provider_rate_limited_posts += 1
+                output_posts.append(base_result)
+
+                for deferred in audit_posts[post_index + 1:]:
+                    output_posts.append({
+                        "source": deferred["source"],
+                        "message_id": deferred["message_id"],
+                        "date_utc": deferred["date_utc"],
+                        "url": deferred["url"],
+                        "jobs": [],
+                        "status": "deferred_rate_limit",
+                    })
+                    processing_incomplete += 1
+                    provider_rate_limited_posts += 1
+                break
 
             if current_events:
                 base_result["status"] = "evaluated"
@@ -317,6 +350,7 @@ async def run_audit() -> dict[str, Any]:
             "social_posts_ignored": ignored_social,
             "no_position_output": no_position_output,
             "processing_incomplete": processing_incomplete,
+            "provider_rate_limited_posts": provider_rate_limited_posts,
             "email_attempts_suppressed": email_attempts_suppressed,
             "channels": channel_counts,
             "channels_at_scan_limit": channel_limited,
