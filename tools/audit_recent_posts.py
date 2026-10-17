@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import urllib.error
 import urllib.request
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
+
+# Make the repository root importable when running this file by path from tools/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
