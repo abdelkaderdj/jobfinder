@@ -4184,7 +4184,7 @@ _ACTUAL_HIRING_INTENT_RE = re.compile(
     r"nous\s+recrutons|recrutons\s+(?:un|une|des)|we\s+are\s+hiring|"
     r"job\s+opening|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|poste[s]?\s+à\s+pourvoir|"
     r"profil\s+recherché|"
-    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|فرصة\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
     r"نبحث\s+عن\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
     r"مطلوب\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب))",
     flags=re.IGNORECASE | re.DOTALL,
