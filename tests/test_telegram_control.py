@@ -571,6 +571,46 @@ class TelegramControlTests(unittest.TestCase):
         save_result.assert_not_called()
         self.assertEqual(events, [])
 
+    def test_cv_service_promotion_is_ignored_before_ai_or_review(self):
+        post_text = (
+            "✨ حاب تطوّر من روحك ومن مستواك المهني؟ 💼💵❤️\n"
+            "حاب يكون عندك CV احترافي يفتحلك أبواب فرص جديدة؟ 📄🤍\n\n"
+            "💡 مع Recrutement DZ، نرافقوك باش تطوّر ملفك المهني "
+            "وتقدّم روحك بطريقة احترافية تليق بطموحاتك!\n\n"
+            "📲 عندك هدف وحاب تبدأ أول خطوة؟ تواصل معنا عبر WhatsApp "
+            "واكتشف خدماتنا! 💬\n\n"
+            "Recrutement DZ 💙\n"
+            "طوّر من نفسك، واستثمر في مستقبلك! ✨"
+        )
+        self.assertTrue(processor.looks_like_vacancy_ad(post_text))
+        self.assertTrue(processor.looks_like_non_job_service_promotion(post_text))
+
+        post = {
+            "source": "rcrdz1",
+            "channel": "rcrdz1",
+            "message_id": 22606,
+            "text": post_text,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        self.assertEqual(events, [])
+
+    def test_service_promotion_filter_does_not_hide_an_actual_job_offer(self):
+        actual_job = (
+            "Offre d'emploi: Recrutement d'un Technicien de Maintenance "
+            "à Oran. Envoyez votre CV pour postuler."
+        )
+        self.assertFalse(processor.looks_like_non_job_service_promotion(actual_job))
+
     def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
         # Only explicit recruitment-like text may use the empty-extraction fallback.
         post = {
