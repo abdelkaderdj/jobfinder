@@ -850,9 +850,7 @@ class TelegramJobBot:
                 f"المرفوضة تلقائيًا اليوم: {stats.get('rejected', 0)}\n"
                 f"مراجعات رُفضت يدويًا اليوم: {stats.get('manual_rejected', 0)}\n"
                 f"وظائف مكررة تم تجاوزها: {stats.get('duplicates', 0)}\n"
-                f"محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}\n\n"
-                "ملاحظة: «مراجعات جديدة» تعني وظائف صُنّفت للمراجعة أولًا؛ الرفض اليدوي يُحسب منفصلًا ولا يُضاف إلى الرفض التلقائي.\n"
-                "تُحتسب الطلبات حسب توقيت الإرسال المسجل؛ السجلات القديمة بلا توقيت لا تُنسب إلى اليوم تخمينًا."
+                f"محاولات الإرسال غير المؤكدة: {stats.get('send_failed', 0)}"
             )
         elif command == "/sent":
             records = self._sent_records_today()
@@ -867,20 +865,9 @@ class TelegramJobBot:
                 if undated_records:
                     lines.extend([
                         "",
-                        f"📚 توجد {len(undated_records)} سجلات محفوظة في سجل الإرسال القديم بلا توقيت.",
-                        "الإصدار السابق لم يكن يحفظ وقت الإرسال؛ هذه السجلات لا تخص طلبات اليوم، ولا يثبت السجل وحده وصول البريد إلى صندوق الوارد.",
-                        "نحتفظ بها لمنع إعادة التقديم على الوظائف نفسها.",
-                        "",
-                        "أول سجلات قديمة (ليست طلبات اليوم):",
+                        f"📚 توجد {len(undated_records)} سجلات قديمة بلا توقيت إرسال.",
+                        "ليست طلبات اليوم؛ نحتفظ بها فقط لمنع إعادة التقديم على الوظائف نفسها.",
                     ])
-                    for index, record in enumerate(undated_records[:5], start=1):
-                        title = safe_text(record.get("application_job_title") or record.get("job_title"), 180)
-                        company = safe_text(record.get("company"), 140)
-                        lines.append(f"{index}. 💼 {title}")
-                        if company:
-                            lines.append(f"🏢 {company}")
-                    if len(undated_records) > 5:
-                        lines.append(f"تُعرض أول 5 سجلات من أصل {len(undated_records)}.")
                 else:
                     lines.extend([
                         "",
