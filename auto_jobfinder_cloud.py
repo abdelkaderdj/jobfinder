@@ -3308,6 +3308,39 @@ def same_job_identity(
     return False
 
 
+# Cross-posts are treated as duplicates only for a short window. A genuinely
+# new repost after this window is a new opportunity, even if the role and email
+# are unchanged. Exact source/message application keys remain permanent guards.
+JOB_DUPLICATE_WINDOW_HOURS = 48
+
+
+def _sent_record_is_recent(record, now=None):
+    """Only timestamped sends from the recent duplicate window can fuzzy-block a repost."""
+    raw_timestamp = str(record.get("sent_at") or "").strip()
+    if not raw_timestamp:
+        # Legacy history without a timestamp cannot prove when the application
+        # was sent, so it must not suppress a newly published post forever.
+        return False
+
+    try:
+        sent_at = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+
+    # Treat timezone-less/invalid legacy timestamps as unknown rather than
+    # guessing a date and blocking a new opportunity.
+    if sent_at.tzinfo is None or sent_at.utcoffset() is None:
+        return False
+
+    if now is None:
+        now = datetime.now(ZoneInfo("Africa/Algiers"))
+    elif now.tzinfo is None or now.utcoffset() is None:
+        now = now.replace(tzinfo=ZoneInfo("Africa/Algiers"))
+
+    age_hours = (now - sent_at.astimezone(now.tzinfo)).total_seconds() / 3600
+    return 0 <= age_hours <= JOB_DUPLICATE_WINDOW_HOURS
+
+
 def already_sent_same_job(
     current_job,
     current_title,
@@ -3315,8 +3348,12 @@ def already_sent_same_job(
 ):
 
     sent_records = load_sent_records()
+    now = datetime.now(ZoneInfo("Africa/Algiers"))
 
     for old_record in sent_records:
+
+        if not isinstance(old_record, dict) or not _sent_record_is_recent(old_record, now):
+            continue
 
         old_email = old_record.get(
             "email",
