@@ -155,6 +155,40 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         "تم استبعاده من المراجعات المعلقة ولن يُرسل أي طلب بخصوصه.",
     )
 
+
+    # Automatically retire stale manual-review cards that the current
+    # deterministic classifier now recognizes as CV/career-service marketing.
+    # Group by source/message so multiple roles from one post reconcile counters once.
+    pending_reviews = state.get("pending_reviews")
+    service_promotion_posts: dict[tuple[str, str], None] = {}
+    if isinstance(pending_reviews, dict):
+        for item in pending_reviews.values():
+            if not isinstance(item, dict):
+                continue
+            post = item.get("post") or {}
+            post_text = str(post.get("text") or item.get("advertisement") or "")
+            if not processor.looks_like_non_job_service_promotion(post_text):
+                continue
+            source = str(post.get("source") or post.get("channel") or "").strip()
+            message_id = str(post.get("message_id") or "").strip()
+            if source and message_id:
+                service_promotion_posts[(source, message_id)] = None
+
+    dismissed_service_reviews = 0
+    for source, message_id in service_promotion_posts:
+        dismissed_service_reviews += bot.dismiss_non_job_reviews_for_post(
+            source,
+            message_id,
+            "⚠️ تصحيح من JobFinder: كانت هذه البطاقة معلّقة كمراجعة توظيف، "
+            "لكن التحقق من نص المنشور أظهر أنه إعلان ترويجي لخدمات إعداد السيرة الذاتية "
+            "وليس إعلانًا يطلب موظفين. أُزيلت من المراجعات المعلقة ولن يُرسل أي طلب بخصوصها.",
+        )
+    if dismissed_service_reviews:
+        print(
+            f"NON-JOB SERVICE PROMOTION CLEANUP: "
+            f"{dismissed_service_reviews} stale review card(s) dismissed"
+        )
+
     if webhook_event_mode:
         event = {
             "update_type": os.getenv("JOBFINDER_TELEGRAM_UPDATE_TYPE", ""),
