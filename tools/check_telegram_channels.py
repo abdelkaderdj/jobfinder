@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Make the repository root importable when this script is launched by path from tools/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
