@@ -4115,14 +4115,14 @@ def log_job_result_safely(record, contact_review_reason=None):
 # to manual review should trigger only on explicit hiring intent or vacancy wording.
 VACANCY_SIGNAL_RE = re.compile(
     r"(?:"
-    r"offre\\s+d['’ ]?emploi|offre\\s+de\\s+recrutement|avis\\s+de\\s+recrutement|"
-    r"nous\\s+recrutons|recrutons\\s+(?:un|une|des)|we\\s+are\\s+hiring|"
-    r"job\\s+opening|vacanc(?:y|ies)|position[s]?\\s+à\\s+pourvoir|poste[s]?\\s+à\\s+pourvoir|"
-    r"profil\\s+recherché|"
-    r"إعلان\\s+توظيف|اعلان\\s+توظيف|عرض\\s+عمل|وظيفة\\s+شاغرة|وظائف\\s+شاغرة|"
-    r"فتح\\s+باب\\s+التوظيف|"
-    r"نبحث\\s+عن\\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
-    r"مطلوب\\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب)|"
+    r"offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
+    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|we\s+are\s+hiring|"
+    r"job\s+opening|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|poste[s]?\s+à\s+pourvoir|"
+    r"profil\s+recherché|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
+    r"فتح\s+باب\s+التوظيف|"
+    r"نبحث\s+عن\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
+    r"مطلوب\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب)|"
     r"تعلن.{0,80}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)"
     r")",
     flags=re.IGNORECASE | re.DOTALL,
@@ -4211,23 +4211,23 @@ def looks_like_non_job_service_promotion(text):
 
 _FUTURE_JOB_POST_TEASER_RE = re.compile(
     r"(?:"
-    r"(?:رايح|راح|راني|رح|سوف|سأ|سن)\\s*"
+    r"(?:رايح|راح|راني|رح|سوف|سأ|سن)\s*"
     r"(?:نحط|ننشر|نشر|نزل|نهبط|نشارك|نضع|نقدم|نمد).{0,80}"
-    r"(?:عروض\\s+عمل|عروض\\s+التوظيف|فرص\\s+عمل|وظائف|مناصب|إعلانات?\\s+توظيف)|"
-    r"(?:going\\s+to|we\\s+will|i['’]?ll)\\s+"
-    r"(?:post|publish|share).{0,80}(?:job\\s+offers|vacancies|openings)"
+    r"(?:عروض\s+عمل|عروض\s+التوظيف|فرص\s+عمل|وظائف|مناصب|إعلانات?\s+توظيف)|"
+    r"(?:going\s+to|we\s+will|i['’]?ll)\s+"
+    r"(?:post|publish|share).{0,80}(?:job\s+offers|vacancies|openings)"
     r")",
     flags=re.IGNORECASE | re.DOTALL,
 )
 
 _CONCRETE_JOB_DETAIL_RE = re.compile(
-    r"(?:\\btechnicien\\b|\\btechnician\\b|\\bmaintenance\\b|"
-    r"m[ée]canicien|ing[ée]nieur|\\bengineer\\b|op[ée]rateur|\\boperator\\b|"
+    r"(?:\btechnicien\b|\btechnician\b|\bmaintenance\b|"
+    r"m[ée]canicien|ing[ée]nieur|\bengineer\b|op[ée]rateur|\boperator\b|"
     r"production|electricien|électricien|soudeur|magasinier|superviseur|supervisor|"
     r"commercial|مهندس|تقني|فني|ميكانيكي|صيانة|إنتاج|عامل|موظف|مشرف|مسؤول|سائق|محاسب|"
-    r"postuler|candidature|apply\\s+now|"
-    r"envoy(?:er|ez).{0,30}\\b(?:cv|resume)\\b|send.{0,30}\\b(?:cv|resume)\\b|"
-    r"\\b[\\w.+-]+@[\\w.-]+\\.[a-z]{2,}\\b)",
+    r"postuler|candidature|apply\s+now|"
+    r"envoy(?:er|ez).{0,30}\b(?:cv|resume)\b|send.{0,30}\b(?:cv|resume)\b|"
+    r"\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b)",
     flags=re.IGNORECASE | re.DOTALL,
 )
 
