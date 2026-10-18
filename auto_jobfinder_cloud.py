@@ -4120,6 +4120,53 @@ _EXPLICIT_JOB_DETAIL_RE = re.compile(
 )
 
 
+# Service advertisements can mention "Recrutement", CVs, and new opportunities
+# without hiring anyone. Require BOTH a CV/career-service signal and a marketing
+# call-to-action, while protecting explicit vacancy/hiring language.
+_SERVICE_CV_SIGNAL_RE = re.compile(
+    r"(?:\bcv\s+(?:professionnel(?:le)?|pro|احترافي(?:ة)?)\b|"
+    r"(?:إعداد|كتابة|تصميم|تحسين|تطوير)\s*(?:الـ?cv|السيرة\s+الذاتية|سيرة\s+ذاتية)|"
+    r"(?:تطوير|تحسين|إعداد)\s+ملفك?\s+المهني|"
+    r"(?:création|rédaction|optimisation|refonte)\s+(?:de\s+)?cv|"
+    r"resume\s+writing|resume\s+service|career\s+coaching|"
+    r"job\s+search\s+(?:support|assistance))",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+_SERVICE_PROMOTION_SIGNAL_RE = re.compile(
+    r"(?:خدماتنا|نرافقوك|نرافقك|نساعدك|تواصل\s+معنا|اكتشف\s+خدمات|"
+    r"حاب\s+تطور|طو[ّ]?ر\s+من\s+نفسك|استثمر\s+في\s+مستقبلك|"
+    r"nous\s+vous\s+accompagnons|nos\s+services|d[ée]couvrez\s+(?:nos\s+)?services|"
+    r"contactez[- ]nous|we\s+help\s+you|our\s+services|"
+    r"discover\s+our\s+services|contact\s+us)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+_ACTUAL_HIRING_INTENT_RE = re.compile(
+    r"(?:offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
+    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|we\s+are\s+hiring|"
+    r"job\s+opening|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|poste[s]?\s+à\s+pourvoir|"
+    r"profil\s+recherché|"
+    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|فرصة\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
+    r"نبحث\s+عن\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
+    r"مطلوب\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب))",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def looks_like_non_job_service_promotion(text):
+    """Detect CV/career-service marketing posts without mistaking real vacancies."""
+    body = str(text or "").strip()
+    if not body:
+        return False
+    if _ACTUAL_HIRING_INTENT_RE.search(body):
+        return False
+    return bool(
+        _SERVICE_CV_SIGNAL_RE.search(body)
+        and _SERVICE_PROMOTION_SIGNAL_RE.search(body)
+    )
+
+
 def looks_like_non_job_social_post(text):
     """Detect high-confidence social/distress posts without actual job details."""
     body = str(text or "").strip()
@@ -4203,6 +4250,10 @@ def process_post(
         text
     ).strip():
 
+        return True
+
+    if looks_like_non_job_service_promotion(text):
+        print("NON-JOB SERVICE PROMOTION FILTER: CV/career-service advertisement; ignored")
         return True
 
     if looks_like_non_job_social_post(text):
