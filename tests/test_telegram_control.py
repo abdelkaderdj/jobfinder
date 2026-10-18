@@ -660,6 +660,14 @@ class TelegramControlTests(unittest.TestCase):
         )
         self.assertFalse(processor.looks_like_non_job_service_promotion(actual_job))
 
+        arabic_actual_job = (
+            "فرصة عمل: مطلوب مهندس صيانة في وهران. "
+            "أرسل سيرتك الذاتية إلى jobs@example.org."
+        )
+        self.assertFalse(
+            processor.looks_like_non_job_service_promotion(arabic_actual_job)
+        )
+
     def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
         # Only explicit recruitment-like text may use the empty-extraction fallback.
         post = {
