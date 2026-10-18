@@ -541,6 +541,43 @@ class TelegramControlTests(unittest.TestCase):
         self.assertFalse(processor.looks_like_vacancy_ad(
             "Discussion générale sur les transports et la météo"
         ))
+        self.assertFalse(processor.looks_like_vacancy_ad("عروض عمل"))
+        self.assertFalse(processor.looks_like_vacancy_ad(
+            "رايح نحط مجموعه عروض عمل تخص ولايات الشرق والغرب"
+        ))
+
+
+    def test_upcoming_job_offers_teaser_is_ignored_before_ai_or_review(self):
+        # Regression for @rcrdz1/22650: the author promises to post offers later.
+        post_text = (
+            "الله يبارك، راكم اغلبيتكم جامعيين و من كل ولايات، "
+            "شوفو خاوتي خواتاتي، رايح نحط مجموعه عروض عمل، تخص ولايات "
+            "الشرق و الغرب و الوسط و الصحراء، نحتاج منكم التفاعل، "
+            "كيما راكم تتفاعلو فالتعليقات، جاهزيين شباااب ♥؟"
+        )
+        self.assertTrue(processor.looks_like_non_job_job_teaser(post_text))
+        self.assertFalse(processor.looks_like_vacancy_ad(post_text))
+
+        post = {
+            "source": "rcrdz1",
+            "channel": "rcrdz1",
+            "message_id": 22650,
+            "text": post_text,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        send_application.assert_not_called()
+        self.assertEqual(events, [])
 
     def test_obvious_social_migration_post_is_not_sent_to_ai_or_review(self):
         post_text = (
@@ -549,7 +586,7 @@ class TelegramControlTests(unittest.TestCase):
             "يوم الاثنين مازال مابان عليهم والو دعواتكم لهم ربي يسمع "
             "عائلاتهم خبر الخير 🤲"
         )
-        self.assertTrue(processor.looks_like_vacancy_ad(post_text))
+        self.assertFalse(processor.looks_like_vacancy_ad(post_text))
         self.assertTrue(processor.looks_like_non_job_social_post(post_text))
         self.assertFalse(processor.looks_like_non_job_social_post(
             "إعلان توظيف: مطلوب تقني صيانة ميكانيكية في وهران"
@@ -585,7 +622,7 @@ class TelegramControlTests(unittest.TestCase):
             "Recrutement DZ 💙\n"
             "طوّر من نفسك، واستثمر في مستقبلك! ✨"
         )
-        self.assertTrue(processor.looks_like_vacancy_ad(post_text))
+        self.assertFalse(processor.looks_like_vacancy_ad(post_text))
         self.assertTrue(processor.looks_like_non_job_service_promotion(post_text))
 
         post = {
@@ -629,7 +666,7 @@ class TelegramControlTests(unittest.TestCase):
             "💬 ابعثولنا رسالة ونعطوكم تفاصيل البروموسيون والخدمات المناسبة لاحتياجاتكم.\n\n"
             "❤️ Recrutement DZ 🇩🇿 — معكم نحو فرصة عمل أفضل! 🚀"
         )
-        self.assertTrue(processor.looks_like_vacancy_ad(post_text))
+        self.assertFalse(processor.looks_like_vacancy_ad(post_text))
         self.assertTrue(processor.looks_like_non_job_service_promotion(post_text))
 
         post = {

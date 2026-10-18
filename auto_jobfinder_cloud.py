@@ -4110,14 +4110,19 @@ def log_job_result_safely(record, contact_review_reason=None):
 
 
 # ============================================================
+# A generic group heading or career slogan such as "عروض عمل" / "فرصة عمل أفضل"
+# is not proof that this post itself contains an available vacancy. The fallback
+# to manual review should trigger only on explicit hiring intent or vacancy wording.
 VACANCY_SIGNAL_RE = re.compile(
     r"(?:"
-    r"offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
-    r"recrutement|recrute|recrutons|job\s+offer|job\s+vacanc(?:y|ies)|"
-    r"we\s+are\s+hiring|hiring|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|"
-    r"nous\s+recherchons|"
-    r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|عروض\s+عمل|فرصة\s+عمل|"
-    r"وظائف\s+شاغرة|فتح\s+باب\s+التوظيف|نبحث\s+عن|مطلوب(?:ة|ين)?|"
+    r"offre\\s+d['’ ]?emploi|offre\\s+de\\s+recrutement|avis\\s+de\\s+recrutement|"
+    r"nous\\s+recrutons|recrutons\\s+(?:un|une|des)|we\\s+are\\s+hiring|"
+    r"job\\s+opening|vacanc(?:y|ies)|position[s]?\\s+à\\s+pourvoir|poste[s]?\\s+à\\s+pourvoir|"
+    r"profil\\s+recherché|"
+    r"إعلان\\s+توظيف|اعلان\\s+توظيف|عرض\\s+عمل|وظيفة\\s+شاغرة|وظائف\\s+شاغرة|"
+    r"فتح\\s+باب\\s+التوظيف|"
+    r"نبحث\\s+عن\\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
+    r"مطلوب\\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب)|"
     r"تعلن.{0,80}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)"
     r")",
     flags=re.IGNORECASE | re.DOTALL,
@@ -4125,7 +4130,7 @@ VACANCY_SIGNAL_RE = re.compile(
 
 
 def looks_like_vacancy_ad(text):
-    """Conservative multilingual signal used only when AI returns no positions."""
+    """Require actual hiring intent, not a teaser or generic job-opportunity slogan."""
     return bool(VACANCY_SIGNAL_RE.search(str(text or "")))
 
 
@@ -4202,6 +4207,37 @@ def looks_like_non_job_service_promotion(text):
         _SERVICE_CV_SIGNAL_RE.search(body)
         and _SERVICE_PROMOTION_SIGNAL_RE.search(body)
     )
+
+
+_FUTURE_JOB_POST_TEASER_RE = re.compile(
+    r"(?:"
+    r"(?:رايح|راح|راني|رح|سوف|سأ|سن)\\s*"
+    r"(?:نحط|ننشر|نشر|نزل|نهبط|نشارك|نضع|نقدم|نمد).{0,80}"
+    r"(?:عروض\\s+عمل|عروض\\s+التوظيف|فرص\\s+عمل|وظائف|مناصب|إعلانات?\\s+توظيف)|"
+    r"(?:going\\s+to|we\\s+will|i['’]?ll)\\s+"
+    r"(?:post|publish|share).{0,80}(?:job\\s+offers|vacancies|openings)"
+    r")",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+_CONCRETE_JOB_DETAIL_RE = re.compile(
+    r"(?:\\btechnicien\\b|\\btechnician\\b|\\bmaintenance\\b|"
+    r"m[ée]canicien|ing[ée]nieur|\\bengineer\\b|op[ée]rateur|\\boperator\\b|"
+    r"production|electricien|électricien|soudeur|magasinier|superviseur|supervisor|"
+    r"commercial|مهندس|تقني|فني|ميكانيكي|صيانة|إنتاج|عامل|موظف|مشرف|مسؤول|سائق|محاسب|"
+    r"postuler|candidature|apply\\s+now|"
+    r"envoy(?:er|ez).{0,30}\\b(?:cv|resume)\\b|send.{0,30}\\b(?:cv|resume)\\b|"
+    r"\\b[\\w.+-]+@[\\w.-]+\\.[a-z]{2,}\\b)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def looks_like_non_job_job_teaser(text):
+    """Detect a promise to post job offers later when no concrete vacancy details exist."""
+    body = str(text or "").strip()
+    if not body or not _FUTURE_JOB_POST_TEASER_RE.search(body):
+        return False
+    return not bool(_CONCRETE_JOB_DETAIL_RE.search(body))
 
 
 def looks_like_non_job_social_post(text):
@@ -4291,6 +4327,10 @@ def process_post(
 
     if looks_like_non_job_service_promotion(text):
         print("NON-JOB SERVICE PROMOTION FILTER: CV/career-service advertisement; ignored")
+        return True
+
+    if looks_like_non_job_job_teaser(text):
+        print("NON-JOB FUTURE-POST TEASER FILTER: offers are announced for later; no current vacancy details")
         return True
 
     if looks_like_non_job_social_post(text):

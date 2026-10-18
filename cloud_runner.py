@@ -161,17 +161,20 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     # Group by source/message so multiple roles from one post reconcile counters once.
     pending_reviews = state.get("pending_reviews")
     service_promotion_posts: dict[tuple[str, str], None] = {}
+    future_job_teaser_posts: dict[tuple[str, str], None] = {}
     if isinstance(pending_reviews, dict):
         for item in pending_reviews.values():
             if not isinstance(item, dict):
                 continue
             post = item.get("post") or {}
             post_text = str(post.get("text") or item.get("advertisement") or "")
-            if not processor.looks_like_non_job_service_promotion(post_text):
-                continue
             source = str(post.get("source") or post.get("channel") or "").strip()
             message_id = str(post.get("message_id") or "").strip()
-            if source and message_id:
+            if not source or not message_id:
+                continue
+            if processor.looks_like_non_job_job_teaser(post_text):
+                future_job_teaser_posts[(source, message_id)] = None
+            elif processor.looks_like_non_job_service_promotion(post_text):
                 service_promotion_posts[(source, message_id)] = None
 
     dismissed_service_reviews = 0
@@ -187,6 +190,21 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         print(
             f"NON-JOB SERVICE PROMOTION CLEANUP: "
             f"{dismissed_service_reviews} stale review card(s) dismissed"
+        )
+
+    dismissed_teaser_reviews = 0
+    for source, message_id in future_job_teaser_posts:
+        dismissed_teaser_reviews += bot.dismiss_non_job_reviews_for_post(
+            source,
+            message_id,
+            "⚠️ تصحيح من JobFinder: أُرسلت بطاقة مراجعة لهذا المنشور بالخطأ. "
+            "نص المنشور يعلن أن عروض العمل ستُنشر لاحقًا ولا يعرض وظيفة متاحة الآن. "
+            "أُزيل من المراجعات المعلّقة، ولن يُرسل أي طلب بخصوصه.",
+        )
+    if dismissed_teaser_reviews:
+        print(
+            f"NON-JOB FUTURE-POST TEASER CLEANUP: "
+            f"{dismissed_teaser_reviews} stale review card(s) dismissed"
         )
 
     if webhook_event_mode:
