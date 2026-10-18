@@ -166,9 +166,9 @@ class TelegramControlTests(unittest.TestCase):
             "text": "/sent",
         })
         self.assertEqual(len(sent), 1)
-        self.assertIn("لا توجد طلبات يمكن تأكيد توقيتها لهذا اليوم", sent[0][1])
-        self.assertIn("1 سجل إرسال قديم بلا توقيت", sent[0][1])
-        self.assertIn("محفوظ لمنع تكرار التقديم", sent[0][1])
+        self.assertIn("لا توجد طلبات مسجلة اليوم بوقت إرسال محفوظ", sent[0][1])
+        self.assertIn("سجلات إرسال قديمة بلا توقيت: 1", sent[0][1])
+        self.assertIn("محفوظة فقط لمنع تكرار التقديم", sent[0][1])
         self.assertNotIn("Legacy Job", sent[0][1])
         self.assertNotIn("Legacy Company", sent[0][1])
         self.assertNotIn("أول سجلات قديمة", sent[0][1])
