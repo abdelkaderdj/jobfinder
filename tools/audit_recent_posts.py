@@ -82,6 +82,7 @@ def make_markdown(report: dict[str, Any]) -> str:
         f"- REVIEW: {summary['decisions'].get('REVIEW', 0)}",
         f"- REJECT: {summary['decisions'].get('REJECT', 0)}",
         f"- منشورات اجتماعية واضحة تم تجاوزها: {summary['social_posts_ignored']}",
+        f"- إعلانات خدمات CV التي تم تجاوزها: {summary['service_promotions_ignored']}",
         f"- منشورات لم يُستخرج منها منصب: {summary['no_position_output']}",
         f"- أخطاء/تحليلات غير مكتملة: {summary['processing_incomplete']}",
         f"- منشورات أُجّل تحليلها بسبب حدود Groq: {summary['provider_rate_limited_posts']}",
@@ -239,6 +240,7 @@ async def run_audit() -> dict[str, Any]:
     decisions: Counter[str] = Counter()
     positions_evaluated = 0
     ignored_social = 0
+    service_promotions_ignored = 0
     no_position_output = 0
     processing_incomplete = 0
     provider_rate_limited_posts = 0
@@ -255,6 +257,12 @@ async def run_audit() -> dict[str, Any]:
                 "url": post["url"],
                 "jobs": [],
             }
+
+            if processor.looks_like_non_job_service_promotion(post["text"]):
+                base_result["status"] = "ignored_non_job_service_promotion"
+                service_promotions_ignored += 1
+                output_posts.append(base_result)
+                continue
 
             if processor.looks_like_non_job_social_post(post["text"]):
                 base_result["status"] = "ignored_clear_social_post"
@@ -348,6 +356,7 @@ async def run_audit() -> dict[str, Any]:
             "positions_evaluated": positions_evaluated,
             "decisions": dict(decisions),
             "social_posts_ignored": ignored_social,
+            "service_promotions_ignored": service_promotions_ignored,
             "no_position_output": no_position_output,
             "processing_incomplete": processing_incomplete,
             "provider_rate_limited_posts": provider_rate_limited_posts,
