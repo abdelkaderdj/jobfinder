@@ -166,6 +166,9 @@ async def check_channels() -> dict[str, Any]:
                         "READABLE_WITH_BACKLOG" if pending_count else "READABLE_NO_BACKLOG"
                     )
             except Exception as exc:
+                # A failure at any stage means the full channel/cursor check
+                # did not complete, even if get_entity() had already succeeded.
+                item["readable"] = False
                 item["status"] = "READ_ERROR"
                 item["error"] = one_line_error(exc)
             channels.append(item)
