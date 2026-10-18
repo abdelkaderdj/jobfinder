@@ -167,11 +167,12 @@ class TelegramControlTests(unittest.TestCase):
         })
         self.assertEqual(len(sent), 1)
         self.assertIn("لا توجد طلبات يمكن تأكيد توقيتها لهذا اليوم", sent[0][1])
-        self.assertIn("1 سجلات محفوظة في سجل الإرسال القديم بلا توقيت", sent[0][1])
-        self.assertIn("لا تخص طلبات اليوم", sent[0][1])
-        self.assertIn("نحتفظ بها لمنع إعادة التقديم", sent[0][1])
-        self.assertIn("Legacy Job", sent[0][1])
-        self.assertIn("Legacy Company", sent[0][1])
+        self.assertIn("1 سجل إرسال قديم بلا توقيت", sent[0][1])
+        self.assertIn("محفوظ لمنع تكرار التقديم", sent[0][1])
+        self.assertNotIn("Legacy Job", sent[0][1])
+        self.assertNotIn("Legacy Company", sent[0][1])
+        self.assertNotIn("أول سجلات قديمة", sent[0][1])
+        self.assertNotIn("تُعرض أول 5 سجلات", sent[0][1])
 
     def test_daily_summary_distinguishes_reviews_and_manual_rejections(self):
         bot, sent = self.build_bot()
@@ -197,7 +198,9 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعات جديدة اليوم: 4", report)
         self.assertIn("المرفوضة تلقائيًا اليوم: 151", report)
         self.assertIn("مراجعات رُفضت يدويًا اليوم: 4", report)
-        self.assertIn("الرفض اليدوي يُحسب منفصلًا", report)
+        self.assertNotIn("ملاحظة:", report)
+        self.assertNotIn("الرفض اليدوي يُحسب منفصلًا", report)
+        self.assertNotIn("السجلات القديمة بلا توقيت لا تُنسب", report)
 
     def test_start_dashboard_displays_key_metrics_and_persistent_menu(self):
         bot, sent = self.build_bot()
