@@ -607,6 +607,52 @@ class TelegramControlTests(unittest.TestCase):
         save_result.assert_not_called()
         self.assertEqual(events, [])
 
+    def test_cv_discount_promotion_with_opportunity_slogan_is_not_a_job(self):
+        # Regression for @rcrdz1/22642: generic "فرصة عمل أفضل" is marketing,
+        # not proof that the publisher is hiring.
+        post_text = (
+            "📢✨ خبر سار لأعضاء جروب Recrutement DZ! 🎉💼\n\n"
+            "❤️ لأن نجاحكم يهمّنا، حضّرنا لكم PROMOTION خاصة وتخفيضات على خدماتنا! 🎁🔥\n\n"
+            "🌟 خدماتنا تشمل:\n"
+            "📄 إنشاء وتصميم CV professionnel بالفرنسية أو الإنجليزية.\n"
+            "☑️ إعداد CV متوافق مع أنظمة الفرز الآلي ATS.\n"
+            "✍️ كتابة Lettre de motivation / Cover Letter.\n"
+            "🔗 إنشاء وتحسين حساب LinkedIn.\n"
+            "💻 المساعدة في إنشاء وتفعيل حسابات Emploitic وLinkedIn.\n"
+            "🌍 المساعدة في التقديم على عروض العمل والمنح الدولية.\n"
+            "📢 نشر السير الذاتية والمساعدة في الوصول إلى فرص عمل مناسبة.\n\n"
+            "🥰 الحمد لله، ثقتكم ورضاكم هما أكبر حافز لينا باش نطوّروا خدماتنا "
+            "ونقدّموا لكم الأفضل. شكرًا لكل من اختار Recrutement DZ! ❤️🤝\n\n"
+            "🎯 ما تفوّتوش فرصة الاستفادة من التخفيضات!\n\n"
+            "📲 للاستفسار وطلب الخدمات، تواصلوا معنا عبر واتساب:\n"
+            "📞 0776 837 862\n"
+            "💬 ابعثولنا رسالة ونعطوكم تفاصيل البروموسيون والخدمات المناسبة لاحتياجاتكم.\n\n"
+            "❤️ Recrutement DZ 🇩🇿 — معكم نحو فرصة عمل أفضل! 🚀"
+        )
+        self.assertTrue(processor.looks_like_vacancy_ad(post_text))
+        self.assertTrue(processor.looks_like_non_job_service_promotion(post_text))
+
+        post = {
+            "source": "rcrdz1",
+            "channel": "rcrdz1",
+            "message_id": 22642,
+            "text": post_text,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        send_application.assert_not_called()
+        self.assertEqual(events, [])
+
     def test_service_promotion_filter_does_not_hide_an_actual_job_offer(self):
         actual_job = (
             "Offre d'emploi: Recrutement d'un Technicien de Maintenance "
