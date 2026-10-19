@@ -617,7 +617,9 @@ class TelegramJobBot:
         if not isinstance(record, dict):
             return
         decision = str(record.get("decision") or "").upper()
-        if decision in {"APPLY", "REVIEW"}:
+        # A synthetic extraction-fallback card has no reliable job identity.
+        # Do not match its placeholder title/email against prior rejected jobs.
+        if decision in {"APPLY", "REVIEW"} and not record.get("analysis_fallback"):
             job = event.get("job") or {}
             post = event.get("post") or {}
             reason = self.pre_send_guard_for_job(
