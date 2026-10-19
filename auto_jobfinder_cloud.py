@@ -776,6 +776,28 @@ _RATE_LIMITED_GROQ_MODELS: set[str] = set()
 _UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
+_AI_PROVIDER_LAST_REQUEST_AT: dict[str, float] = {}
+
+
+def _pace_ai_provider(provider: str) -> None:
+    """Apply an optional shared per-provider minimum interval to avoid quota bursts."""
+    raw_interval = os.getenv("JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS", "0").strip()
+    try:
+        interval = float(raw_interval)
+    except (TypeError, ValueError):
+        interval = 0.0
+    if interval <= 0:
+        return
+
+    provider_key = str(provider or "unknown").strip().lower()
+    now = time.monotonic()
+    previous = _AI_PROVIDER_LAST_REQUEST_AT.get(provider_key)
+    if previous is not None:
+        remaining = interval - (now - previous)
+        if remaining > 0:
+            time.sleep(remaining)
+            now += remaining
+    _AI_PROVIDER_LAST_REQUEST_AT[provider_key] = now
 
 
 class AIProviderRateLimited(RuntimeError):
@@ -887,13 +909,25 @@ def _rate_limit_retry_seconds(error: Exception, default: int = 3600) -> int:
         seconds = max(header_values)
     else:
         details = str(error).lower()
+        # Gemini can expose cooldowns in a structured retryDelay field instead
+        # of an HTTP Retry-After header or a natural-language error message.
+        structured_match = re.search(
+            r"""["']?(?:retrydelay|retry_after|retryafter)["']?\s*:\s*["']([^"']+)["']""",
+            details,
+        )
+        structured = (
+            _parse_rate_limit_duration(structured_match.group(1))
+            if structured_match else None
+        )
         duration_match = re.search(
             r"(?:try again|retry|reset)(?: after| in|:)?\s*"
             r"(\d+(?:\.\d+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))",
             details,
         )
         parsed = _parse_rate_limit_duration(duration_match.group(1)) if duration_match else None
-        seconds = parsed if parsed is not None else default
+        seconds = structured if structured is not None else (
+            parsed if parsed is not None else default
+        )
     return max(60, min(86400, int(seconds) + 15))
 
 
@@ -1019,19 +1053,30 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
+# Google routes deprecated Gemini aliases to their replacements. Canonicalize them
+# before failover so one underlying model/quota pool is never attempted twice.
+_GEMINI_MODEL_ALIASES = {
+    "gemini-3.7-flash": "gemini-3.8-flash",
+    "gemini-3.5-flash": "gemini-3.6-flash",
+}
+
+
 def _configured_gemini_models():
-    """Return the primary Gemini model plus independent model-quota fallbacks."""
+    """Return unique Gemini model routes with distinct fallback quota pools."""
     primary = (
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
+    # These are currently distinct stable text-generation model endpoints.
+    # Keep aliases canonicalized even when a repository variable is customized.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.6-flash,gemini-3.5-flash-lite"
+        or "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
         name = str(candidate or "").strip()
+        name = _GEMINI_MODEL_ALIASES.get(name, name)
         if name and name not in models:
             models.append(name)
     return tuple(models)
@@ -1065,6 +1110,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 continue
             gemini_tried = True
             try:
+                _pace_ai_provider("gemini")
                 result = _gemini_json_request(
                     messages=messages,
                     temperature=temperature,
@@ -1125,6 +1171,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             model_kwargs = {"reasoning_effort": "low", "reasoning_format": "hidden"}
         request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(
                 **request_kwargs,
                 response_format={"type": "json_object"},
@@ -1145,6 +1192,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(**request_kwargs)
             print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
             return parse_json_response(response.choices[0].message.content)
