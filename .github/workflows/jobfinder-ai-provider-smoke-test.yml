@@ -1,18 +1,15 @@
 name: JobFinder AI Provider Smoke Test
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - "tools/ai_provider_smoke_test.py"
-      - ".github/workflows/jobfinder-ai-provider-smoke-test.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Share the live monitor lock so connectivity checks do not add a quota burst.
 concurrency:
-  group: jobfinder-ai-provider-smoke-test
+  group: jobfinder-cloud-monitor
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -35,5 +32,8 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS }}
+          GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}
+          JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
+          JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
+          JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
         run: python tools/ai_provider_smoke_test.py

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 # Running a script from tools/ puts tools/ on sys.path; add the repo root
@@ -32,9 +34,14 @@ def main() -> int:
             "content": 'Return exactly this JSON object: {"provider_smoke_test":"ok"}.',
         },
     ]
+    provider_log = StringIO()
     try:
-        result = processor.groq_json_request(messages, max_completion_tokens=80)
+        # Preserve the router's sanitized diagnostics so the smoke test reveals
+        # whether Gemini itself worked or the run survived through Groq fallback.
+        with redirect_stdout(provider_log):
+            result = processor.groq_json_request(messages, max_completion_tokens=80)
     except processor.AIProviderRateLimited as exc:
+        print(provider_log.getvalue(), end="")
         retry_after = getattr(exc, "retry_after_seconds", 0)
         print(
             "AI PROVIDER SMOKE TEST BLOCKED BY QUOTA: "
@@ -42,7 +49,19 @@ def main() -> int:
             "No email or job application was attempted."
         )
         return 2
+    except processor.AIProviderUnavailable as exc:
+        print(provider_log.getvalue(), end="")
+        retry_after = getattr(exc, "retry_after_seconds", 0)
+        reason = str(getattr(exc, "reason", "") or "AI provider routes unavailable")
+        print(
+            "AI PROVIDER SMOKE TEST BLOCKED: all configured routes are unavailable or rejected "
+            "the request; "
+            f"reason={reason}; retry_after_seconds={retry_after}; "
+            "no email or job application was attempted."
+        )
+        return 3
     except Exception as exc:
+        print(provider_log.getvalue(), end="")
         print(
             "AI PROVIDER SMOKE TEST FAILED: "
             f"{processor._safe_ai_provider_error(exc)}. "
@@ -50,6 +69,8 @@ def main() -> int:
         )
         return 1
 
+    route_log = provider_log.getvalue()
+    print(route_log, end="")
     if not isinstance(result, dict) or result.get("provider_smoke_test") != "ok":
         print(
             "AI PROVIDER SMOKE TEST FAILED: provider returned unexpected JSON. "
@@ -57,9 +78,22 @@ def main() -> int:
         )
         return 1
 
+    if "AI PROVIDER: Gemini (" in route_log:
+        route_summary = "Gemini succeeded"
+    elif "AI PROVIDER: Groq (" in route_log and not os.getenv("GEMINI_API_KEY", "").strip():
+        route_summary = (
+            "Groq succeeded; GEMINI_API_KEY is absent, so Gemini was not tested"
+        )
+    elif "AI PROVIDER: Groq (" in route_log:
+        route_summary = (
+            "Groq fallback succeeded; no Gemini model returned a response in this run"
+        )
+    else:
+        route_summary = "router returned valid JSON; inspect the provider diagnostics above"
+
     print(
-        "AI PROVIDER SMOKE TEST PASSED: valid JSON returned through the configured "
-        "Gemini/Groq router. No email or job application was attempted."
+        f"AI PROVIDER SMOKE TEST PASSED: {route_summary}. "
+        "No email or job application was attempted."
     )
     return 0
 

@@ -48,8 +48,10 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 
-if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY is not set")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
+if not GROQ_API_KEY and not GEMINI_API_KEY:
+    raise RuntimeError("At least one AI provider key is required: GEMINI_API_KEY or GROQ_API_KEY")
 
 if not GMAIL_APP_PASSWORD:
     raise RuntimeError("GMAIL_APP_PASSWORD is not set")
@@ -58,9 +60,9 @@ if not GMAIL_ADDRESS:
     raise RuntimeError("GMAIL_ADDRESS is not set")
 
 
-client = Groq(
-    api_key=GROQ_API_KEY
-)
+# Groq is an optional fallback provider. A valid Gemini-only configuration must
+# still be able to import this module and analyze jobs when Groq is unavailable.
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Optional callbacks wired by the cloud runner.
 JOB_EVENT_CALLBACK = None
@@ -765,27 +767,61 @@ def parse_json_response(result):
     )
 
 
-GROQ_MODEL_FALLBACKS = (
+_DEFAULT_GROQ_MODEL_FALLBACKS = (
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     # Independent model quota bucket on Groq.
     "qwen/qwen3.8-27b",
 )
+GROQ_MODEL_FALLBACKS = _DEFAULT_GROQ_MODEL_FALLBACKS if client is not None else ()
 
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
 _UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
+_GROQ_DISABLED_FOR_RUN = False
+_AI_PROVIDER_LAST_REQUEST_AT: dict[str, float] = {}
 
 
-class AIProviderRateLimited(RuntimeError):
-    """Raised when all configured AI providers are temporarily unavailable."""
+def _pace_ai_provider(provider: str) -> None:
+    """Apply an optional shared per-provider minimum interval to avoid quota bursts."""
+    raw_interval = os.getenv("JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS", "0").strip()
+    try:
+        interval = float(raw_interval)
+    except (TypeError, ValueError):
+        interval = 0.0
+    if interval <= 0:
+        return
+
+    provider_key = str(provider or "unknown").strip().lower()
+    now = time.monotonic()
+    previous = _AI_PROVIDER_LAST_REQUEST_AT.get(provider_key)
+    if previous is not None:
+        remaining = interval - (now - previous)
+        if remaining > 0:
+            time.sleep(remaining)
+            now += remaining
+    _AI_PROVIDER_LAST_REQUEST_AT[provider_key] = now
+
+
+class AIProviderUnavailable(RuntimeError):
+    """Raised when no configured AI route can currently process a request."""
+
+    def __init__(self, retry_after_seconds: int, reason: str = "AI provider routes unavailable"):
+        self.retry_after_seconds = max(60, int(retry_after_seconds))
+        self.reason = str(reason or "AI provider routes unavailable")[:160]
+        super().__init__(
+            f"{self.reason}; retry after {self.retry_after_seconds} seconds"
+        )
+
+
+class AIProviderRateLimited(AIProviderUnavailable):
+    """Raised when quota/rate limits exhaust the available AI routes."""
 
     def __init__(self, retry_after_seconds: int):
-        self.retry_after_seconds = max(60, int(retry_after_seconds))
         super().__init__(
-            "All configured AI providers are rate-limited; "
-            f"retry after {self.retry_after_seconds} seconds"
+            retry_after_seconds,
+            reason="All configured AI providers are rate-limited",
         )
 
 
@@ -808,15 +844,42 @@ def _is_rate_limit_error(error: Exception) -> bool:
     )
 
 
-def _is_temporary_provider_overload(error: Exception) -> bool:
-    """Identify temporary 5xx provider/model overloads that warrant model failover."""
+def _is_provider_configuration_error(error: Exception) -> bool:
+    """Recognize provider-wide credential/permission failures that model failover cannot fix."""
     status_code = getattr(error, "status_code", None)
     if status_code is None:
         status_code = getattr(error, "code", None)
     if status_code is None:
         response = getattr(error, "response", None)
         status_code = getattr(response, "status_code", None)
-    if str(status_code) in {"500", "502", "503", "504"}:
+    if str(status_code) in {"401", "403"}:
+        return True
+    details = str(error or "").lower()
+    return any(
+        marker in details
+        for marker in (
+            "api key not valid",
+            "invalid api key",
+            "incorrect api key",
+            "unauthenticated",
+            "authentication failed",
+            "authentication_error",
+            "unauthorized",
+            "permission_denied",
+            "permission denied",
+        )
+    )
+
+
+def _is_temporary_provider_overload(error: Exception) -> bool:
+    """Identify temporary provider/network failures that warrant failover or cooldown."""
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        status_code = getattr(error, "code", None)
+    if status_code is None:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if str(status_code) in {"408", "425", "429", "500", "502", "503", "504"}:
         return True
     details = str(error or "").lower()
     return any(
@@ -827,6 +890,17 @@ def _is_temporary_provider_overload(error: Exception) -> bool:
             "service unavailable",
             "server overloaded",
             "upstream timeout",
+            "temporary failure in name resolution",
+            "name or service not known",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "connection error",
+            "network is unreachable",
+            "remote end closed connection",
+            "connect timeout",
+            "read timeout",
+            "timed out",
         )
     )
 
@@ -887,13 +961,25 @@ def _rate_limit_retry_seconds(error: Exception, default: int = 3600) -> int:
         seconds = max(header_values)
     else:
         details = str(error).lower()
+        # Gemini can expose cooldowns in a structured retryDelay field instead
+        # of an HTTP Retry-After header or a natural-language error message.
+        structured_match = re.search(
+            r"""["']?(?:retrydelay|retry_after|retryafter)["']?\s*:\s*["']([^"']+)["']""",
+            details,
+        )
+        structured = (
+            _parse_rate_limit_duration(structured_match.group(1))
+            if structured_match else None
+        )
         duration_match = re.search(
             r"(?:try again|retry|reset)(?: after| in|:)?\s*"
             r"(\d+(?:\.\d+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))",
             details,
         )
         parsed = _parse_rate_limit_duration(duration_match.group(1)) if duration_match else None
-        seconds = parsed if parsed is not None else default
+        seconds = structured if structured is not None else (
+            parsed if parsed is not None else default
+        )
     return max(60, min(86400, int(seconds) + 15))
 
 
@@ -1019,19 +1105,30 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
+# Google routes deprecated Gemini aliases to their replacements. Canonicalize them
+# before failover so one underlying model/quota pool is never attempted twice.
+_GEMINI_MODEL_ALIASES = {
+    "gemini-3.7-flash": "gemini-3.8-flash",
+    "gemini-3.5-flash": "gemini-3.6-flash",
+}
+
+
 def _configured_gemini_models():
-    """Return the primary Gemini model plus independent model-quota fallbacks."""
+    """Return unique Gemini model routes with distinct fallback quota pools."""
     primary = (
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
+    # These are currently distinct stable text-generation model endpoints.
+    # Keep aliases canonicalized even when a repository variable is customized.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.6-flash,gemini-3.5-flash-lite"
+        or "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
         name = str(candidate or "").strip()
+        name = _GEMINI_MODEL_ALIASES.get(name, name)
         if name and name not in models:
             models.append(name)
     return tuple(models)
@@ -1047,7 +1144,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     remaining request. If every provider is unavailable, preserve the cursor
     and let the cloud runner retry later; never mark the failed post processed.
     """
-    global _GEMINI_DISABLED_FOR_RUN
+    global _GEMINI_DISABLED_FOR_RUN, _GROQ_DISABLED_FOR_RUN
 
     common_kwargs = {
         "messages": messages,
@@ -1065,6 +1162,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 continue
             gemini_tried = True
             try:
+                _pace_ai_provider("gemini")
                 result = _gemini_json_request(
                     messages=messages,
                     temperature=temperature,
@@ -1083,6 +1181,15 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                         "switching to the next Gemini model"
                     )
                     continue
+
+                if _is_provider_configuration_error(gemini_error):
+                    _GEMINI_DISABLED_FOR_RUN = True
+                    print(
+                        "AI GEMINI AUTHENTICATION/CONFIGURATION ERROR: "
+                        f"{_safe_ai_provider_error(gemini_error)}; "
+                        "skipping the remaining Gemini models for this run"
+                    )
+                    break
 
                 if _is_temporary_provider_overload(gemini_error):
                     _DISABLED_GEMINI_MODELS.add(model_name)
@@ -1117,14 +1224,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             print("AI GEMINI MODEL POOL EXHAUSTED: switching to Groq for this run")
 
     for model_name in GROQ_MODEL_FALLBACKS:
+        if _GROQ_DISABLED_FOR_RUN:
+            break
         if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
             continue
-        # Reasoning-only parameters are restricted to GPT-OSS.
+        # Keep reasoning-oriented fallback models in low/hidden mode to reduce
+        # unnecessary reasoning-token use while preserving structured JSON output.
         model_kwargs = {}
-        if model_name.startswith("openai/gpt-oss-"):
+        if model_name.startswith("openai/gpt-oss-") or model_name == "qwen/qwen3.8-27b":
             model_kwargs = {"reasoning_effort": "low", "reasoning_format": "hidden"}
         request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(
                 **request_kwargs,
                 response_format={"type": "json_object"},
@@ -1142,9 +1253,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 _UNAVAILABLE_GROQ_MODELS.add(model_name)
                 print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
                 continue
+            if _is_provider_configuration_error(first_error):
+                _GROQ_DISABLED_FOR_RUN = True
+                print(
+                    "AI GROQ AUTHENTICATION/CONFIGURATION ERROR: "
+                    f"{_safe_ai_provider_error(first_error)}; "
+                    "skipping remaining Groq models for this run"
+                )
+                break
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(**request_kwargs)
             print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
             return parse_json_response(response.choices[0].message.content)
@@ -1157,34 +1277,81 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             elif _is_temporary_provider_overload(second_error):
                 _UNAVAILABLE_GROQ_MODELS.add(model_name)
                 print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
+            elif _is_provider_configuration_error(second_error):
+                _GROQ_DISABLED_FOR_RUN = True
+                print(
+                    "AI GROQ AUTHENTICATION/CONFIGURATION ERROR: "
+                    f"{_safe_ai_provider_error(second_error)}; "
+                    "skipping remaining Groq models for this run"
+                )
+                break
             else:
                 print(
                     f"AI MODEL RETRY FAILED: {model_name}; "
                     f"{type(second_error).__name__}"
                 )
 
-    all_groq_rate_limited = bool(GROQ_MODEL_FALLBACKS) and set(
-        GROQ_MODEL_FALLBACKS
-    ).issubset(_RATE_LIMITED_GROQ_MODELS)
-
-    if all_groq_rate_limited:
-        retry_seconds = max(
-            (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
-            default=3600,
+    all_groq_routes_exhausted = (
+        not GROQ_MODEL_FALLBACKS
+        or _GROQ_DISABLED_FOR_RUN
+        or set(GROQ_MODEL_FALLBACKS).issubset(
+            _RATE_LIMITED_GROQ_MODELS | _UNAVAILABLE_GROQ_MODELS
         )
-        if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-            provider = (
-                "Gemini and Groq rate limits"
-                if any(_is_rate_limit_error(error) for error in rate_limit_errors)
-                else "Groq model pool exhausted; Gemini unavailable"
+    )
+    all_gemini_routes_exhausted = (
+        not gemini_configured or _GEMINI_DISABLED_FOR_RUN
+    )
+
+    if all_groq_routes_exhausted and all_gemini_routes_exhausted:
+        if rate_limit_errors:
+            retry_seconds = max(
+                (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
+                default=3600,
             )
-        else:
-            provider = (
-                "Groq model pool exhausted; configure GEMINI_API_KEY "
-                "for an independent AI provider"
+            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+                provider = (
+                    "AI quota exhausted across Gemini/Groq routes; "
+                    "some routes may also be temporarily overloaded"
+                )
+            else:
+                provider = (
+                    "Groq quota exhausted; configure GEMINI_API_KEY for an independent AI provider; "
+                    "some routes may also be temporarily overloaded"
+                )
+            _notify_ai_rate_limit(retry_seconds, provider)
+            raise AIProviderRateLimited(retry_seconds) from last_error
+
+        # Only apply an outage cooldown when the last failures indicate temporary
+        # overload. Authentication, model-ID, and request errors should surface
+        # as configuration/analysis failures rather than being mislabeled as outages.
+        if last_error is not None and _is_temporary_provider_overload(last_error):
+            try:
+                outage_retry_seconds = int(
+                    os.getenv("JOBFINDER_AI_OUTAGE_RETRY_SECONDS", "300").strip()
+                )
+            except (TypeError, ValueError):
+                outage_retry_seconds = 300
+            outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
+            provider = "All configured Groq routes are temporarily overloaded"
+            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+                provider = "All configured Gemini/Groq routes are temporarily unavailable"
+            _notify_ai_rate_limit(outage_retry_seconds, provider)
+            raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
+
+    if last_error is not None and _is_provider_configuration_error(last_error):
+        try:
+            config_retry_seconds = int(
+                os.getenv("JOBFINDER_AI_CONFIG_RETRY_SECONDS", "900").strip()
             )
-        _notify_ai_rate_limit(retry_seconds, provider)
-        raise AIProviderRateLimited(retry_seconds) from last_error
+        except (TypeError, ValueError):
+            config_retry_seconds = 900
+        config_retry_seconds = max(300, min(3600, config_retry_seconds))
+        provider = (
+            "AI provider credentials/permissions rejected; check GEMINI_API_KEY, "
+            "GROQ_API_KEY, and model configuration"
+        )
+        _notify_ai_rate_limit(config_retry_seconds, provider)
+        raise AIProviderUnavailable(config_retry_seconds, provider) from last_error
 
     if last_error is not None:
         raise last_error
@@ -4387,19 +4554,12 @@ def send_application(
     finally:
 
         if server is not None:
-
+            # A successful send_message() response (SMTP 250) confirms acceptance.
+            # QUIT is only session cleanup; letting QUIT fail after acceptance makes
+            # the caller think sending failed and can trigger a duplicate application.
             try:
-
                 server.quit()
-
-            except smtplib.SMTPResponseException as e:
-
-                if e.smtp_code != 250:
-
-                    raise
-
             except Exception:
-
                 pass
 
     if not accepted:
@@ -4720,8 +4880,8 @@ def process_post(
                 retry_jobs = []
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
-            if isinstance(exc, AIProviderRateLimited):
-                print("AI PROVIDER RATE LIMIT: preserving this post for a later retry")
+            if isinstance(exc, AIProviderUnavailable):
+                print("AI PROVIDER UNAVAILABLE: preserving this post for a later retry")
                 return False
             retry_jobs = []
 
@@ -5232,17 +5392,21 @@ def process_post(
 # ============================================================
 
 def send_approved_review(item):
-    """Send only a review explicitly approved by the authorized Telegram owner."""
+    """Send only a validated, explicitly approved real job review."""
     if not isinstance(item, dict):
         raise RuntimeError("Review item is invalid")
-    record = item.get("record") or {}
-    job = item.get("job") or {}
-    post = item.get("post") or {}
+    record = item.get("record")
+    job = item.get("job")
+    post = item.get("post")
+    if not isinstance(record, dict) or not isinstance(job, dict) or not isinstance(post, dict):
+        raise RuntimeError("Review data is incomplete")
+    # This is a recovery card for an unparsed advertisement, not an extracted job.
+    # Keep this invariant in the sending layer, even if persisted review fields change.
+    if record.get("analysis_fallback") is True:
+        raise RuntimeError("An extraction-fallback card cannot be submitted as a job application")
     emails = record.get("emails") or []
     title = str(record.get("application_job_title") or "").strip()
     cv_path = str(record.get("cv") or "").strip()
-    if not isinstance(job, dict) or not isinstance(record, dict) or not isinstance(post, dict):
-        raise RuntimeError("Review data is incomplete")
     if item.get("can_auto_send") is not True:
         raise RuntimeError("This review is not safe for automatic email submission")
     if record.get("contact_scope_matched") is not True:

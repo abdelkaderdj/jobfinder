@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -29,7 +30,19 @@ from cloud_runner import (
 
 WINDOW_HOURS = 48
 PER_CHANNEL_SCAN_LIMIT = 180
-MAX_AUDIT_POSTS = 40
+
+
+def _bounded_int_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+# Audits use real AI quota even though email sending and persistence are disabled.
+# Keep the default sample small, with a hard cap to avoid accidental quota bursts.
+MAX_AUDIT_POSTS = _bounded_int_setting("JOBFINDER_AUDIT_MAX_POSTS", 12, 1, 40)
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -85,7 +98,7 @@ def make_markdown(report: dict[str, Any]) -> str:
         f"- إعلانات خدمات CV التي تم تجاوزها: {summary['service_promotions_ignored']}",
         f"- منشورات لم يُستخرج منها منصب: {summary['no_position_output']}",
         f"- أخطاء/تحليلات غير مكتملة: {summary['processing_incomplete']}",
-        f"- منشورات أُجّل تحليلها بسبب حدود Groq: {summary['provider_rate_limited_posts']}",
+        f"- منشورات أُجّل تحليلها بسبب تعذّر مزوّدات الذكاء الاصطناعي: {summary['provider_unavailable_posts']}",
         f"- محاولات إرسال بريد تم منعها في الاختبار: {summary['email_attempts_suppressed']}",
         "",
         "**هذه محاكاة قراءة فقط. لم يُرسل أي بريد، ولم تُعدّل مؤشرات القنوات أو حالة البوت.**",
@@ -243,7 +256,7 @@ async def run_audit() -> dict[str, Any]:
     service_promotions_ignored = 0
     no_position_output = 0
     processing_incomplete = 0
-    provider_rate_limited_posts = 0
+    provider_unavailable_posts = 0
 
     try:
         for post_index, post in enumerate(audit_posts):
@@ -286,21 +299,32 @@ async def run_audit() -> dict[str, Any]:
                 output_posts.append(base_result)
                 continue
 
-            all_models_rate_limited = (
-                bool(getattr(processor, "GROQ_MODEL_FALLBACKS", ()))
-                and set(processor.GROQ_MODEL_FALLBACKS).issubset(
-                    getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set())
+            groq_routes = set(getattr(processor, "GROQ_MODEL_FALLBACKS", ()))
+            unavailable_routes = (
+                set(getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set()))
+                | set(getattr(processor, "_UNAVAILABLE_GROQ_MODELS", set()))
+            )
+            groq_routes_unavailable = (
+                not groq_routes
+                or bool(getattr(processor, "_GROQ_DISABLED_FOR_RUN", False))
+                or groq_routes.issubset(unavailable_routes)
+            )
+            all_models_unavailable = (
+                groq_routes_unavailable
+                and (
+                    not os.getenv("GEMINI_API_KEY", "").strip()
+                    or bool(getattr(processor, "_GEMINI_DISABLED_FOR_RUN", False))
                 )
             )
 
-            if processor_result is False and all_models_rate_limited:
+            if processor_result is False and all_models_unavailable:
                 # Stop immediately instead of emitting the same no-model-available
                 # error for every remaining post. Preserve their deferred status.
-                base_result["status"] = "deferred_rate_limit"
-                base_result["error_type"] = "GroqRateLimit"
+                base_result["status"] = "deferred_ai_provider_unavailable"
+                base_result["error_type"] = "AIProviderUnavailable"
                 base_result["excerpt"] = post["text"][:600]
                 processing_incomplete += 1
-                provider_rate_limited_posts += 1
+                provider_unavailable_posts += 1
                 output_posts.append(base_result)
 
                 for deferred in audit_posts[post_index + 1:]:
@@ -310,10 +334,10 @@ async def run_audit() -> dict[str, Any]:
                         "date_utc": deferred["date_utc"],
                         "url": deferred["url"],
                         "jobs": [],
-                        "status": "deferred_rate_limit",
+                        "status": "deferred_ai_provider_unavailable",
                     })
                     processing_incomplete += 1
-                    provider_rate_limited_posts += 1
+                    provider_unavailable_posts += 1
                 break
 
             if current_events:
@@ -359,7 +383,7 @@ async def run_audit() -> dict[str, Any]:
             "service_promotions_ignored": service_promotions_ignored,
             "no_position_output": no_position_output,
             "processing_incomplete": processing_incomplete,
-            "provider_rate_limited_posts": provider_rate_limited_posts,
+            "provider_unavailable_posts": provider_unavailable_posts,
             "email_attempts_suppressed": email_attempts_suppressed,
             "channels": channel_counts,
             "channels_at_scan_limit": channel_limited,

@@ -2,19 +2,26 @@ name: JobFinder Last 48h Read-only Audit
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - ".github/workflows/jobfinder-audit-48h.yml"
-      - "tools/audit_recent_posts.py"
-      - "auto_jobfinder_cloud.py"
+    inputs:
+      max_posts:
+        description: "Maximum number of posts to audit; this uses real AI quota"
+        required: false
+        type: choice
+        default: "12"
+        options:
+          - "6"
+          - "12"
+          - "20"
+          - "40"
 
 permissions:
   contents: read
 
+# Share the production AI-provider lock so an audit cannot drain quotas while
+# the live monitor is processing its own queued posts.
 concurrency:
-  group: jobfinder-read-only-audit
+  group: jobfinder-cloud-monitor
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -44,6 +51,11 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}
+          JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
+          JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
+          JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
+          JOBFINDER_AUDIT_MAX_POSTS: ${{ inputs.max_posts || '12' }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

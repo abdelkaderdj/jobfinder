@@ -176,15 +176,16 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         seconds = max(60, min(86400, int(retry_after_seconds)))
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=seconds + 15)
         state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
-        state["ai_provider_cooldown_reason"] = str(provider or "provider quota")[:80]
+        state["ai_provider_cooldown_reason"] = str(provider or "AI providers temporarily unavailable")[:80]
         bot._enqueue(
             "ai-provider-cooldown:" + retry_at.isoformat(timespec="seconds"),
-            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا بسبب حدود مزوّد الذكاء الاصطناعي.\n\n"
+            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا لأن مسارات الذكاء الاصطناعي غير متاحة "
+            "(حدود استخدام، ضغط مؤقت، أو رفض مفتاح/صلاحيات/إعداد نموذج).\n\n"
             f"سيُعاد التحليل بعد {retry_at.strftime('%Y-%m-%d %H:%M UTC')}. "
             "لم يُحرّك البوت مؤشر قراءة المنشور المتعثر، وستبقى المنشورات اللاحقة في الانتظار.\n"
             f"الحالة الفنية: {str(provider or 'quota')[:120]}",
         )
-        print("AI PROVIDER COOLDOWN SAVED: retry after " + state["ai_provider_retry_after_utc"] + " UTC")
+        print("AI PROVIDER COOLDOWN SAVED: " + str(provider or "unavailable")[:120] + "; retry after " + state["ai_provider_retry_after_utc"] + " UTC")
         persist_checkpoint(state, fernet, "AI provider cooldown saved", checkpoint_cache)
 
     processor.set_job_event_callback(bot.on_job_event)
