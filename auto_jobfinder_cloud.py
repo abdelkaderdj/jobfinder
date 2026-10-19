@@ -773,6 +773,7 @@ GROQ_MODEL_FALLBACKS = (
 )
 
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
+_DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
 
 
@@ -880,12 +881,12 @@ def _notify_ai_rate_limit(retry_after_seconds: int, provider: str) -> None:
         print("AI COOLDOWN PERSISTENCE ERROR:", type(exc).__name__)
 
 
-def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000):
+def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, model_name=None):
     """Use Gemini as an independent provider after Groq's model pool is exhausted."""
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+    model_name = str(model_name or os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.8-flash").strip()
     system_content = []
     conversation = []
     for message in messages or []:
@@ -952,15 +953,33 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000):
     return parse_json_response(response_text)
 
 
+def _configured_gemini_models():
+    """Return the primary Gemini model plus independent model-quota fallbacks."""
+    primary = (
+        os.getenv("GEMINI_MODEL", "").strip()
+        or "gemini-3.8-flash"
+    )
+    fallback_csv = (
+        os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
+        or "gemini-3.6-flash,gemini-3.5-flash-lite"
+    )
+    models = []
+    for candidate in [primary, *fallback_csv.split(",")]:
+        name = str(candidate or "").strip()
+        if name and name not in models:
+            models.append(name)
+    return tuple(models)
+
+
 def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     """
-    Route through independent AI quotas.
+    Route through independent provider/model quota pools.
 
-    Gemini is primary when configured so routine traffic does not consume Groq's
-    quota first. If Gemini fails or is rate-limited, it is circuit-broken for the
-    rest of this runner process and requests fall back to the Groq model pool.
-    Failed posts are still held by cloud_runner for a later retry; they are never
-    silently marked as processed.
+    Try Gemini first, then its alternate model quota pools, then Groq. Models
+    that return rate-limit or model-unavailable responses are skipped for the
+    rest of this short-lived runner so one exhausted quota cannot burn every
+    remaining request. If every provider is unavailable, preserve the cursor
+    and let the cloud runner retry later; never mark the failed post processed.
     """
     global _GEMINI_DISABLED_FOR_RUN
 
@@ -975,26 +994,53 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     gemini_tried = False
 
     if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
-        gemini_tried = True
-        try:
-            result = _gemini_json_request(
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=max_completion_tokens,
-            )
-            print("AI PROVIDER: Gemini primary succeeded")
-            return result
-        except Exception as gemini_error:
-            last_error = gemini_error
-            _GEMINI_DISABLED_FOR_RUN = True
-            if _is_rate_limit_error(gemini_error):
-                rate_limit_errors.append(gemini_error)
-                print("AI RATE LIMIT: Gemini; switching to Groq for the rest of this run")
-            else:
+        for model_name in _configured_gemini_models():
+            if model_name in _DISABLED_GEMINI_MODELS:
+                continue
+            gemini_tried = True
+            try:
+                result = _gemini_json_request(
+                    messages=messages,
+                    temperature=temperature,
+                    max_completion_tokens=max_completion_tokens,
+                    model_name=model_name,
+                )
+                print(f"AI PROVIDER: Gemini ({model_name}) succeeded")
+                return result
+            except Exception as gemini_error:
+                last_error = gemini_error
+                if _is_rate_limit_error(gemini_error):
+                    _DISABLED_GEMINI_MODELS.add(model_name)
+                    rate_limit_errors.append(gemini_error)
+                    print(
+                        f"AI RATE LIMIT: Gemini ({model_name}); "
+                        "switching to the next Gemini model"
+                    )
+                    continue
+
+                status_code = getattr(gemini_error, "status_code", None)
+                if status_code is None:
+                    status_code = getattr(gemini_error, "code", None)
+                if str(status_code) in {"400", "404", "410"}:
+                    _DISABLED_GEMINI_MODELS.add(model_name)
+                    print(
+                        f"AI GEMINI MODEL UNAVAILABLE: {model_name}; "
+                        "switching to the next Gemini model"
+                    )
+                    continue
+
+                # Invalid credentials, network failures, and provider-wide
+                # errors are not worth repeating for each post in this run.
+                _GEMINI_DISABLED_FOR_RUN = True
                 print(
-                    "AI GEMINI PRIMARY FAILED: "
+                    "AI GEMINI PROVIDER FAILED: "
                     f"{type(gemini_error).__name__}; switching to Groq"
                 )
+                break
+
+        if gemini_tried and not _GEMINI_DISABLED_FOR_RUN:
+            _GEMINI_DISABLED_FOR_RUN = True
+            print("AI GEMINI MODEL POOL EXHAUSTED: switching to Groq for this run")
 
     for model_name in GROQ_MODEL_FALLBACKS:
         if model_name in _RATE_LIMITED_GROQ_MODELS:
@@ -1040,8 +1086,6 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
         GROQ_MODEL_FALLBACKS
     ).issubset(_RATE_LIMITED_GROQ_MODELS)
 
-    # If Gemini wasn't configured (or is circuit-broken), only the Groq pool
-    # remains. Preserve the cursor and schedule a retry using the provider reset.
     if all_groq_rate_limited:
         retry_seconds = max(
             (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
