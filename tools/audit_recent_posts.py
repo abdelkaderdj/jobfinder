@@ -299,14 +299,16 @@ async def run_audit() -> dict[str, Any]:
                 output_posts.append(base_result)
                 continue
 
-            all_models_rate_limited = (
-                bool(getattr(processor, "GROQ_MODEL_FALLBACKS", ()))
-                and set(processor.GROQ_MODEL_FALLBACKS).issubset(
-                    getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set())
-                )
+            groq_routes = set(getattr(processor, "GROQ_MODEL_FALLBACKS", ()))
+            unavailable_routes = (
+                set(getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set()))
+                | set(getattr(processor, "_UNAVAILABLE_GROQ_MODELS", set()))
+            )
+            all_models_unavailable = bool(groq_routes) and groq_routes.issubset(
+                unavailable_routes
             )
 
-            if processor_result is False and all_models_rate_limited:
+            if processor_result is False and all_models_unavailable:
                 # Stop immediately instead of emitting the same no-model-available
                 # error for every remaining post. Preserve their deferred status.
                 base_result["status"] = "deferred_rate_limit"
