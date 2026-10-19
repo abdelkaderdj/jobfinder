@@ -64,6 +64,25 @@ class AIProviderRoutingTests(unittest.TestCase):
             ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"),
         )
 
+    def test_provider_pacing_waits_when_requests_arrive_too_soon(self):
+        processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "2"},
+                ),
+                patch.object(processor.time, "monotonic", side_effect=[100.0, 100.5]),
+                patch.object(processor.time, "sleep") as sleep,
+            ):
+                processor._pace_ai_provider("gemini")
+                processor._pace_ai_provider("gemini")
+
+            sleep.assert_called_once_with(1.5)
+            self.assertEqual(processor._AI_PROVIDER_LAST_REQUEST_AT["gemini"], 102.0)
+        finally:
+            processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
+
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
         error = RuntimeError(
             'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}'
