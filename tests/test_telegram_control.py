@@ -1164,6 +1164,33 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertEqual(len(bot.state["telegram_outbox"]), 2)
         self.assertIn("تعافى مسار الذكاء الاصطناعي", bot.state["telegram_outbox"][1]["text"])
 
+    def test_gemini_activation_after_groq_only_sends_owner_notification(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        bot.state["ai_provider_status"] = {
+            "status": "groq_only",
+            "provider": "groq",
+            "model": "openai/gpt-oss-120b",
+            "reason": "GEMINI_API_KEY is not configured.",
+            "gemini_configured": False,
+            "checked_at_utc": "2026-10-19T09:00:00Z",
+        }
+
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "healthy",
+                "provider": "gemini",
+                "model": "gemini-3.8-flash",
+                "reason": "",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T10:00:00Z",
+            },
+            bot,
+        )
+
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        self.assertIn("تم تفعيل Gemini بنجاح", bot.state["telegram_outbox"][0]["text"])
+
     def test_dashboard_displays_active_fallback_provider_and_reason(self):
         bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
         bot.state["ai_provider_status"] = {
