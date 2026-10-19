@@ -256,7 +256,7 @@ async def run_audit() -> dict[str, Any]:
     service_promotions_ignored = 0
     no_position_output = 0
     processing_incomplete = 0
-    provider_rate_limited_posts = 0
+    provider_unavailable_posts = 0
 
     try:
         for post_index, post in enumerate(audit_posts):
@@ -315,7 +315,7 @@ async def run_audit() -> dict[str, Any]:
                 base_result["error_type"] = "AIProviderUnavailable"
                 base_result["excerpt"] = post["text"][:600]
                 processing_incomplete += 1
-                provider_rate_limited_posts += 1
+                provider_unavailable_posts += 1
                 output_posts.append(base_result)
 
                 for deferred in audit_posts[post_index + 1:]:
@@ -328,7 +328,7 @@ async def run_audit() -> dict[str, Any]:
                         "status": "deferred_ai_provider_unavailable",
                     })
                     processing_incomplete += 1
-                    provider_rate_limited_posts += 1
+                    provider_unavailable_posts += 1
                 break
 
             if current_events:
@@ -374,7 +374,7 @@ async def run_audit() -> dict[str, Any]:
             "service_promotions_ignored": service_promotions_ignored,
             "no_position_output": no_position_output,
             "processing_incomplete": processing_incomplete,
-            "provider_rate_limited_posts": provider_rate_limited_posts,
+            "provider_unavailable_posts": provider_unavailable_posts,
             "email_attempts_suppressed": email_attempts_suppressed,
             "channels": channel_counts,
             "channels_at_scan_limit": channel_limited,
