@@ -251,13 +251,26 @@ class TelegramJobBot:
         paused = bool(self.state.get("paused"))
         ai_retry_raw = self.state.get("ai_provider_retry_after_utc")
         ai_route = self.state.get("ai_provider_status")
-        ai_status = "🟢 جاهز"
+        ai_status = "🟡 لم يُختبر بعد"
         ai_reason = ""
+        ai_checked_display = ""
         if isinstance(ai_route, dict):
             route_status = str(ai_route.get("status") or "").strip().lower()
             provider = str(ai_route.get("provider") or "").strip().lower()
             model = safe_text(ai_route.get("model"), 100)
             ai_reason = safe_text(ai_route.get("reason"), 160)
+            checked_raw = str(ai_route.get("checked_at_utc") or "").strip()
+            if checked_raw:
+                try:
+                    checked_at = datetime.fromisoformat(checked_raw.replace("Z", "+00:00"))
+                    if checked_at.tzinfo is None:
+                        checked_at = checked_at.replace(tzinfo=timezone.utc)
+                    ai_checked_display = (
+                        f"آخر استجابة مسجلة: {checked_at.astimezone(LOCAL_ZONE).strftime('%H:%M')} "
+                        "(توقيت الجزائر)"
+                    )
+                except (TypeError, ValueError):
+                    ai_checked_display = ""
             if route_status == "degraded":
                 if provider == "gemini":
                     ai_status = f"⚠️ نموذج Gemini احتياطي: {model}"
@@ -290,7 +303,8 @@ class TelegramJobBot:
             "📡 حالة JobFinder — لوحة التحكم\n\n"
             f"الحالة: {'⏸ متوقف مؤقتًا' if paused else '🟢 نشط'}\n"
             f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n"
-            f"الذكاء الاصطناعي: {ai_status}\n"
+            f"مسار الذكاء الاصطناعي: {ai_status}\n"
+            f"{ai_checked_display + chr(10) if ai_checked_display else ''}"
             f"{ai_reason_line}\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
             f"📨 طلبات مسجلة اليوم: {sent_count}\n"
