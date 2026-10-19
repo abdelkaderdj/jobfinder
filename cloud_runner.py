@@ -179,8 +179,8 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         state["ai_provider_cooldown_reason"] = str(provider or "AI providers temporarily unavailable")[:80]
         bot._enqueue(
             "ai-provider-cooldown:" + retry_at.isoformat(timespec="seconds"),
-            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا لأن مزوّدات الذكاء الاصطناعي غير متاحة "
-            "(حدود استخدام أو ضغط مؤقت).\n\n"
+            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا لأن مسارات الذكاء الاصطناعي غير متاحة "
+            "(حدود استخدام، ضغط مؤقت، أو رفض مفتاح/صلاحيات/إعداد نموذج).\n\n"
             f"سيُعاد التحليل بعد {retry_at.strftime('%Y-%m-%d %H:%M UTC')}. "
             "لم يُحرّك البوت مؤشر قراءة المنشور المتعثر، وستبقى المنشورات اللاحقة في الانتظار.\n"
             f"الحالة الفنية: {str(provider or 'quota')[:120]}",
