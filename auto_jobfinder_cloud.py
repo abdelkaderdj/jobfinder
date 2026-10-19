@@ -1041,7 +1041,7 @@ def _configured_gemini_models():
     # per-model 429 should not force the bot to abandon Gemini prematurely.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+        or "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
