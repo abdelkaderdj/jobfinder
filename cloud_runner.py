@@ -56,6 +56,17 @@ def required_env(name: str) -> str:
     return value
 
 
+def require_ai_provider() -> str:
+    """Require at least one usable AI provider key, not both providers."""
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        return "Gemini"
+    if os.getenv("GROQ_API_KEY", "").strip():
+        return "Groq"
+    raise RuntimeError(
+        "At least one AI provider key is required: GEMINI_API_KEY or GROQ_API_KEY"
+    )
+
+
 def get_fernet() -> Fernet:
     key = required_env("JOBFINDER_FERNET_KEY").encode("ascii")
     try:
@@ -115,6 +126,66 @@ def _serialized_state(state: dict[str, Any]) -> bytes:
     return json.dumps(
         state, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     ).encode("utf-8")
+
+
+def record_ai_provider_status(
+    state: dict[str, Any],
+    snapshot: dict[str, Any],
+    bot: Any,
+) -> None:
+    """Persist provider health and notify the owner only on state transitions."""
+    if not isinstance(snapshot, dict):
+        return
+    status = str(snapshot.get("status") or "").strip().lower()
+    if status not in {"healthy", "degraded", "groq_only"}:
+        return
+    provider = str(snapshot.get("provider") or "unknown").strip().lower()[:24]
+    model = str(snapshot.get("model") or "").strip()[:100]
+    reason = " ".join(str(snapshot.get("reason") or "").split())[:180]
+    checked_at = str(snapshot.get("checked_at_utc") or time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+    ))[:40]
+    previous = state.get("ai_provider_status")
+    if not isinstance(previous, dict):
+        previous = {}
+    previous_status = str(previous.get("status") or "").strip().lower()
+    previous_provider = str(previous.get("provider") or "").strip().lower()
+
+    current = {
+        "status": status,
+        "provider": provider,
+        "model": model,
+        "reason": reason,
+        "gemini_configured": bool(snapshot.get("gemini_configured")),
+        "checked_at_utc": checked_at,
+    }
+    state["ai_provider_status"] = current
+
+    if status == "degraded" and previous_status != "degraded":
+        if provider == "gemini":
+            route_text = f"نموذج Gemini الاحتياطي: {model or 'نموذج بديل'}"
+        else:
+            route_text = f"المزوّد الاحتياطي: {provider.upper()} ({model or 'نموذج بديل'})"
+        message = (
+            "⚠️ تنبيه مسار الذكاء الاصطناعي في JobFinder\n\n"
+            "تعذّر استخدام مسار Gemini الأساسي، لكن البديل أجاب بنجاح.\n"
+            f"{route_text}\n"
+            f"التشخيص: {reason or 'المسار الأساسي غير متاح مؤقتًا'}\n\n"
+            "تستمر المعالجة عبر البديل؛ راجع حالة النظام لمتابعة المسار المستخدم."
+        )
+        bot._enqueue("ai-provider-degraded:" + checked_at, message)
+    elif status == "healthy" and previous_status == "degraded":
+        message = (
+            "✅ تعافى مسار الذكاء الاصطناعي في JobFinder\n\n"
+            f"عاد المسار الأساسي للعمل: {provider.upper()} ({model or 'النموذج الأساسي'})."
+        )
+        bot._enqueue("ai-provider-recovered:" + checked_at, message)
+    elif status == "groq_only" and previous_provider == "gemini":
+        message = (
+            "⚠️ أصبح JobFinder يعمل عبر Groq فقط\n\n"
+            "لم يعد مفتاح Gemini متاحًا في إعداد التشغيل؛ تحقق من GitHub Secrets."
+        )
+        bot._enqueue("ai-provider-groq-only:" + checked_at, message)
 
 
 def persist_checkpoint(
@@ -498,8 +569,8 @@ def main() -> int:
         f"Batch limits: max {MAX_MESSAGES_PER_RUN} message(s), "
         f"{RUN_BUDGET_SECONDS}s processing budget"
     )
-    # Fail fast if required application credentials are absent.
-    required_env("GROQ_API_KEY")
+    # At least one AI provider is required; Gemini-only deployments are valid.
+    require_ai_provider()
     required_env("GMAIL_APP_PASSWORD")
     fernet = get_fernet()
     state = read_encrypted_json(STATE_ENC, fernet)
