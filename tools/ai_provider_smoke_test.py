@@ -52,9 +52,11 @@ def main() -> int:
     except processor.AIProviderUnavailable as exc:
         print(provider_log.getvalue(), end="")
         retry_after = getattr(exc, "retry_after_seconds", 0)
+        reason = str(getattr(exc, "reason", "") or "AI provider routes unavailable")
         print(
-            "AI PROVIDER SMOKE TEST BLOCKED: all configured routes are temporarily unavailable; "
-            f"retry_after_seconds={retry_after}; "
+            "AI PROVIDER SMOKE TEST BLOCKED: all configured routes are unavailable or rejected "
+            "the request; "
+            f"reason={reason}; retry_after_seconds={retry_after}; "
             "no email or job application was attempted."
         )
         return 3
