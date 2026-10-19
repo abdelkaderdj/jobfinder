@@ -32,7 +32,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(seconds, 60)  # cooldowns are clamped to at least one minute
 
-    def test_default_gemini_fallbacks_include_multiple_stable_flash_models(self):
+    def test_configured_gemini_fallbacks_include_distinct_stable_flash_models(self):
         with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODELS": "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"}):
             models = processor._configured_gemini_models()
 
@@ -45,6 +45,24 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertNotIn("gemini-3.7-flash", models)
         self.assertNotIn("gemini-3.5-flash", models)
         self.assertEqual(len(models), len(set(models)))
+
+    def test_deprecated_gemini_aliases_are_canonicalized_and_deduplicated(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_MODEL": "gemini-3.7-flash",
+                "GEMINI_FALLBACK_MODELS": (
+                    "gemini-3.8-flash,gemini-3.5-flash,"
+                    "gemini-3.6-flash,gemini-3.5-flash-lite"
+                ),
+            },
+        ):
+            models = processor._configured_gemini_models()
+
+        self.assertEqual(
+            models,
+            ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        )
 
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
         error = RuntimeError(
