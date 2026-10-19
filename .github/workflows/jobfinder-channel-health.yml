@@ -2,6 +2,9 @@ name: JobFinder Telegram Channel Readability Audit
 
 on:
   workflow_dispatch:
+  # Read-only daily check; does not spend AI quota or change saved cursors.
+  schedule:
+    - cron: "23 7 * * *"
   push:
     branches:
       - master
