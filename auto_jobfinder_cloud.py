@@ -1188,10 +1188,13 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     last_error = None
     rate_limit_errors = []
     gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    configured_gemini_models = _configured_gemini_models() if gemini_configured else ()
+    primary_gemini_model = configured_gemini_models[0] if configured_gemini_models else ""
+    gemini_issues = []
     gemini_tried = False
 
     if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
-        for model_name in _configured_gemini_models():
+        for model_name in configured_gemini_models:
             if model_name in _DISABLED_GEMINI_MODELS:
                 continue
             gemini_tried = True
@@ -1203,10 +1206,30 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     max_completion_tokens=max_completion_tokens,
                     model_name=model_name,
                 )
+                degraded = bool(
+                    model_name != primary_gemini_model
+                    or gemini_issues
+                    or _DISABLED_GEMINI_MODELS
+                )
+                status = "degraded" if degraded else "healthy"
+                reason = (
+                    gemini_issues[0]
+                    if gemini_issues
+                    else (
+                        "Primary Gemini route was skipped or unavailable; a fallback model responded."
+                        if degraded else ""
+                    )
+                )
+                _notify_ai_provider_status(
+                    "gemini", model_name, status, reason, gemini_configured
+                )
                 print(f"AI PROVIDER: Gemini ({model_name}) succeeded")
                 return result
             except Exception as gemini_error:
                 last_error = gemini_error
+                gemini_issues.append(
+                    f"{model_name}: {_safe_ai_provider_error(gemini_error)}"
+                )
                 if _is_rate_limit_error(gemini_error):
                     _DISABLED_GEMINI_MODELS.add(model_name)
                     rate_limit_errors.append(gemini_error)
@@ -1274,8 +1297,26 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 **request_kwargs,
                 response_format={"type": "json_object"},
             )
+            result = parse_json_response(response.choices[0].message.content)
+            if gemini_configured:
+                reason = (
+                    gemini_issues[0]
+                    if gemini_issues
+                    else "Gemini routes were unavailable earlier in this runner; Groq fallback responded."
+                )
+                _notify_ai_provider_status(
+                    "groq", model_name, "degraded", reason, gemini_configured
+                )
+            else:
+                _notify_ai_provider_status(
+                    "groq",
+                    model_name,
+                    "groq_only",
+                    "GEMINI_API_KEY is not configured.",
+                    gemini_configured,
+                )
             print(f"AI PROVIDER: Groq ({model_name}) succeeded")
-            return parse_json_response(response.choices[0].message.content)
+            return result
         except Exception as first_error:
             last_error = first_error
             if _is_rate_limit_error(first_error):
@@ -1300,8 +1341,26 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
         try:
             _pace_ai_provider("groq")
             response = client.chat.completions.create(**request_kwargs)
+            result = parse_json_response(response.choices[0].message.content)
+            if gemini_configured:
+                reason = (
+                    gemini_issues[0]
+                    if gemini_issues
+                    else "Gemini routes were unavailable earlier in this runner; Groq fallback responded."
+                )
+                _notify_ai_provider_status(
+                    "groq", model_name, "degraded", reason, gemini_configured
+                )
+            else:
+                _notify_ai_provider_status(
+                    "groq",
+                    model_name,
+                    "groq_only",
+                    "GEMINI_API_KEY is not configured.",
+                    gemini_configured,
+                )
             print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
-            return parse_json_response(response.choices[0].message.content)
+            return result
         except Exception as second_error:
             last_error = second_error
             if _is_rate_limit_error(second_error):
