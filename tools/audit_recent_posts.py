@@ -98,7 +98,7 @@ def make_markdown(report: dict[str, Any]) -> str:
         f"- إعلانات خدمات CV التي تم تجاوزها: {summary['service_promotions_ignored']}",
         f"- منشورات لم يُستخرج منها منصب: {summary['no_position_output']}",
         f"- أخطاء/تحليلات غير مكتملة: {summary['processing_incomplete']}",
-        f"- منشورات أُجّل تحليلها بسبب حدود Groq: {summary['provider_rate_limited_posts']}",
+        f"- منشورات أُجّل تحليلها بسبب تعذّر مزوّدات الذكاء الاصطناعي: {summary['provider_unavailable_posts']}",
         f"- محاولات إرسال بريد تم منعها في الاختبار: {summary['email_attempts_suppressed']}",
         "",
         "**هذه محاكاة قراءة فقط. لم يُرسل أي بريد، ولم تُعدّل مؤشرات القنوات أو حالة البوت.**",
@@ -311,8 +311,8 @@ async def run_audit() -> dict[str, Any]:
             if processor_result is False and all_models_unavailable:
                 # Stop immediately instead of emitting the same no-model-available
                 # error for every remaining post. Preserve their deferred status.
-                base_result["status"] = "deferred_rate_limit"
-                base_result["error_type"] = "GroqRateLimit"
+                base_result["status"] = "deferred_ai_provider_unavailable"
+                base_result["error_type"] = "AIProviderUnavailable"
                 base_result["excerpt"] = post["text"][:600]
                 processing_incomplete += 1
                 provider_rate_limited_posts += 1
@@ -325,7 +325,7 @@ async def run_audit() -> dict[str, Any]:
                         "date_utc": deferred["date_utc"],
                         "url": deferred["url"],
                         "jobs": [],
-                        "status": "deferred_rate_limit",
+                        "status": "deferred_ai_provider_unavailable",
                     })
                     processing_incomplete += 1
                     provider_rate_limited_posts += 1
