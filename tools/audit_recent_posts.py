@@ -29,7 +29,7 @@ from cloud_runner import (
 
 WINDOW_HOURS = 48
 PER_CHANNEL_SCAN_LIMIT = 180
-MAX_AUDIT_POSTS = 12
+MAX_AUDIT_POSTS = 40
 
 
 def as_utc(value: datetime | None) -> datetime | None:
