@@ -250,7 +250,40 @@ class TelegramJobBot:
         undated_sent_count = len(self._sent_records_without_timestamp())
         paused = bool(self.state.get("paused"))
         ai_retry_raw = self.state.get("ai_provider_retry_after_utc")
-        ai_status = "🟢 جاهز"
+        ai_route = self.state.get("ai_provider_status")
+        ai_status = "🟡 لم يُختبر بعد"
+        ai_reason = ""
+        ai_checked_display = ""
+        if isinstance(ai_route, dict):
+            route_status = str(ai_route.get("status") or "").strip().lower()
+            provider = str(ai_route.get("provider") or "").strip().lower()
+            model = safe_text(ai_route.get("model"), 100)
+            ai_reason = safe_text(ai_route.get("reason"), 160)
+            checked_raw = str(ai_route.get("checked_at_utc") or "").strip()
+            if checked_raw:
+                try:
+                    checked_at = datetime.fromisoformat(checked_raw.replace("Z", "+00:00"))
+                    if checked_at.tzinfo is None:
+                        checked_at = checked_at.replace(tzinfo=timezone.utc)
+                    ai_checked_display = (
+                        f"آخر استجابة مسجلة: {checked_at.astimezone(LOCAL_ZONE).strftime('%H:%M')} "
+                        "(توقيت الجزائر)"
+                    )
+                except (TypeError, ValueError):
+                    ai_checked_display = ""
+            if route_status == "degraded":
+                if provider == "gemini":
+                    ai_status = f"⚠️ نموذج Gemini احتياطي: {model}"
+                else:
+                    ai_status = f"⚠️ البديل النشط: {provider.upper()} ({model})"
+            elif route_status == "groq_only":
+                ai_status = f"🟡 Groq فقط ({model}) — Gemini غير مفعّل"
+                ai_reason = ""
+            elif route_status == "healthy":
+                if provider == "gemini":
+                    ai_status = f"🟢 Gemini: {model}"
+                elif provider == "groq":
+                    ai_status = f"🟢 Groq: {model}"
         if ai_retry_raw:
             try:
                 ai_retry_at = datetime.fromisoformat(str(ai_retry_raw))
@@ -259,13 +292,21 @@ class TelegramJobBot:
                 ai_retry_at = ai_retry_at.astimezone(LOCAL_ZONE)
                 if ai_retry_at > now_local():
                     ai_status = f"⏳ إعادة المحاولة {ai_retry_at.strftime('%H:%M')} (توقيت الجزائر)"
+                    ai_reason = safe_text(
+                        self.state.get("ai_provider_cooldown_reason"), 160
+                    )
             except (TypeError, ValueError):
                 ai_status = "⚠️ يحتاج إعادة فحص"
+                ai_reason = "تعذر قراءة وقت إعادة المحاولة المحفوظ."
+        ai_reason_line = f"السبب الفني: {ai_reason}\n" if ai_reason else ""
+        ai_checked_line = f"{ai_checked_display}\n" if ai_checked_display else ""
         return (
             "📡 حالة JobFinder — لوحة التحكم\n\n"
             f"الحالة: {'⏸ متوقف مؤقتًا' if paused else '🟢 نشط'}\n"
             f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n"
-            f"الذكاء الاصطناعي: {ai_status}\n\n"
+            f"مسار الذكاء الاصطناعي: {ai_status}\n"
+            f"{ai_checked_line}"
+            f"{ai_reason_line}\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
             f"📨 طلبات مسجلة اليوم: {sent_count}\n"
             f"📚 سجلات إرسال قديمة بلا توقيت: {undated_sent_count}\n"

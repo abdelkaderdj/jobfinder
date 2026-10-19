@@ -221,6 +221,101 @@ class AIProviderRoutingTests(unittest.TestCase):
         processor._DISABLED_GEMINI_MODELS.clear()
         processor._DISABLED_GEMINI_MODELS.update(self.original_disabled_gemini_models)
 
+    def test_gemini_primary_success_reports_provider_health(self):
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                return_value={"route": "gemini"},
+            ),
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}]
+            )
+
+        self.assertEqual(result, {"route": "gemini"})
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["provider"], "gemini")
+        self.assertEqual(snapshots[0]["model"], "gemini-primary-test")
+        self.assertEqual(snapshots[0]["status"], "healthy")
+        self.assertTrue(snapshots[0]["gemini_configured"])
+
+    def test_groq_success_reports_gemini_failover_health(self):
+        overloaded = RuntimeError("Gemini HTTP 503: Model is experiencing high demand")
+        overloaded.status_code = 503
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                side_effect=[overloaded, overloaded],
+            ),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/groq-model",)),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                return_value=response_with_json('{"route":"groq"}'),
+            ),
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}]
+            )
+
+        self.assertEqual(result, {"route": "groq"})
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["provider"], "groq")
+        self.assertEqual(snapshots[0]["model"], "test/groq-model")
+        self.assertEqual(snapshots[0]["status"], "degraded")
+        self.assertIn("503", snapshots[0]["reason"])
+
+    def test_groq_only_mode_reports_that_gemini_is_not_configured(self):
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/groq-model",)),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                return_value=response_with_json('{"route":"groq"}'),
+            ),
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}]
+            )
+
+        self.assertEqual(result, {"route": "groq"})
+        self.assertEqual(snapshots[0]["status"], "groq_only")
+        self.assertEqual(snapshots[0]["provider"], "groq")
+        self.assertFalse(snapshots[0]["gemini_configured"])
+
     def test_gemini_is_primary_when_key_is_configured(self):
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}),
