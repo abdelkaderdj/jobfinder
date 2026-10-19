@@ -235,6 +235,34 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
         groq.assert_not_called()
 
+    def test_qwen_fallback_uses_low_hidden_reasoning_to_limit_token_overhead(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(
+                processor,
+                "GROQ_MODEL_FALLBACKS",
+                ("qwen/qwen3.8-27b",),
+            ),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                return_value=response_with_json(),
+            ) as groq,
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return structured JSON."}]
+            )
+
+        self.assertEqual(result, {"route": "groq"})
+        self.assertEqual(groq.call_args.kwargs["reasoning_effort"], "low")
+        self.assertEqual(groq.call_args.kwargs["reasoning_format"], "hidden")
+
     def test_groq_503_overload_skips_model_and_uses_next_model(self):
         overloaded = RuntimeError("provider temporarily unavailable")
         overloaded.status_code = 503
