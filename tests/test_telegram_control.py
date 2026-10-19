@@ -707,6 +707,28 @@ class TelegramControlTests(unittest.TestCase):
             processor.looks_like_non_job_service_promotion(arabic_actual_job)
         )
 
+    def test_extraction_fallback_card_is_not_presented_as_confirmed_job(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        event["record"].update({
+            "job_title": "إعلان توظيف يحتاج إلى مراجعة يدوية",
+            "application_job_title": "إعلان توظيف يحتاج إلى مراجعة يدوية",
+            "company": "",
+            "location": "",
+            "score": None,
+            "analysis_fallback": True,
+        })
+        event["can_auto_send"] = False
+
+        rendered = bot._review_text(event)
+
+        self.assertIn("🟠 تعذّر تحليل إعلان توظيف", rendered)
+        self.assertIn("لم يُستخرج المسمى الوظيفي", rendered)
+        self.assertIn("لم تُستخرج بيانات الشركة", rendered)
+        self.assertIn("لم يُستخرج الموقع", rendered)
+        self.assertIn("هذه بطاقة استرداد للمراجعة فقط", rendered)
+        self.assertNotIn("القبول سيرسل طلبًا بالبريد", rendered)
+
     def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
         # Only explicit recruitment-like text may use the empty-extraction fallback.
         post = {
