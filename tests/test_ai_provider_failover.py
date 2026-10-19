@@ -1,5 +1,7 @@
 import json
 import os
+import smtplib
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -82,6 +84,39 @@ class AIProviderRoutingTests(unittest.TestCase):
             self.assertEqual(processor._AI_PROVIDER_LAST_REQUEST_AT["gemini"], 102.0)
         finally:
             processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
+
+    def test_smtp_quit_failure_after_acceptance_does_not_report_send_failure(self):
+        server = MagicMock()
+        server.send_message.return_value = {}
+        # Gmail has already accepted the message. A QUIT error must not turn the
+        # accepted send into an apparent failure that gets retried as a duplicate.
+        server.quit.side_effect = smtplib.SMTPResponseException(500, b"QUIT failed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cv_path = os.path.join(temp_dir, "cv.pdf")
+            with open(cv_path, "wb") as cv_file:
+                cv_file.write(b"%PDF-test")
+
+            with (
+                patch.object(
+                    processor,
+                    "build_email",
+                    return_value=("Test subject", "Test body"),
+                ),
+                patch.object(processor.smtplib, "SMTP", return_value=server),
+            ):
+                result = processor.send_application(
+                    "jobs@example.org",
+                    {"job_title": "Technicien de maintenance"},
+                    cv_path,
+                    "fr",
+                    "Test advertisement",
+                    "Technicien de maintenance",
+                )
+
+        self.assertIsNone(result)
+        server.send_message.assert_called_once()
+        server.quit.assert_called_once()
 
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
         error = RuntimeError(
