@@ -773,6 +773,7 @@ GROQ_MODEL_FALLBACKS = (
 )
 
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
+_GEMINI_DISABLED_FOR_RUN = False
 
 
 class AIProviderRateLimited(RuntimeError):
@@ -952,6 +953,17 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000):
 
 
 def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
+    """
+    Route through independent AI quotas.
+
+    Gemini is primary when configured so routine traffic does not consume Groq's
+    quota first. If Gemini fails or is rate-limited, it is circuit-broken for the
+    rest of this runner process and requests fall back to the Groq model pool.
+    Failed posts are still held by cloud_runner for a later retry; they are never
+    silently marked as processed.
+    """
+    global _GEMINI_DISABLED_FOR_RUN
+
     common_kwargs = {
         "messages": messages,
         "temperature": temperature,
@@ -959,6 +971,31 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     }
     last_error = None
     rate_limit_errors = []
+    gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    gemini_tried = False
+
+    if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
+        gemini_tried = True
+        try:
+            result = _gemini_json_request(
+                messages=messages,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+            )
+            print("AI PROVIDER: Gemini primary succeeded")
+            return result
+        except Exception as gemini_error:
+            last_error = gemini_error
+            _GEMINI_DISABLED_FOR_RUN = True
+            if _is_rate_limit_error(gemini_error):
+                rate_limit_errors.append(gemini_error)
+                print("AI RATE LIMIT: Gemini; switching to Groq for the rest of this run")
+            else:
+                print(
+                    "AI GEMINI PRIMARY FAILED: "
+                    f"{type(gemini_error).__name__}; switching to Groq"
+                )
+
     for model_name in GROQ_MODEL_FALLBACKS:
         if model_name in _RATE_LIMITED_GROQ_MODELS:
             continue
@@ -972,6 +1009,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 **request_kwargs,
                 response_format={"type": "json_object"},
             )
+            print(f"AI PROVIDER: Groq ({model_name}) succeeded")
             return parse_json_response(response.choices[0].message.content)
         except Exception as first_error:
             last_error = first_error
@@ -981,8 +1019,10 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
                 continue
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
+
         try:
             response = client.chat.completions.create(**request_kwargs)
+            print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
             return parse_json_response(response.choices[0].message.content)
         except Exception as second_error:
             last_error = second_error
@@ -991,42 +1031,36 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 rate_limit_errors.append(second_error)
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
             else:
-                print(f"AI MODEL RETRY FAILED: {model_name}; {type(second_error).__name__}")
+                print(
+                    f"AI MODEL RETRY FAILED: {model_name}; "
+                    f"{type(second_error).__name__}"
+                )
 
     all_groq_rate_limited = bool(GROQ_MODEL_FALLBACKS) and set(
         GROQ_MODEL_FALLBACKS
     ).issubset(_RATE_LIMITED_GROQ_MODELS)
 
-    # Independent provider prevents Groq exhaustion from freezing the queue.
-    if os.getenv("GEMINI_API_KEY", "").strip():
-        try:
-            result = _gemini_json_request(
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=max_completion_tokens,
-            )
-            print("AI PROVIDER: Gemini fallback succeeded")
-            return result
-        except Exception as gemini_error:
-            last_error = gemini_error
-            if all_groq_rate_limited:
-                if _is_rate_limit_error(gemini_error):
-                    retry_seconds = _rate_limit_retry_seconds(gemini_error)
-                    provider = "Groq and Gemini rate limits"
-                else:
-                    retry_seconds = 900
-                    provider = "AI provider fallback failure"
-                _notify_ai_rate_limit(retry_seconds, provider)
-                raise AIProviderRateLimited(retry_seconds) from gemini_error
-            print("AI GEMINI FALLBACK FAILED:", type(gemini_error).__name__)
-
+    # If Gemini wasn't configured (or is circuit-broken), only the Groq pool
+    # remains. Preserve the cursor and schedule a retry using the provider reset.
     if all_groq_rate_limited:
         retry_seconds = max(
             (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
             default=3600,
         )
-        _notify_ai_rate_limit(retry_seconds, "Groq model pool exhausted")
+        if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+            provider = (
+                "Gemini and Groq rate limits"
+                if any(_is_rate_limit_error(error) for error in rate_limit_errors)
+                else "Groq model pool exhausted; Gemini unavailable"
+            )
+        else:
+            provider = (
+                "Groq model pool exhausted; configure GEMINI_API_KEY "
+                "for an independent AI provider"
+            )
+        _notify_ai_rate_limit(retry_seconds, provider)
         raise AIProviderRateLimited(retry_seconds) from last_error
+
     if last_error is not None:
         raise last_error
     raise RuntimeError("No configured AI provider was available")
