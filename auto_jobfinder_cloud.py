@@ -1031,14 +1031,22 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
+# Google routes deprecated Gemini aliases to their replacements. Canonicalize them
+# before failover so one underlying model/quota pool is never attempted twice.
+_GEMINI_MODEL_ALIASES = {
+    "gemini-3.7-flash": "gemini-3.8-flash",
+    "gemini-3.5-flash": "gemini-3.6-flash",
+}
+
+
 def _configured_gemini_models():
-    """Return the primary Gemini model plus independent model-quota fallbacks."""
+    """Return unique Gemini model routes with distinct fallback quota pools."""
     primary = (
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
-    # Keep several stable Flash quota pools available. A transient 503 or a
-    # per-model 429 should not force the bot to abandon Gemini prematurely.
+    # These are currently distinct stable text-generation model endpoints.
+    # Keep aliases canonicalized even when a repository variable is customized.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
         or "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
@@ -1046,6 +1054,7 @@ def _configured_gemini_models():
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
         name = str(candidate or "").strip()
+        name = _GEMINI_MODEL_ALIASES.get(name, name)
         if name and name not in models:
             models.append(name)
     return tuple(models)
