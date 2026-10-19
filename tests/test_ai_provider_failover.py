@@ -139,6 +139,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertIn("URLError", summary)
         self.assertIn("Temporary failure in name resolution", summary)
+        self.assertTrue(processor._is_temporary_provider_overload(error))
 
     def test_gemini_38_request_omits_deprecated_temperature_parameter(self):
         fake_response = MagicMock()
@@ -420,6 +421,43 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(result, {"route": "gemini"})
         gemini.assert_called_once()
+
+    def test_gemini_only_network_failure_uses_outage_cooldown(self):
+        network_error = RuntimeError(
+            "Gemini transport failure (URLError): Temporary failure in name resolution"
+        )
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                    "JOBFINDER_AI_OUTAGE_RETRY_SECONDS": "180",
+                },
+            ),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(processor, "_gemini_json_request", side_effect=network_error),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderUnavailable) as raised:
+                processor.groq_json_request(
+                    [{"role": "user", "content": "test"}]
+                )
+
+        self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
+        self.assertEqual(raised.exception.retry_after_seconds, 180)
+        self.assertEqual(callbacks, [
+            (180, "All configured Gemini/Groq routes are temporarily unavailable")
+        ])
 
     def test_gemini_only_quota_exhaustion_persists_cooldown(self):
         rate_limit = RuntimeError("rate limit reached; retry after 120 seconds")
