@@ -907,7 +907,7 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": temperature,
+            # Gemini 3.8 rejects deprecated sampling parameters such as temperature.
             "maxOutputTokens": max_completion_tokens,
             "responseMimeType": "application/json",
             "thinkingConfig": {"thinkingLevel": "low"},
