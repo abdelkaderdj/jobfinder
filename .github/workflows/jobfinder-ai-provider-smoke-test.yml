@@ -1,11 +1,15 @@
 name: JobFinder AI Provider Smoke Test
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
     paths:
+      - "auto_jobfinder_cloud.py"
       - "tools/ai_provider_smoke_test.py"
+      - "requirements-cloud.txt"
+      - ".github/workflows/jobfinder-cloud.yml"
       - ".github/workflows/jobfinder-ai-provider-smoke-test.yml"
 
 permissions:
