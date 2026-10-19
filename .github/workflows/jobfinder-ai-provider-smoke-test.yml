@@ -15,8 +15,10 @@ on:
 permissions:
   contents: read
 
+# Share the live monitor lock so connectivity checks do not add a quota burst.
 concurrency:
-  group: jobfinder-ai-provider-smoke-test
+  group: jobfinder-cloud-monitor
+  queue: max
   cancel-in-progress: false
 
 jobs:
