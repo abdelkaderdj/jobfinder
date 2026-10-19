@@ -4461,19 +4461,12 @@ def send_application(
     finally:
 
         if server is not None:
-
+            # A successful send_message() response (SMTP 250) confirms acceptance.
+            # QUIT is only session cleanup; letting QUIT fail after acceptance makes
+            # the caller think sending failed and can trigger a duplicate application.
             try:
-
                 server.quit()
-
-            except smtplib.SMTPResponseException as e:
-
-                if e.smtp_code != 250:
-
-                    raise
-
             except Exception:
-
                 pass
 
     if not accepted:
