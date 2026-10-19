@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/jobfinder-audit-48h.yml"
       - "tools/audit_recent_posts.py"
+      - "auto_jobfinder_cloud.py"
 
 permissions:
   contents: read
