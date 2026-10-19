@@ -1127,7 +1127,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
                 require_ai_provider()
 
     def test_provider_health_notifications_fire_only_on_degraded_and_recovery_transitions(self):
-        bot, _sent = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
         degraded = {
             "status": "degraded",
             "provider": "groq",
@@ -1165,7 +1165,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertIn("تعافى مسار الذكاء الاصطناعي", bot.state["telegram_outbox"][1]["text"])
 
     def test_dashboard_displays_active_fallback_provider_and_reason(self):
-        bot, _sent = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
         bot.state["ai_provider_status"] = {
             "status": "degraded",
             "provider": "groq",
