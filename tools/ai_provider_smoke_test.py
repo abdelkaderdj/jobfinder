@@ -69,6 +69,10 @@ def main() -> int:
 
     if "AI PROVIDER: Gemini (" in route_log:
         route_summary = "Gemini succeeded"
+    elif "AI PROVIDER: Groq (" in route_log and not os.getenv("GEMINI_API_KEY", "").strip():
+        route_summary = (
+            "Groq succeeded; GEMINI_API_KEY is absent, so Gemini was not tested"
+        )
     elif "AI PROVIDER: Groq (" in route_log:
         route_summary = (
             "Groq fallback succeeded; no Gemini model returned a response in this run"
