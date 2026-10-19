@@ -24,6 +24,65 @@ def response_with_json(payload='{"route":"groq"}'):
 
 
 class AIProviderRoutingTests(unittest.TestCase):
+    def test_gemini_retry_delay_parses_structured_retry_delay(self):
+        error = RuntimeError('Gemini HTTP 429: {"error":{"details":[{"retryDelay":"42s"}]}}')
+        error.status_code = 429
+
+        seconds = processor._rate_limit_retry_seconds(error)
+
+        self.assertEqual(seconds, 60)  # cooldowns are clamped to at least one minute
+
+    def test_configured_gemini_fallbacks_include_distinct_stable_flash_models(self):
+        with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODELS": "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"}):
+            models = processor._configured_gemini_models()
+
+        self.assertEqual(models[0], "gemini-3.8-flash")
+        self.assertIn("gemini-3.6-flash", models)
+        self.assertIn("gemini-3.5-flash-lite", models)
+        self.assertIn("gemini-3.1-flash-lite", models)
+        # Google aliases deprecated model IDs to newer models; keep fallback
+        # routes distinct instead of repeatedly hitting the same quota pool.
+        self.assertNotIn("gemini-3.7-flash", models)
+        self.assertNotIn("gemini-3.5-flash", models)
+        self.assertEqual(len(models), len(set(models)))
+
+    def test_deprecated_gemini_aliases_are_canonicalized_and_deduplicated(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_MODEL": "gemini-3.7-flash",
+                "GEMINI_FALLBACK_MODELS": (
+                    "gemini-3.8-flash,gemini-3.5-flash,"
+                    "gemini-3.6-flash,gemini-3.5-flash-lite"
+                ),
+            },
+        ):
+            models = processor._configured_gemini_models()
+
+        self.assertEqual(
+            models,
+            ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        )
+
+    def test_provider_pacing_waits_when_requests_arrive_too_soon(self):
+        processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "2"},
+                ),
+                patch.object(processor.time, "monotonic", side_effect=[100.0, 100.5]),
+                patch.object(processor.time, "sleep") as sleep,
+            ):
+                processor._pace_ai_provider("gemini")
+                processor._pace_ai_provider("gemini")
+
+            sleep.assert_called_once_with(1.5)
+            self.assertEqual(processor._AI_PROVIDER_LAST_REQUEST_AT["gemini"], 102.0)
+        finally:
+            processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
+
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
         error = RuntimeError(
             'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}'
