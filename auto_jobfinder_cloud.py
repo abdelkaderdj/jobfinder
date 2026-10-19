@@ -4639,6 +4639,9 @@ def process_post(
                 retry_jobs = []
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
+            if isinstance(exc, AIProviderRateLimited):
+                print("AI PROVIDER RATE LIMIT: preserving this post for a later retry")
+                return False
             retry_jobs = []
 
         if retry_jobs:
