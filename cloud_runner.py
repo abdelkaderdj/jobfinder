@@ -163,11 +163,27 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         lambda reason: persist_checkpoint(state, fernet, reason, checkpoint_cache),
         allow_review_actions=not telegram_only_mode,
     )
+
+    if not os.getenv("GEMINI_API_KEY", "").strip():
+        bot._enqueue(
+            "ai-config-gemini-key-missing-v1",
+            "⚠️ تنبيه إعداد الذكاء الاصطناعي في JobFinder\n\n"
+            "مفتاح Gemini غير مضاف إلى GitHub Secrets؛ لذلك يعمل البوت حاليًا عبر Groq فقط، "
+            "وقد يتوقف مؤقتًا عند بلوغ حصته. أضف مفتاحًا باسم GEMINI_API_KEY من إعدادات "
+            "المستودع لتفعيل مزوّد مستقل. المنشورات غير المكتملة تبقى محفوظة لإعادة المحاولة.",
+        )
     def persist_ai_provider_cooldown(retry_after_seconds: int, provider: str) -> None:
         seconds = max(60, min(86400, int(retry_after_seconds)))
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=seconds + 15)
         state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
         state["ai_provider_cooldown_reason"] = str(provider or "provider quota")[:80]
+        bot._enqueue(
+            "ai-provider-cooldown:" + retry_at.isoformat(timespec="seconds"),
+            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا بسبب حدود مزوّد الذكاء الاصطناعي.\n\n"
+            f"سيُعاد التحليل بعد {retry_at.strftime('%Y-%m-%d %H:%M UTC')}. "
+            "لم يُحرّك البوت مؤشر قراءة المنشور المتعثر، وستبقى المنشورات اللاحقة في الانتظار.\n"
+            f"الحالة الفنية: {str(provider or 'quota')[:120]}",
+        )
         print("AI PROVIDER COOLDOWN SAVED: retry after " + state["ai_provider_retry_after_utc"] + " UTC")
         persist_checkpoint(state, fernet, "AI provider cooldown saved", checkpoint_cache)
 
@@ -282,9 +298,16 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
             "All unprocessed message cursors are preserved."
         )
         return
-    if state.pop("ai_provider_retry_after_utc", None) is not None:
+    expired_cooldown_at = state.pop("ai_provider_retry_after_utc", None)
+    if expired_cooldown_at is not None:
         state.pop("ai_provider_cooldown_reason", None)
+        bot._enqueue(
+            "ai-provider-resumed:" + str(expired_cooldown_at),
+            "✅ انتهت فترة انتظار مزوّد الذكاء الاصطناعي. استأنف JobFinder فحص المنشورات "
+            "المحفوظة وإعادة محاولة التحليل.",
+        )
         persist_checkpoint(state, fernet, "AI provider cooldown expired", checkpoint_cache)
+        bot.flush_outbox()
         print("AI provider cooldown expired; resuming queued Telegram messages.")
 
     started = time.monotonic()
