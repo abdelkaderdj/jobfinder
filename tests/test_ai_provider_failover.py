@@ -288,6 +288,80 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertEqual(groq.call_count, 2)
         self.assertTrue(processor._GEMINI_DISABLED_FOR_RUN)
 
+    def test_mixed_rate_limit_and_overload_persists_quota_cooldown(self):
+        rate_limit = RuntimeError("rate limit reached")
+        rate_limit.status_code = 429
+        rate_limit.headers = {"retry-after": "120"}
+        overloaded = RuntimeError("provider temporarily unavailable")
+        overloaded.status_code = 503
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "", "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0"},
+            ),
+            patch.object(
+                processor,
+                "GROQ_MODEL_FALLBACKS",
+                ("test/model-a", "test/model-b"),
+            ),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                side_effect=[rate_limit, overloaded],
+            ),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderRateLimited) as raised:
+                processor.groq_json_request([{"role": "user", "content": "test"}])
+
+        self.assertEqual(raised.exception.retry_after_seconds, 135)
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0][0], 135)
+        self.assertIn("some routes may also be temporarily overloaded", callbacks[0][1])
+
+    def test_all_overloaded_groq_routes_use_short_circuit_breaker_cooldown(self):
+        overloaded = RuntimeError("provider temporarily unavailable")
+        overloaded.status_code = 503
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                    "JOBFINDER_AI_OUTAGE_RETRY_SECONDS": "240",
+                },
+            ),
+            patch.object(
+                processor,
+                "GROQ_MODEL_FALLBACKS",
+                ("test/model-a", "test/model-b"),
+            ),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                side_effect=[overloaded, overloaded],
+            ),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderUnavailable) as raised:
+                processor.groq_json_request([{"role": "user", "content": "test"}])
+
+        self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
+        self.assertEqual(raised.exception.retry_after_seconds, 240)
+        self.assertEqual(callbacks, [(240, "All configured Groq routes are temporarily overloaded")])
+
     def test_empty_gemini_key_uses_groq_without_attempting_gemini(self):
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": ""}),
