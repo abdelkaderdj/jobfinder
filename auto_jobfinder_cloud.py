@@ -844,14 +844,14 @@ def _is_rate_limit_error(error: Exception) -> bool:
 
 
 def _is_temporary_provider_overload(error: Exception) -> bool:
-    """Identify temporary 5xx provider/model overloads that warrant model failover."""
+    """Identify temporary provider/network failures that warrant failover or cooldown."""
     status_code = getattr(error, "status_code", None)
     if status_code is None:
         status_code = getattr(error, "code", None)
     if status_code is None:
         response = getattr(error, "response", None)
         status_code = getattr(response, "status_code", None)
-    if str(status_code) in {"500", "502", "503", "504"}:
+    if str(status_code) in {"408", "425", "429", "500", "502", "503", "504"}:
         return True
     details = str(error or "").lower()
     return any(
@@ -862,6 +862,17 @@ def _is_temporary_provider_overload(error: Exception) -> bool:
             "service unavailable",
             "server overloaded",
             "upstream timeout",
+            "temporary failure in name resolution",
+            "name or service not known",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "connection error",
+            "network is unreachable",
+            "remote end closed connection",
+            "connect timeout",
+            "read timeout",
+            "timed out",
         )
     )
 
