@@ -887,13 +887,25 @@ def _rate_limit_retry_seconds(error: Exception, default: int = 3600) -> int:
         seconds = max(header_values)
     else:
         details = str(error).lower()
+        # Gemini can expose cooldowns in a structured retryDelay field instead
+        # of an HTTP Retry-After header or a natural-language error message.
+        structured_match = re.search(
+            r"""["']?(?:retrydelay|retry_after|retryafter)["']?\s*:\s*["']([^"']+)["']""",
+            details,
+        )
+        structured = (
+            _parse_rate_limit_duration(structured_match.group(1))
+            if structured_match else None
+        )
         duration_match = re.search(
             r"(?:try again|retry|reset)(?: after| in|:)?\s*"
             r"(\d+(?:\.\d+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))",
             details,
         )
         parsed = _parse_rate_limit_duration(duration_match.group(1)) if duration_match else None
-        seconds = parsed if parsed is not None else default
+        seconds = structured if structured is not None else (
+            parsed if parsed is not None else default
+        )
     return max(60, min(86400, int(seconds) + 15))
 
 
@@ -1025,9 +1037,11 @@ def _configured_gemini_models():
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
+    # Keep several stable Flash quota pools available. A transient 503 or a
+    # per-model 429 should not force the bot to abandon Gemini prematurely.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.6-flash,gemini-3.5-flash-lite"
+        or "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
