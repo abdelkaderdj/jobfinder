@@ -432,6 +432,13 @@ def main() -> int:
         report = asyncio.run(run_audit())
         summary = report["summary"]
         markdown = make_markdown(report)
+        # Save report before Telegram delivery so it remains accessible in GitHub Actions
+        # even if the configured private chat cannot receive the document.
+        (BASE_DIR / "jobfinder_audit_report.md").write_text(markdown, encoding="utf-8")
+        (BASE_DIR / "jobfinder_audit_report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         send_private_report_to_telegram(markdown, summary)
     except Exception as exc:
         # Keep public Actions output aggregate-only; never print post text or decision reasons.

@@ -36,6 +36,16 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertIn("API key not valid", summary)
         self.assertNotIn("AIza", summary)
 
+    def test_provider_failure_diagnostic_exposes_sanitized_transport_reason(self):
+        error = RuntimeError(
+            "Gemini transport failure (URLError): gaierror: Temporary failure in name resolution"
+        )
+
+        summary = processor._safe_ai_provider_error(error)
+
+        self.assertIn("URLError", summary)
+        self.assertIn("Temporary failure in name resolution", summary)
+
     def test_gemini_38_request_omits_deprecated_temperature_parameter(self):
         fake_response = MagicMock()
         fake_response.__enter__.return_value = fake_response

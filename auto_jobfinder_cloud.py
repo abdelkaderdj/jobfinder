@@ -896,8 +896,18 @@ def _safe_ai_provider_error(error: Exception) -> str:
         except (TypeError, ValueError):
             message = ""
     if not message:
-        # Do not print unknown exception bodies; only report a status and class.
-        return f"HTTP {status_code}" if status_code else type(error).__name__
+        # Transport failures often wrap useful DNS/timeout detail in RuntimeError.
+        # Expose only sanitized provider diagnostics; never prompts or credentials.
+        fallback = re.sub(r"https?://\S+", "[request URL]", details)
+        fallback = re.sub(
+            r"(?i)(x-goog-api-key|api[-_ ]?key|authorization)\s*[:=]\s*[^,\s;]+",
+            r"\1=[redacted]",
+            fallback,
+        )
+        fallback = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[redacted]", fallback)
+        fallback = re.sub(r"[\r\n\t]+", " ", fallback)
+        fallback = re.sub(r"\s+", " ", fallback).strip()[:220]
+        return fallback or (f"HTTP {status_code}" if status_code else type(error).__name__)
     message = re.sub(r"[\r\n\t]+", " ", message)
     message = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[redacted]", message)
     message = re.sub(r"\s+", " ", message).strip()[:220]
@@ -961,7 +971,14 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
         error.headers = exc.headers
         raise error from exc
     except (urllib.error.URLError, TimeoutError) as exc:
-        raise RuntimeError(f"Gemini request failed: {type(exc).__name__}") from exc
+        reason = getattr(exc, "reason", None)
+        if reason is not None:
+            reason_detail = f"{type(reason).__name__}: {str(reason)[:150]}"
+        else:
+            reason_detail = type(exc).__name__
+        raise RuntimeError(
+            f"Gemini transport failure ({type(exc).__name__}): {reason_detail}"
+        ) from exc
     candidates = body.get("candidates") or []
     if not candidates:
         raise ValueError("Gemini returned no candidate")
