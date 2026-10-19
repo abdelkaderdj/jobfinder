@@ -1,7 +1,8 @@
+import json
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("GROQ_API_KEY", "validation-dummy-key")
 os.environ.setdefault("GMAIL_APP_PASSWORD", "validation-dummy-password")
@@ -23,6 +24,36 @@ def response_with_json(payload='{"route":"groq"}'):
 
 
 class AIProviderRoutingTests(unittest.TestCase):
+    def test_gemini_38_request_omits_deprecated_temperature_parameter(self):
+        fake_response = MagicMock()
+        fake_response.__enter__.return_value = fake_response
+        fake_response.read.return_value = (
+            b'{"candidates":[{"content":{"parts":[{"text":"{\\"route\\":\\"gemini\\"}"}]}}]}'
+        )
+        with (
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "gemini-3.8-flash"},
+            ),
+            patch.object(
+                processor.urllib.request,
+                "urlopen",
+                return_value=fake_response,
+            ) as urlopen,
+        ):
+            result = processor._gemini_json_request(
+                [{"role": "user", "content": "Return a JSON object."}]
+            )
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(result, {"route": "gemini"})
+        self.assertNotIn("temperature", payload["generationConfig"])
+        self.assertEqual(
+            payload["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low",
+        )
+
     def setUp(self):
         self.original_gemini_disabled = processor._GEMINI_DISABLED_FOR_RUN
         self.original_rate_limited_models = set(processor._RATE_LIMITED_GROQ_MODELS)
