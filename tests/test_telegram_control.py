@@ -746,6 +746,36 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(fallback["emails"], ["jobs@example.org"])
         self.assertIn("لن يُرسل أي بريد تلقائي", fallback["reason"])
 
+    def test_provider_rate_limit_during_vacancy_rescue_keeps_post_for_retry(self):
+        post = {
+            "source": "rcrdz1",
+            "channel": "rcrdz1",
+            "message_id": 7655,
+            "date": "2026-10-19T12:00:00+00:00",
+            "text": "إعلان توظيف: Technicien de Maintenance mécanique — Alger. CV: jobs@example.org",
+        }
+        events = []
+        with (
+            patch.object(
+                processor,
+                "analyze_offer",
+                side_effect=[
+                    {"jobs": []},
+                    processor.AIProviderRateLimited(240),
+                ],
+            ) as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertFalse(ok)
+        self.assertEqual(analyze.call_count, 2)
+        save_result.assert_not_called()
+        send_application.assert_not_called()
+        self.assertEqual(events, [])
+
     def test_event_key_is_stable(self):
         record = sample_event()["record"]
         self.assertEqual(event_key(record), event_key(dict(record)))
