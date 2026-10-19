@@ -427,15 +427,25 @@ class TelegramJobBot:
         source_link = ""
         if source and message_id and re_safe_channel(source):
             source_link = f"\n🔗 الإعلان الأصلي: https://t.me/{source}/{message_id}"
-        if item.get("can_auto_send"):
+        if record.get("analysis_fallback"):
+            action_note = (
+                "🛑 تعذّر استخراج وظيفة محددة من الإعلان. هذه بطاقة استرداد للمراجعة فقط، "
+                "وليست وظيفة مؤكدة؛ لن يُرسل أي طلب تلقائيًا. راجع نص الإعلان الأصلي."
+            )
+        elif item.get("can_auto_send"):
             action_note = "✅ القبول سيرسل طلبًا بالبريد بعد إعادة فحص التكرار."
         else:
             action_note = (
                 "⚠️ القبول هنا يعني قبولًا للمراجعة اليدوية فقط؛ لن يُرسل بريد تلقائيًا "
                 "لأن وسيلة التقديم أو بيانات الاتصال غير مؤكدة."
             )
+        heading = (
+            "🟠 تعذّر تحليل إعلان توظيف"
+            if record.get("analysis_fallback")
+            else "🟡 وظيفة تحتاج إلى مراجعتك"
+        )
         return (
-            "🟡 وظيفة تحتاج إلى مراجعتك\n\n"
+            f"{heading}\n\n"
             f"💼 الوظيفة: {title}\n"
             f"🏢 الشركة: {company}\n"
             f"📍 الموقع: {location}\n"
