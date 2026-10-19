@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+
+# Running a script from tools/ puts tools/ on sys.path; add the repo root
+# so the provider module can be imported consistently in GitHub Actions.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Harmless placeholders; this process never calls any email/application function.
 os.environ.setdefault("GROQ_API_KEY", "smoke-test-unused")
