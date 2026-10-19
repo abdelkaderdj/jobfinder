@@ -779,6 +779,7 @@ _RATE_LIMITED_GROQ_MODELS: set[str] = set()
 _UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
+_GROQ_DISABLED_FOR_RUN = False
 _AI_PROVIDER_LAST_REQUEST_AT: dict[str, float] = {}
 
 
@@ -840,6 +841,33 @@ def _is_rate_limit_error(error: Exception) -> bool:
         or "rate limit" in details
         or "rate_limit_exceeded" in details
         or "resource_exhausted" in details
+    )
+
+
+def _is_provider_configuration_error(error: Exception) -> bool:
+    """Recognize provider-wide credential/permission failures that model failover cannot fix."""
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        status_code = getattr(error, "code", None)
+    if status_code is None:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if str(status_code) in {"401", "403"}:
+        return True
+    details = str(error or "").lower()
+    return any(
+        marker in details
+        for marker in (
+            "api key not valid",
+            "invalid api key",
+            "incorrect api key",
+            "unauthenticated",
+            "authentication failed",
+            "authentication_error",
+            "unauthorized",
+            "permission_denied",
+            "permission denied",
+        )
     )
 
 
@@ -1116,7 +1144,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     remaining request. If every provider is unavailable, preserve the cursor
     and let the cloud runner retry later; never mark the failed post processed.
     """
-    global _GEMINI_DISABLED_FOR_RUN
+    global _GEMINI_DISABLED_FOR_RUN, _GROQ_DISABLED_FOR_RUN
 
     common_kwargs = {
         "messages": messages,
@@ -1154,6 +1182,15 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     )
                     continue
 
+                if _is_provider_configuration_error(gemini_error):
+                    _GEMINI_DISABLED_FOR_RUN = True
+                    print(
+                        "AI GEMINI AUTHENTICATION/CONFIGURATION ERROR: "
+                        f"{_safe_ai_provider_error(gemini_error)}; "
+                        "skipping the remaining Gemini models for this run"
+                    )
+                    break
+
                 if _is_temporary_provider_overload(gemini_error):
                     _DISABLED_GEMINI_MODELS.add(model_name)
                     print(
@@ -1187,6 +1224,8 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             print("AI GEMINI MODEL POOL EXHAUSTED: switching to Groq for this run")
 
     for model_name in GROQ_MODEL_FALLBACKS:
+        if _GROQ_DISABLED_FOR_RUN:
+            break
         if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
             continue
         # Keep reasoning-oriented fallback models in low/hidden mode to reduce
@@ -1214,6 +1253,14 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 _UNAVAILABLE_GROQ_MODELS.add(model_name)
                 print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
                 continue
+            if _is_provider_configuration_error(first_error):
+                _GROQ_DISABLED_FOR_RUN = True
+                print(
+                    "AI GROQ AUTHENTICATION/CONFIGURATION ERROR: "
+                    f"{_safe_ai_provider_error(first_error)}; "
+                    "skipping remaining Groq models for this run"
+                )
+                break
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
         try:
@@ -1230,6 +1277,14 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             elif _is_temporary_provider_overload(second_error):
                 _UNAVAILABLE_GROQ_MODELS.add(model_name)
                 print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
+            elif _is_provider_configuration_error(second_error):
+                _GROQ_DISABLED_FOR_RUN = True
+                print(
+                    "AI GROQ AUTHENTICATION/CONFIGURATION ERROR: "
+                    f"{_safe_ai_provider_error(second_error)}; "
+                    "skipping remaining Groq models for this run"
+                )
+                break
             else:
                 print(
                     f"AI MODEL RETRY FAILED: {model_name}; "
@@ -1238,6 +1293,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
 
     all_groq_routes_exhausted = (
         not GROQ_MODEL_FALLBACKS
+        or _GROQ_DISABLED_FOR_RUN
         or set(GROQ_MODEL_FALLBACKS).issubset(
             _RATE_LIMITED_GROQ_MODELS | _UNAVAILABLE_GROQ_MODELS
         )
@@ -1281,6 +1337,21 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 provider = "All configured Gemini/Groq routes are temporarily unavailable"
             _notify_ai_rate_limit(outage_retry_seconds, provider)
             raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
+
+    if last_error is not None and _is_provider_configuration_error(last_error):
+        try:
+            config_retry_seconds = int(
+                os.getenv("JOBFINDER_AI_CONFIG_RETRY_SECONDS", "900").strip()
+            )
+        except (TypeError, ValueError):
+            config_retry_seconds = 900
+        config_retry_seconds = max(300, min(3600, config_retry_seconds))
+        provider = (
+            "AI provider credentials/permissions rejected; check GEMINI_API_KEY, "
+            "GROQ_API_KEY, and model configuration"
+        )
+        _notify_ai_rate_limit(config_retry_seconds, provider)
+        raise AIProviderUnavailable(config_retry_seconds, provider) from last_error
 
     if last_error is not None:
         raise last_error
