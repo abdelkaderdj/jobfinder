@@ -412,9 +412,22 @@ class TelegramJobBot:
 
     def _review_text(self, item: dict[str, Any]) -> str:
         record = item.get("record") or {}
-        title = safe_text(record.get("application_job_title") or record.get("job_title"), 200)
-        company = safe_text(record.get("company"), 180)
-        location = safe_text(record.get("location"), 180)
+        extraction_fallback = bool(record.get("analysis_fallback"))
+        title = (
+            "لم يُستخرج المسمى الوظيفي"
+            if extraction_fallback
+            else safe_text(record.get("application_job_title") or record.get("job_title"), 200)
+        )
+        company = (
+            "لم تُستخرج بيانات الشركة"
+            if extraction_fallback
+            else safe_text(record.get("company"), 180)
+        )
+        location = (
+            "لم يُستخرج الموقع"
+            if extraction_fallback
+            else safe_text(record.get("location"), 180)
+        )
         score = record.get("score")
         score_text = f"{score}/100" if score is not None else "غير متوفر"
         emails = record.get("emails") or []
