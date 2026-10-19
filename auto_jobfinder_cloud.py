@@ -1189,9 +1189,10 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     for model_name in GROQ_MODEL_FALLBACKS:
         if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
             continue
-        # Reasoning-only parameters are restricted to GPT-OSS.
+        # Keep reasoning-oriented fallback models in low/hidden mode to reduce
+        # unnecessary reasoning-token use while preserving structured JSON output.
         model_kwargs = {}
-        if model_name.startswith("openai/gpt-oss-"):
+        if model_name.startswith("openai/gpt-oss-") or model_name == "qwen/qwen3.8-27b":
             model_kwargs = {"reasoning_effort": "low", "reasoning_format": "hidden"}
         request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
         try:
