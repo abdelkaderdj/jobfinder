@@ -180,6 +180,12 @@ def record_ai_provider_status(
             f"عاد المسار الأساسي للعمل: {provider.upper()} ({model or 'النموذج الأساسي'})."
         )
         bot._enqueue("ai-provider-recovered:" + checked_at, message)
+    elif status == "healthy" and previous_status == "groq_only" and provider == "gemini":
+        message = (
+            "✅ تم تفعيل Gemini بنجاح في JobFinder\n\n"
+            f"استجاب المسار الأساسي: {model or 'Gemini'}؛ لم يعد البوت مضطرًا للاعتماد على Groq وحده."
+        )
+        bot._enqueue("ai-provider-gemini-activated:" + checked_at, message)
     elif status == "groq_only" and previous_provider == "gemini":
         message = (
             "⚠️ أصبح JobFinder يعمل عبر Groq فقط\n\n"
