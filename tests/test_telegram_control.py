@@ -17,7 +17,11 @@ os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
 from telegram_control import TelegramJobBot, event_key, main_menu_keyboard, now_local
-from cloud_runner import provider_cooldown_remaining_seconds
+from cloud_runner import (
+    provider_cooldown_remaining_seconds,
+    record_ai_provider_status,
+    require_ai_provider,
+)
 import auto_jobfinder_cloud as processor
 from auto_jobfinder_cloud import log_job_result_safely
 
@@ -1103,6 +1107,78 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
 
         with patch.object(processor, "load_sent_records", return_value=[{"key": key}]):
             self.assertTrue(processor.already_sent(key))
+
+    def test_gemini_only_is_accepted_as_valid_runner_configuration(self):
+        with patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY": "gemini-test-key", "GROQ_API_KEY": ""},
+        ):
+            self.assertEqual(require_ai_provider(), "Gemini")
+
+    def test_runner_fails_fast_when_no_ai_provider_key_is_configured(self):
+        with patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY": "", "GROQ_API_KEY": ""},
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "GEMINI_API_KEY or GROQ_API_KEY",
+            ):
+                require_ai_provider()
+
+    def test_provider_health_notifications_fire_only_on_degraded_and_recovery_transitions(self):
+        bot, _sent = self.build_bot()
+        degraded = {
+            "status": "degraded",
+            "provider": "groq",
+            "model": "openai/gpt-oss-120b",
+            "reason": "gemini-primary-test: HTTP 503: high demand",
+            "gemini_configured": True,
+            "checked_at_utc": "2026-10-19T10:00:00Z",
+        }
+
+        record_ai_provider_status(bot.state, degraded, bot)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        self.assertIn("المزوّد الاحتياطي", bot.state["telegram_outbox"][0]["text"])
+
+        repeated_degraded = dict(
+            degraded,
+            model="openai/gpt-oss-20b",
+            checked_at_utc="2026-10-19T10:01:00Z",
+        )
+        record_ai_provider_status(bot.state, repeated_degraded, bot)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "healthy",
+                "provider": "gemini",
+                "model": "gemini-3.8-flash",
+                "reason": "",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T10:02:00Z",
+            },
+            bot,
+        )
+        self.assertEqual(len(bot.state["telegram_outbox"]), 2)
+        self.assertIn("تعافى مسار الذكاء الاصطناعي", bot.state["telegram_outbox"][1]["text"])
+
+    def test_dashboard_displays_active_fallback_provider_and_reason(self):
+        bot, _sent = self.build_bot()
+        bot.state["ai_provider_status"] = {
+            "status": "degraded",
+            "provider": "groq",
+            "model": "openai/gpt-oss-120b",
+            "reason": "Gemini HTTP 503: high demand",
+            "gemini_configured": True,
+            "checked_at_utc": "2026-10-19T10:00:00Z",
+        }
+
+        dashboard = bot._dashboard_text()
+
+        self.assertIn("البديل النشط: GROQ", dashboard)
+        self.assertIn("Gemini HTTP 503", dashboard)
 
     def test_provider_cooldown_is_read_from_persisted_encrypted_state(self):
         now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
