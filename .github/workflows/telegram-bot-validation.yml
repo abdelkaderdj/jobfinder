@@ -29,6 +29,8 @@ jobs:
         run: python -m py_compile cloud_runner.py auto_jobfinder_cloud.py telegram_control.py telegram_webhook_setup.py telegram_setup.py tools/audit_recent_posts.py tools/ai_provider_smoke_test.py
       - name: Check Cloudflare Worker JavaScript syntax
         run: node --input-type=module --check < cloudflare/telegram-webhook.js
+      - name: Validate all workflow YAML syntax
+        run: ruby -e 'require "yaml"; Dir.glob(".github/workflows/*.{yml,yaml}").each { |path| YAML.parse_file(path); puts "#{path}: YAML syntax OK" }'
       - name: Run Telegram control tests
         env:
           GROQ_API_KEY: gsk_dummy_validation_key
