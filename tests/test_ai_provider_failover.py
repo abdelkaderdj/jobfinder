@@ -173,16 +173,19 @@ class AIProviderRoutingTests(unittest.TestCase):
 
     def setUp(self):
         self.original_gemini_disabled = processor._GEMINI_DISABLED_FOR_RUN
+        self.original_groq_disabled = processor._GROQ_DISABLED_FOR_RUN
         self.original_rate_limited_models = set(processor._RATE_LIMITED_GROQ_MODELS)
         self.original_unavailable_groq_models = set(processor._UNAVAILABLE_GROQ_MODELS)
         self.original_disabled_gemini_models = set(processor._DISABLED_GEMINI_MODELS)
         processor._GEMINI_DISABLED_FOR_RUN = False
+        processor._GROQ_DISABLED_FOR_RUN = False
         processor._RATE_LIMITED_GROQ_MODELS.clear()
         processor._UNAVAILABLE_GROQ_MODELS.clear()
         processor._DISABLED_GEMINI_MODELS.clear()
 
     def tearDown(self):
         processor._GEMINI_DISABLED_FOR_RUN = self.original_gemini_disabled
+        processor._GROQ_DISABLED_FOR_RUN = self.original_groq_disabled
         processor._RATE_LIMITED_GROQ_MODELS.clear()
         processor._RATE_LIMITED_GROQ_MODELS.update(self.original_rate_limited_models)
         processor._UNAVAILABLE_GROQ_MODELS.clear()
@@ -425,6 +428,91 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
         self.assertEqual(raised.exception.retry_after_seconds, 240)
         self.assertEqual(callbacks, [(240, "All configured Groq routes are temporarily overloaded")])
+
+    def test_invalid_gemini_key_disables_gemini_models_and_uses_groq(self):
+        invalid_key = RuntimeError(
+            'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}'
+        )
+        invalid_key.status_code = 400
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "_gemini_json_request", side_effect=invalid_key) as gemini,
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                return_value=response_with_json(),
+            ) as groq,
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "test"}]
+            )
+
+        self.assertEqual(result, {"route": "groq"})
+        gemini.assert_called_once()
+        groq.assert_called_once()
+        self.assertTrue(processor._GEMINI_DISABLED_FOR_RUN)
+
+    def test_bad_provider_credentials_notify_owner_and_apply_config_cooldown(self):
+        invalid_gemini_key = RuntimeError(
+            'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid","status":"INVALID_ARGUMENT"}}'
+        )
+        invalid_gemini_key.status_code = 400
+        invalid_groq_key = RuntimeError("401 Unauthorized: invalid API key")
+        invalid_groq_key.status_code = 401
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_CONFIG_RETRY_SECONDS": "600",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(
+                processor,
+                "GROQ_MODEL_FALLBACKS",
+                ("test/model-a", "test/model-b"),
+            ),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                side_effect=invalid_gemini_key,
+            ),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                side_effect=invalid_groq_key,
+            ),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderUnavailable) as raised:
+                processor.groq_json_request(
+                    [{"role": "user", "content": "test"}]
+                )
+
+        self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
+        self.assertEqual(raised.exception.retry_after_seconds, 600)
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0][0], 600)
+        self.assertIn("credentials/permissions rejected", callbacks[0][1])
+        self.assertNotIn("test-key", callbacks[0][1])
 
     def test_gemini_only_configuration_succeeds_without_groq_client(self):
         with (
