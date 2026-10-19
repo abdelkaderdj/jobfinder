@@ -30,7 +30,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         seconds = processor._rate_limit_retry_seconds(error)
 
-        self.assertEqual(seconds, 57)
+        self.assertEqual(seconds, 60)  # cooldowns are clamped to at least one minute
 
     def test_default_gemini_fallbacks_include_multiple_stable_flash_models(self):
         with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODELS": ""}):
