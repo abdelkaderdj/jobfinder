@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -29,7 +30,19 @@ from cloud_runner import (
 
 WINDOW_HOURS = 48
 PER_CHANNEL_SCAN_LIMIT = 180
-MAX_AUDIT_POSTS = 40
+
+
+def _bounded_int_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+# Audits use real AI quota even though email sending and persistence are disabled.
+# Keep the default sample small, with a hard cap to avoid accidental quota bursts.
+MAX_AUDIT_POSTS = _bounded_int_setting("JOBFINDER_AUDIT_MAX_POSTS", 12, 1, 40)
 
 
 def as_utc(value: datetime | None) -> datetime | None:
