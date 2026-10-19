@@ -1207,9 +1207,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     model_name=model_name,
                 )
                 degraded = bool(
-                    model_name != primary_gemini_model
-                    or gemini_issues
-                    or _DISABLED_GEMINI_MODELS
+                    model_name != primary_gemini_model or gemini_issues
                 )
                 status = "degraded" if degraded else "healthy"
                 reason = (
