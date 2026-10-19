@@ -30,7 +30,8 @@ jobs:
       - name: Check Cloudflare Worker JavaScript syntax
         run: node --input-type=module --check < cloudflare/telegram-webhook.js
       - name: Validate all workflow YAML syntax
-        run: ruby -e 'require "yaml"; Dir.glob(".github/workflows/*.{yml,yaml}").each { |path| YAML.parse_file(path); puts "#{path}: YAML syntax OK" }'
+        run: |
+          ruby -e 'require "yaml"; Dir.glob(".github/workflows/*.{yml,yaml}").each { |path| YAML.parse_file(path); puts "#{path} YAML syntax OK" }'
       - name: Run Telegram control tests
         env:
           GROQ_API_KEY: gsk_dummy_validation_key
