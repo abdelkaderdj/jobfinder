@@ -800,14 +800,24 @@ def _pace_ai_provider(provider: str) -> None:
     _AI_PROVIDER_LAST_REQUEST_AT[provider_key] = now
 
 
-class AIProviderRateLimited(RuntimeError):
-    """Raised when all configured AI providers are temporarily unavailable."""
+class AIProviderUnavailable(RuntimeError):
+    """Raised when no configured AI route can currently process a request."""
+
+    def __init__(self, retry_after_seconds: int, reason: str = "AI provider routes unavailable"):
+        self.retry_after_seconds = max(60, int(retry_after_seconds))
+        self.reason = str(reason or "AI provider routes unavailable")[:160]
+        super().__init__(
+            f"{self.reason}; retry after {self.retry_after_seconds} seconds"
+        )
+
+
+class AIProviderRateLimited(AIProviderUnavailable):
+    """Raised when quota/rate limits exhaust the available AI routes."""
 
     def __init__(self, retry_after_seconds: int):
-        self.retry_after_seconds = max(60, int(retry_after_seconds))
         super().__init__(
-            "All configured AI providers are rate-limited; "
-            f"retry after {self.retry_after_seconds} seconds"
+            retry_after_seconds,
+            reason="All configured AI providers are rate-limited",
         )
 
 
@@ -1211,28 +1221,40 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     f"{type(second_error).__name__}"
                 )
 
-    all_groq_rate_limited = bool(GROQ_MODEL_FALLBACKS) and set(
+    all_groq_routes_exhausted = bool(GROQ_MODEL_FALLBACKS) and set(
         GROQ_MODEL_FALLBACKS
-    ).issubset(_RATE_LIMITED_GROQ_MODELS)
+    ).issubset(_RATE_LIMITED_GROQ_MODELS | _UNAVAILABLE_GROQ_MODELS)
 
-    if all_groq_rate_limited:
-        retry_seconds = max(
-            (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
-            default=3600,
-        )
+    if all_groq_routes_exhausted:
+        if rate_limit_errors:
+            retry_seconds = max(
+                (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
+                default=3600,
+            )
+            provider = (
+                "AI quota exhausted across Gemini/Groq routes; "
+                "some routes may also be temporarily overloaded"
+                if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN)
+                else "Groq quota exhausted; configure GEMINI_API_KEY for an independent AI provider"
+            )
+            _notify_ai_rate_limit(retry_seconds, provider)
+            raise AIProviderRateLimited(retry_seconds) from last_error
+
+        # Every configured Groq route returned a temporary overload. Persist a
+        # short circuit-breaker cooldown instead of retrying the whole pool on
+        # each post in the same batch and each scheduled invocation.
+        try:
+            outage_retry_seconds = int(
+                os.getenv("JOBFINDER_AI_OUTAGE_RETRY_SECONDS", "300").strip()
+            )
+        except (TypeError, ValueError):
+            outage_retry_seconds = 300
+        outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
+        provider = "All configured Groq routes are temporarily overloaded"
         if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-            provider = (
-                "Gemini and Groq rate limits"
-                if any(_is_rate_limit_error(error) for error in rate_limit_errors)
-                else "Groq model pool exhausted; Gemini unavailable"
-            )
-        else:
-            provider = (
-                "Groq model pool exhausted; configure GEMINI_API_KEY "
-                "for an independent AI provider"
-            )
-        _notify_ai_rate_limit(retry_seconds, provider)
-        raise AIProviderRateLimited(retry_seconds) from last_error
+            provider = "All configured Gemini/Groq routes are temporarily unavailable"
+        _notify_ai_rate_limit(outage_retry_seconds, provider)
+        raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
 
     if last_error is not None:
         raise last_error
@@ -4768,8 +4790,8 @@ def process_post(
                 retry_jobs = []
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
-            if isinstance(exc, AIProviderRateLimited):
-                print("AI PROVIDER RATE LIMIT: preserving this post for a later retry")
+            if isinstance(exc, AIProviderUnavailable):
+                print("AI PROVIDER UNAVAILABLE: preserving this post for a later retry")
                 return False
             retry_jobs = []
 
