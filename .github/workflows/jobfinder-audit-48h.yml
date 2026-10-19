@@ -54,6 +54,7 @@ jobs:
           GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}
           JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
           JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
+          JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
           JOBFINDER_AUDIT_MAX_POSTS: ${{ inputs.max_posts || '12' }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
