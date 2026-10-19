@@ -5392,17 +5392,21 @@ def process_post(
 # ============================================================
 
 def send_approved_review(item):
-    """Send only a review explicitly approved by the authorized Telegram owner."""
+    """Send only a validated, explicitly approved real job review."""
     if not isinstance(item, dict):
         raise RuntimeError("Review item is invalid")
-    record = item.get("record") or {}
-    job = item.get("job") or {}
-    post = item.get("post") or {}
+    record = item.get("record")
+    job = item.get("job")
+    post = item.get("post")
+    if not isinstance(record, dict) or not isinstance(job, dict) or not isinstance(post, dict):
+        raise RuntimeError("Review data is incomplete")
+    # This is a recovery card for an unparsed advertisement, not an extracted job.
+    # Keep this invariant in the sending layer, even if persisted review fields change.
+    if record.get("analysis_fallback") is True:
+        raise RuntimeError("An extraction-fallback card cannot be submitted as a job application")
     emails = record.get("emails") or []
     title = str(record.get("application_job_title") or "").strip()
     cv_path = str(record.get("cv") or "").strip()
-    if not isinstance(job, dict) or not isinstance(record, dict) or not isinstance(post, dict):
-        raise RuntimeError("Review data is incomplete")
     if item.get("can_auto_send") is not True:
         raise RuntimeError("This review is not safe for automatic email submission")
     if record.get("contact_scope_matched") is not True:
