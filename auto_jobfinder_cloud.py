@@ -68,12 +68,19 @@ client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 JOB_EVENT_CALLBACK = None
 JOB_PRE_SEND_GUARD = None
 JOB_AI_RATE_LIMIT_CALLBACK = None
+JOB_AI_PROVIDER_STATUS_CALLBACK = None
 
 
 def set_job_ai_rate_limit_callback(callback):
     """Register a cloud-runner callback to persist provider cooldowns securely."""
     global JOB_AI_RATE_LIMIT_CALLBACK
     JOB_AI_RATE_LIMIT_CALLBACK = callback
+
+
+def set_job_ai_provider_status_callback(callback):
+    """Register a callback for non-sensitive provider health/route status."""
+    global JOB_AI_PROVIDER_STATUS_CALLBACK
+    JOB_AI_PROVIDER_STATUS_CALLBACK = callback
 
 
 def set_job_event_callback(callback):
@@ -991,6 +998,33 @@ def _notify_ai_rate_limit(retry_after_seconds: int, provider: str) -> None:
         callback(max(60, int(retry_after_seconds)), str(provider or "AI providers"))
     except Exception as exc:
         print("AI COOLDOWN PERSISTENCE ERROR:", type(exc).__name__)
+
+
+def _notify_ai_provider_status(
+    provider: str,
+    model: str,
+    status: str,
+    reason: str = "",
+    gemini_configured: bool = True,
+) -> None:
+    """Publish only a sanitized route status; callback failures never break analysis."""
+    callback = JOB_AI_PROVIDER_STATUS_CALLBACK
+    if callback is None:
+        return
+    if status not in {"healthy", "degraded", "groq_only"}:
+        return
+    snapshot = {
+        "provider": str(provider or "unknown")[:24].lower(),
+        "model": str(model or "")[:100],
+        "status": status,
+        "reason": " ".join(str(reason or "").split())[:180],
+        "gemini_configured": bool(gemini_configured),
+        "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        callback(snapshot)
+    except Exception as exc:
+        print("AI PROVIDER STATUS CALLBACK ERROR:", type(exc).__name__)
 
 
 def _safe_ai_provider_error(error: Exception) -> str:
