@@ -645,7 +645,8 @@ class TelegramJobBot:
                 emails = record.get("emails") or []
                 location_status = str(record.get("location_status") or "")
                 can_auto_send = bool(
-                    record.get("contact_scope_matched") is True
+                    not record.get("analysis_fallback")
+                    and record.get("contact_scope_matched") is True
                     and len(emails) == 1
                     and str(record.get("cv") or "").strip()
                     and location_status.startswith("allowed_")
