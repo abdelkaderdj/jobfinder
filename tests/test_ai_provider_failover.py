@@ -37,9 +37,13 @@ class AIProviderRoutingTests(unittest.TestCase):
             models = processor._configured_gemini_models()
 
         self.assertEqual(models[0], "gemini-3.8-flash")
-        self.assertIn("gemini-3.7-flash", models)
-        self.assertIn("gemini-3.5-flash", models)
+        self.assertIn("gemini-3.6-flash", models)
+        self.assertIn("gemini-3.5-flash-lite", models)
         self.assertIn("gemini-3.1-flash-lite", models)
+        # Google aliases deprecated model IDs to newer models; keep fallback
+        # routes distinct instead of repeatedly hitting the same quota pool.
+        self.assertNotIn("gemini-3.7-flash", models)
+        self.assertNotIn("gemini-3.5-flash", models)
         self.assertEqual(len(models), len(set(models)))
 
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
