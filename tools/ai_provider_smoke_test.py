@@ -49,6 +49,15 @@ def main() -> int:
             "No email or job application was attempted."
         )
         return 2
+    except processor.AIProviderUnavailable as exc:
+        print(provider_log.getvalue(), end="")
+        retry_after = getattr(exc, "retry_after_seconds", 0)
+        print(
+            "AI PROVIDER SMOKE TEST BLOCKED: all configured routes are temporarily unavailable; "
+            f"retry_after_seconds={retry_after}; "
+            "no email or job application was attempted."
+        )
+        return 3
     except Exception as exc:
         print(provider_log.getvalue(), end="")
         print(
