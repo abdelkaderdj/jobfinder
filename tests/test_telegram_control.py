@@ -729,6 +729,48 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("هذه بطاقة استرداد للمراجعة فقط", rendered)
         self.assertNotIn("القبول سيرسل طلبًا بالبريد", rendered)
 
+    def test_rejecting_one_fallback_card_does_not_hide_later_unparsed_ads(self):
+        bot, _sent = self.build_bot()
+
+        def fallback_event(message_id):
+            event = sample_event("REVIEW")
+            event["post"]["message_id"] = message_id
+            event["record"]["message_id"] = message_id
+            event["record"].update({
+                "job_title": "إعلان توظيف يحتاج إلى مراجعة يدوية",
+                "application_job_title": "إعلان توظيف يحتاج إلى مراجعة يدوية",
+                "company": "",
+                "location": "",
+                "emails": ["jobs@example.org"],
+                "cv": "",
+                "location_status": "unknown_location",
+                "contact_scope_matched": False,
+                "analysis_fallback": True,
+            })
+            event["job"] = {
+                "job_title": "إعلان توظيف يحتاج إلى مراجعة يدوية",
+                "company": "",
+                "location": "",
+            }
+            return event
+
+        bot.on_job_event(fallback_event(100))
+        first_pending_id = next(iter(bot.state["pending_reviews"]))
+        bot._handle_callback({
+            "id": "reject-fallback-1",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:reject:{first_pending_id}",
+        })
+
+        second = fallback_event(101)
+        bot.on_job_event(second)
+
+        self.assertEqual(second["record"]["decision"], "REVIEW")
+        self.assertEqual(len(bot.state["pending_reviews"]), 1)
+        remaining = next(iter(bot.state["pending_reviews"].values()))
+        self.assertTrue(remaining["record"]["analysis_fallback"])
+
     def test_extraction_fallback_never_gets_auto_send_button_even_with_complete_fields(self):
         bot, _sent = self.build_bot()
         event = sample_event("REVIEW")
