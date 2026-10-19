@@ -729,6 +729,27 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("هذه بطاقة استرداد للمراجعة فقط", rendered)
         self.assertNotIn("القبول سيرسل طلبًا بالبريد", rendered)
 
+    def test_extraction_fallback_never_gets_auto_send_button_even_with_complete_fields(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        # Simulate stale/populated fields so the explicit fallback guard is
+        # exercised instead of relying on missing CV/location/contact details.
+        event["record"]["analysis_fallback"] = True
+
+        bot.on_job_event(event)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        item = bot.state["pending_reviews"][pending_id]
+        keyboard = bot._review_keyboard(item)
+        callback_data = [
+            button["callback_data"]
+            for row in keyboard["inline_keyboard"]
+            for button in row
+        ]
+
+        self.assertFalse(item["can_auto_send"])
+        self.assertIn(f"jf:manual:{pending_id}", callback_data)
+        self.assertNotIn(f"jf:approve:{pending_id}", callback_data)
+
     def test_empty_ai_extraction_is_retried_and_queued_for_manual_review(self):
         # Only explicit recruitment-like text may use the empty-extraction fallback.
         post = {
