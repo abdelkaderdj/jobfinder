@@ -48,8 +48,10 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 
-if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY is not set")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
+if not GROQ_API_KEY and not GEMINI_API_KEY:
+    raise RuntimeError("At least one AI provider key is required: GEMINI_API_KEY or GROQ_API_KEY")
 
 if not GMAIL_APP_PASSWORD:
     raise RuntimeError("GMAIL_APP_PASSWORD is not set")
@@ -58,9 +60,9 @@ if not GMAIL_ADDRESS:
     raise RuntimeError("GMAIL_ADDRESS is not set")
 
 
-client = Groq(
-    api_key=GROQ_API_KEY
-)
+# Groq is an optional fallback provider. A valid Gemini-only configuration must
+# still be able to import this module and analyze jobs when Groq is unavailable.
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Optional callbacks wired by the cloud runner.
 JOB_EVENT_CALLBACK = None
@@ -765,12 +767,13 @@ def parse_json_response(result):
     )
 
 
-GROQ_MODEL_FALLBACKS = (
+_DEFAULT_GROQ_MODEL_FALLBACKS = (
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     # Independent model quota bucket on Groq.
     "qwen/qwen3.8-27b",
 )
+GROQ_MODEL_FALLBACKS = _DEFAULT_GROQ_MODEL_FALLBACKS if client is not None else ()
 
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
 _UNAVAILABLE_GROQ_MODELS: set[str] = set()
@@ -1221,11 +1224,17 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     f"{type(second_error).__name__}"
                 )
 
-    all_groq_routes_exhausted = bool(GROQ_MODEL_FALLBACKS) and set(
-        GROQ_MODEL_FALLBACKS
-    ).issubset(_RATE_LIMITED_GROQ_MODELS | _UNAVAILABLE_GROQ_MODELS)
+    all_groq_routes_exhausted = (
+        not GROQ_MODEL_FALLBACKS
+        or set(GROQ_MODEL_FALLBACKS).issubset(
+            _RATE_LIMITED_GROQ_MODELS | _UNAVAILABLE_GROQ_MODELS
+        )
+    )
+    all_gemini_routes_exhausted = (
+        not gemini_configured or _GEMINI_DISABLED_FOR_RUN
+    )
 
-    if all_groq_routes_exhausted:
+    if all_groq_routes_exhausted and all_gemini_routes_exhausted:
         if rate_limit_errors:
             retry_seconds = max(
                 (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
@@ -1244,21 +1253,22 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
 
-        # Every configured Groq route returned a temporary overload. Persist a
-        # short circuit-breaker cooldown instead of retrying the whole pool on
-        # each post in the same batch and each scheduled invocation.
-        try:
-            outage_retry_seconds = int(
-                os.getenv("JOBFINDER_AI_OUTAGE_RETRY_SECONDS", "300").strip()
-            )
-        except (TypeError, ValueError):
-            outage_retry_seconds = 300
-        outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
-        provider = "All configured Groq routes are temporarily overloaded"
-        if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-            provider = "All configured Gemini/Groq routes are temporarily unavailable"
-        _notify_ai_rate_limit(outage_retry_seconds, provider)
-        raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
+        # Only apply an outage cooldown when the last failures indicate temporary
+        # overload. Authentication, model-ID, and request errors should surface
+        # as configuration/analysis failures rather than being mislabeled as outages.
+        if last_error is not None and _is_temporary_provider_overload(last_error):
+            try:
+                outage_retry_seconds = int(
+                    os.getenv("JOBFINDER_AI_OUTAGE_RETRY_SECONDS", "300").strip()
+                )
+            except (TypeError, ValueError):
+                outage_retry_seconds = 300
+            outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
+            provider = "All configured Groq routes are temporarily overloaded"
+            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+                provider = "All configured Gemini/Groq routes are temporarily unavailable"
+            _notify_ai_rate_limit(outage_retry_seconds, provider)
+            raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
 
     if last_error is not None:
         raise last_error
