@@ -304,8 +304,17 @@ async def run_audit() -> dict[str, Any]:
                 set(getattr(processor, "_RATE_LIMITED_GROQ_MODELS", set()))
                 | set(getattr(processor, "_UNAVAILABLE_GROQ_MODELS", set()))
             )
-            all_models_unavailable = bool(groq_routes) and groq_routes.issubset(
-                unavailable_routes
+            groq_routes_unavailable = (
+                not groq_routes
+                or bool(getattr(processor, "_GROQ_DISABLED_FOR_RUN", False))
+                or groq_routes.issubset(unavailable_routes)
+            )
+            all_models_unavailable = (
+                groq_routes_unavailable
+                and (
+                    not os.getenv("GEMINI_API_KEY", "").strip()
+                    or bool(getattr(processor, "_GEMINI_DISABLED_FOR_RUN", False))
+                )
             )
 
             if processor_result is False and all_models_unavailable:
