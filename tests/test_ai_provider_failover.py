@@ -397,6 +397,65 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertEqual(raised.exception.retry_after_seconds, 240)
         self.assertEqual(callbacks, [(240, "All configured Groq routes are temporarily overloaded")])
 
+    def test_gemini_only_configuration_succeeds_without_groq_client(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                return_value={"route": "gemini"},
+            ) as gemini,
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "test"}]
+            )
+
+        self.assertEqual(result, {"route": "gemini"})
+        gemini.assert_called_once()
+
+    def test_gemini_only_quota_exhaustion_persists_cooldown(self):
+        rate_limit = RuntimeError("rate limit reached; retry after 120 seconds")
+        rate_limit.status_code = 429
+        rate_limit.headers = {"retry-after": "120"}
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(processor, "_gemini_json_request", side_effect=rate_limit),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderRateLimited) as raised:
+                processor.groq_json_request(
+                    [{"role": "user", "content": "test"}]
+                )
+
+        self.assertEqual(raised.exception.retry_after_seconds, 135)
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0][0], 135)
+        self.assertIn("Gemini/Groq routes", callbacks[0][1])
+
     def test_empty_gemini_key_uses_groq_without_attempting_gemini(self):
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": ""}),
