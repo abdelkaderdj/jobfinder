@@ -79,15 +79,19 @@ class AIProviderRoutingTests(unittest.TestCase):
     def setUp(self):
         self.original_gemini_disabled = processor._GEMINI_DISABLED_FOR_RUN
         self.original_rate_limited_models = set(processor._RATE_LIMITED_GROQ_MODELS)
+        self.original_unavailable_groq_models = set(processor._UNAVAILABLE_GROQ_MODELS)
         self.original_disabled_gemini_models = set(processor._DISABLED_GEMINI_MODELS)
         processor._GEMINI_DISABLED_FOR_RUN = False
         processor._RATE_LIMITED_GROQ_MODELS.clear()
+        processor._UNAVAILABLE_GROQ_MODELS.clear()
         processor._DISABLED_GEMINI_MODELS.clear()
 
     def tearDown(self):
         processor._GEMINI_DISABLED_FOR_RUN = self.original_gemini_disabled
         processor._RATE_LIMITED_GROQ_MODELS.clear()
         processor._RATE_LIMITED_GROQ_MODELS.update(self.original_rate_limited_models)
+        processor._UNAVAILABLE_GROQ_MODELS.clear()
+        processor._UNAVAILABLE_GROQ_MODELS.update(self.original_unavailable_groq_models)
         processor._DISABLED_GEMINI_MODELS.clear()
         processor._DISABLED_GEMINI_MODELS.update(self.original_disabled_gemini_models)
 
@@ -107,6 +111,53 @@ class AIProviderRoutingTests(unittest.TestCase):
         gemini.assert_called_once()
         groq.assert_not_called()
 
+    def test_gemini_503_overload_falls_back_to_another_gemini_model(self):
+        overloaded = RuntimeError(
+            'Gemini HTTP 503: {"error":{"code":503,"message":"Model is experiencing high demand"}}'
+        )
+        overloaded.status_code = 503
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                },
+            ),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                side_effect=[overloaded, {"route": "gemini-fallback"}],
+            ) as gemini,
+            patch.object(processor.client.chat.completions, "create") as groq,
+        ):
+            result = processor.groq_json_request([{"role": "user", "content": "test"}])
+
+        self.assertEqual(result, {"route": "gemini-fallback"})
+        self.assertEqual(gemini.call_count, 2)
+        self.assertIn("gemini-primary-test", processor._DISABLED_GEMINI_MODELS)
+        self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
+        groq.assert_not_called()
+
+    def test_groq_503_overload_skips_model_and_uses_next_model(self):
+        overloaded = RuntimeError("provider temporarily unavailable")
+        overloaded.status_code = 503
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": ""}),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/model-a", "test/model-b")),
+            patch.object(
+                processor.client.chat.completions,
+                "create",
+                side_effect=[overloaded, response_with_json()],
+            ) as groq,
+        ):
+            result = processor.groq_json_request([{"role": "user", "content": "test"}])
+
+        self.assertEqual(result, {"route": "groq"})
+        self.assertEqual(groq.call_count, 2)
+        self.assertEqual([call.kwargs["model"] for call in groq.call_args_list], ["test/model-a", "test/model-b"])
+        self.assertIn("test/model-a", processor._UNAVAILABLE_GROQ_MODELS)
     def test_gemini_rate_limited_model_falls_back_to_next_gemini_model(self):
         rate_limit = RuntimeError("rate limit reached; retry after 120 seconds")
         rate_limit.status_code = 429

@@ -773,6 +773,7 @@ GROQ_MODEL_FALLBACKS = (
 )
 
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
+_UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
 
@@ -805,6 +806,31 @@ def _is_rate_limit_error(error: Exception) -> bool:
         or "rate_limit_exceeded" in details
         or "resource_exhausted" in details
     )
+
+
+def _is_temporary_provider_overload(error: Exception) -> bool:
+    """Identify temporary 5xx provider/model overloads that warrant model failover."""
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        status_code = getattr(error, "code", None)
+    if status_code is None:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if str(status_code) in {"500", "502", "503", "504"}:
+        return True
+    details = str(error or "").lower()
+    return any(
+        marker in details
+        for marker in (
+            "high demand",
+            "temporarily unavailable",
+            "service unavailable",
+            "server overloaded",
+            "upstream timeout",
+        )
+    )
+
+
 
 
 def _parse_rate_limit_duration(value):
@@ -1058,6 +1084,14 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     )
                     continue
 
+                if _is_temporary_provider_overload(gemini_error):
+                    _DISABLED_GEMINI_MODELS.add(model_name)
+                    print(
+                        f"AI GEMINI TEMPORARY OVERLOAD: {model_name}; "
+                        f"{_safe_ai_provider_error(gemini_error)}; trying next model"
+                    )
+                    continue
+
                 status_code = getattr(gemini_error, "status_code", None)
                 if status_code is None:
                     status_code = getattr(gemini_error, "code", None)
@@ -1083,7 +1117,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             print("AI GEMINI MODEL POOL EXHAUSTED: switching to Groq for this run")
 
     for model_name in GROQ_MODEL_FALLBACKS:
-        if model_name in _RATE_LIMITED_GROQ_MODELS:
+        if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
             continue
         # Reasoning-only parameters are restricted to GPT-OSS.
         model_kwargs = {}
@@ -1104,6 +1138,10 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 rate_limit_errors.append(first_error)
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
                 continue
+            if _is_temporary_provider_overload(first_error):
+                _UNAVAILABLE_GROQ_MODELS.add(model_name)
+                print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
+                continue
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
         try:
@@ -1116,6 +1154,9 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
                 rate_limit_errors.append(second_error)
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
+            elif _is_temporary_provider_overload(second_error):
+                _UNAVAILABLE_GROQ_MODELS.add(model_name)
+                print(f"AI PROVIDER TEMPORARILY UNAVAILABLE: {model_name}; trying next model")
             else:
                 print(
                     f"AI MODEL RETRY FAILED: {model_name}; "
