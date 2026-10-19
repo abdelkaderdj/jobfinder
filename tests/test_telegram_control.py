@@ -2,6 +2,7 @@ import json
 import os
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -16,6 +17,7 @@ os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
 from telegram_control import TelegramJobBot, event_key, main_menu_keyboard, now_local
+from cloud_runner import provider_cooldown_remaining_seconds
 import auto_jobfinder_cloud as processor
 from auto_jobfinder_cloud import log_job_result_safely
 
@@ -986,6 +988,65 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
 
         with patch.object(processor, "load_sent_records", return_value=[{"key": key}]):
             self.assertTrue(processor.already_sent(key))
+
+    def test_provider_cooldown_is_read_from_persisted_encrypted_state(self):
+        now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        state = {"ai_provider_retry_after_utc": "2026-10-19T12:07:30+00:00"}
+        self.assertEqual(provider_cooldown_remaining_seconds(state, now), 450)
+        self.assertEqual(provider_cooldown_remaining_seconds(state, now + timedelta(minutes=8)), 0)
+
+    def test_rate_limit_duration_parser_handles_provider_reset_headers(self):
+        self.assertEqual(processor._parse_rate_limit_duration("2m59.5s"), 179.5)
+        self.assertEqual(processor._parse_rate_limit_duration("1h 2m"), 3720)
+
+    def test_exhausted_groq_models_persist_cooldown_from_retry_after(self):
+        errors = []
+        for seconds in (120, 240):
+            error = RuntimeError("429 rate limit exceeded")
+            error.status_code = 429
+            error.headers = {"Retry-After": str(seconds)}
+            errors.append(error)
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=Mock(side_effect=errors))))
+        callbacks = []
+        messages = [{"role": "user", "content": "Return a JSON object."}]
+        with (
+            patch.object(processor, "client", fake_client),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/model-a", "test/model-b")),
+            patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+            patch.object(processor, "JOB_AI_RATE_LIMIT_CALLBACK", lambda seconds, provider: callbacks.append((seconds, provider))),
+            patch.dict(os.environ, {"GEMINI_API_KEY": ""}),
+        ):
+            with self.assertRaises(processor.AIProviderRateLimited) as raised:
+                processor.groq_json_request(messages)
+        self.assertEqual(raised.exception.retry_after_seconds, 255)
+        self.assertEqual(callbacks[0][0], 255)
+        self.assertIn("Groq", callbacks[0][1])
+
+    def test_gemini_is_used_when_groq_model_pool_is_rate_limited(self):
+        errors = []
+        for _ in range(2):
+            error = RuntimeError("429 rate limit exceeded")
+            error.status_code = 429
+            errors.append(error)
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=Mock(side_effect=errors))))
+        api_response = {"candidates": [{"content": {"parts": [{"text": '{"jobs": []}'}]}}]}
+        fake_http_response = Mock()
+        fake_http_response.__enter__ = Mock(return_value=fake_http_response)
+        fake_http_response.__exit__ = Mock(return_value=False)
+        fake_http_response.read.return_value = json.dumps(api_response).encode("utf-8")
+        messages = [{"role": "system", "content": "Return JSON."}, {"role": "user", "content": "Analyze."}]
+        with (
+            patch.object(processor, "client", fake_client),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/model-a", "test/model-b")),
+            patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+            patch.object(processor, "JOB_AI_RATE_LIMIT_CALLBACK", None),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-gemini-key"}),
+            patch.object(processor.urllib.request, "urlopen", return_value=fake_http_response) as urlopen,
+        ):
+            result = processor.groq_json_request(messages)
+        self.assertEqual(result, {"jobs": []})
+        urlopen.assert_called_once()
+        self.assertIn("models/gemini-3.8-flash:generateContent", urlopen.call_args.args[0].full_url)
 
     def test_rate_limited_primary_model_falls_back_without_retrying_it(self):
         rate_limit_error = RuntimeError("429 rate limit exceeded")

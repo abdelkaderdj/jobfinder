@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,26 @@ RUNNER_VERSION = "2026-10-16-social-post-filter-v1"
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
 MAX_MESSAGES_PER_RUN = 8
 RUN_BUDGET_SECONDS = 180
+
+
+def provider_cooldown_remaining_seconds(
+    state: dict[str, Any],
+    now: datetime | None = None,
+) -> int:
+    """Return the persisted AI-provider cooldown in seconds, without mutating state."""
+    raw = state.get("ai_provider_retry_after_utc")
+    if not raw:
+        return 0
+    try:
+        retry_at = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return 0
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return max(0, int((retry_at.astimezone(timezone.utc) - current.astimezone(timezone.utc)).total_seconds()))
 
 
 def required_env(name: str) -> str:
@@ -142,8 +163,17 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         lambda reason: persist_checkpoint(state, fernet, reason, checkpoint_cache),
         allow_review_actions=not telegram_only_mode,
     )
+    def persist_ai_provider_cooldown(retry_after_seconds: int, provider: str) -> None:
+        seconds = max(60, min(86400, int(retry_after_seconds)))
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=seconds + 15)
+        state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
+        state["ai_provider_cooldown_reason"] = str(provider or "provider quota")[:80]
+        print("AI PROVIDER COOLDOWN SAVED: retry after " + state["ai_provider_retry_after_utc"] + " UTC")
+        persist_checkpoint(state, fernet, "AI provider cooldown saved", checkpoint_cache)
+
     processor.set_job_event_callback(bot.on_job_event)
     processor.set_job_pre_send_guard(bot.pre_send_guard_for_job)
+    processor.set_job_ai_rate_limit_callback(persist_ai_provider_cooldown)
 
     # Correct the single false-positive review created by the old forced-recovery
     # exception. Match both channel and message ID; never reject it as a job.
@@ -242,6 +272,20 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     if state.get("paused"):
         print("JobFinder is paused by Telegram command; Telegram controls remain active")
         return
+
+    cooldown_remaining = provider_cooldown_remaining_seconds(state)
+    if cooldown_remaining > 0:
+        minutes, seconds = divmod(cooldown_remaining, 60)
+        print(
+            "AI PROVIDER COOLDOWN ACTIVE: Telegram commands remain available; "
+            f"job processing will retry in {minutes}m {seconds}s. "
+            "All unprocessed message cursors are preserved."
+        )
+        return
+    if state.pop("ai_provider_retry_after_utc", None) is not None:
+        state.pop("ai_provider_cooldown_reason", None)
+        persist_checkpoint(state, fernet, "AI provider cooldown expired", checkpoint_cache)
+        print("AI provider cooldown expired; resuming queued Telegram messages.")
 
     started = time.monotonic()
     messages_seen = 0
@@ -381,6 +425,12 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
                         state["next_channel_index"] = (channel_index + 1) % len(CHANNELS)
                         persist_checkpoint(state, fernet, f"failed post held for retry in {channel}", checkpoint_cache)
                         print(f"[{channel}] cursor held at {cursor}; failed post will retry")
+                        if state.get("ai_provider_retry_after_utc"):
+                            print(
+                                "AI provider quota reached; ending this batch early. "
+                                "The failed post and all later posts remain queued."
+                            )
+                            return
                         break
 
                     cursor = message_id

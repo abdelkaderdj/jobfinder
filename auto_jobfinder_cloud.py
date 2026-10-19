@@ -6,6 +6,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import smtplib
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from difflib import SequenceMatcher
 from email.message import EmailMessage
 
@@ -62,6 +65,13 @@ client = Groq(
 # Optional callbacks wired by the cloud runner.
 JOB_EVENT_CALLBACK = None
 JOB_PRE_SEND_GUARD = None
+JOB_AI_RATE_LIMIT_CALLBACK = None
+
+
+def set_job_ai_rate_limit_callback(callback):
+    """Register a cloud-runner callback to persist provider cooldowns securely."""
+    global JOB_AI_RATE_LIMIT_CALLBACK
+    JOB_AI_RATE_LIMIT_CALLBACK = callback
 
 
 def set_job_event_callback(callback):
@@ -758,99 +768,268 @@ def parse_json_response(result):
 GROQ_MODEL_FALLBACKS = (
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
+    # Independent model quota bucket on Groq.
+    "qwen/qwen3.8-27b",
 )
 
-# A model that returns HTTP 429 is skipped for the remainder of this process.
-# The cloud runner is short-lived, so every scheduled run automatically retries
-# the model later without burning the same quota on every job in one batch.
 _RATE_LIMITED_GROQ_MODELS: set[str] = set()
+
+
+class AIProviderRateLimited(RuntimeError):
+    """Raised when all configured AI providers are temporarily unavailable."""
+
+    def __init__(self, retry_after_seconds: int):
+        self.retry_after_seconds = max(60, int(retry_after_seconds))
+        super().__init__(
+            "All configured AI providers are rate-limited; "
+            f"retry after {self.retry_after_seconds} seconds"
+        )
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
     status_code = getattr(error, "status_code", None)
     if status_code is None:
+        status_code = getattr(error, "code", None)
+    if status_code is None:
         response = getattr(error, "response", None)
         status_code = getattr(response, "status_code", None)
-    if status_code == 429:
+    if str(status_code) == "429":
         return True
-
     error_name = type(error).__name__.lower()
     details = str(error).lower()
     return (
         "ratelimit" in error_name
         or "rate limit" in details
         or "rate_limit_exceeded" in details
+        or "resource_exhausted" in details
     )
 
 
-def groq_json_request(
-    messages,
-    temperature=0,
-    max_completion_tokens=1000
-):
+def _parse_rate_limit_duration(value):
+    """Parse seconds or provider durations such as '2m59.5s'."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        pass
+    unit_seconds = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+    matches = re.findall(
+        r"(\d+(?:\.\d+)?)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)",
+        raw,
+    )
+    if not matches:
+        return None
+    total = 0.0
+    for amount, unit in matches:
+        if unit.startswith("d"):
+            key = "d"
+        elif unit.startswith("h"):
+            key = "h"
+        elif unit.startswith("m"):
+            key = "m"
+        else:
+            key = "s"
+        total += float(amount) * unit_seconds[key]
+    return total if total > 0 else None
+
+
+def _rate_limit_retry_seconds(error: Exception, default: int = 3600) -> int:
+    """Honor Retry-After/reset headers; otherwise back off instead of retrying every 5 minutes."""
+    headers = getattr(error, "headers", None)
+    response = getattr(error, "response", None)
+    if headers is None and response is not None:
+        headers = getattr(response, "headers", None)
+    header_values = []
+    if headers is not None:
+        for name in (
+            "retry-after",
+            "x-ratelimit-reset-requests",
+            "x-ratelimit-reset-tokens",
+        ):
+            try:
+                value = headers.get(name) or headers.get(name.title())
+            except Exception:
+                value = None
+            parsed = _parse_rate_limit_duration(value)
+            if parsed is not None:
+                header_values.append(parsed)
+    if header_values:
+        seconds = max(header_values)
+    else:
+        details = str(error).lower()
+        duration_match = re.search(
+            r"(?:try again|retry|reset)(?: after| in|:)?\s*"
+            r"(\d+(?:\.\d+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))",
+            details,
+        )
+        parsed = _parse_rate_limit_duration(duration_match.group(1)) if duration_match else None
+        seconds = parsed if parsed is not None else default
+    return max(60, min(86400, int(seconds) + 15))
+
+
+def _notify_ai_rate_limit(retry_after_seconds: int, provider: str) -> None:
+    callback = JOB_AI_RATE_LIMIT_CALLBACK
+    if callback is None:
+        return
+    try:
+        callback(max(60, int(retry_after_seconds)), str(provider or "AI providers"))
+    except Exception as exc:
+        print("AI COOLDOWN PERSISTENCE ERROR:", type(exc).__name__)
+
+
+def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000):
+    """Use Gemini as an independent provider after Groq's model pool is exhausted."""
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+    system_content = []
+    conversation = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "user").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if role in {"system", "developer"}:
+            system_content.append(content)
+        else:
+            conversation.append(f"{role.upper()}:\n{content}")
+    prompt_parts = []
+    if system_content:
+        prompt_parts.append("SYSTEM INSTRUCTIONS:\n" + "\n\n".join(system_content))
+    prompt_parts.extend(conversation)
+    prompt = "\n\n".join(prompt_parts)
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_completion_tokens,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingLevel": "low"},
+        },
+    }
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + urllib.parse.quote(model_name, safe="")
+        + ":generateContent"
+    )
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")[:500]
+        error = RuntimeError(f"Gemini HTTP {exc.code}: {details}")
+        error.status_code = exc.code
+        error.headers = exc.headers
+        raise error from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Gemini request failed: {type(exc).__name__}") from exc
+    candidates = body.get("candidates") or []
+    if not candidates:
+        raise ValueError("Gemini returned no candidate")
+    content = candidates[0].get("content") or {}
+    response_text = "".join(
+        str(part.get("text") or "")
+        for part in content.get("parts") or []
+        if isinstance(part, dict)
+    ).strip()
+    if not response_text:
+        raise ValueError("Gemini returned empty content")
+    return parse_json_response(response_text)
+
+
+def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     common_kwargs = {
         "messages": messages,
         "temperature": temperature,
         "max_completion_tokens": max_completion_tokens,
-        "reasoning_effort": "low",
-        "reasoning_format": "hidden",
     }
-
     last_error = None
-
+    rate_limit_errors = []
     for model_name in GROQ_MODEL_FALLBACKS:
         if model_name in _RATE_LIMITED_GROQ_MODELS:
             continue
-
-        request_kwargs = {
-            **common_kwargs,
-            "model": model_name,
-        }
-
+        # Reasoning-only parameters are restricted to GPT-OSS.
+        model_kwargs = {}
+        if model_name.startswith("openai/gpt-oss-"):
+            model_kwargs = {"reasoning_effort": "low", "reasoning_format": "hidden"}
+        request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
         try:
             response = client.chat.completions.create(
                 **request_kwargs,
                 response_format={"type": "json_object"},
             )
             return parse_json_response(response.choices[0].message.content)
-
         except Exception as first_error:
             last_error = first_error
             if _is_rate_limit_error(first_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
-                print(
-                    f"AI RATE LIMIT: {model_name}; "
-                    "switching to the next available model"
-                )
+                rate_limit_errors.append(first_error)
+                print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
                 continue
-
-            # Preserve the existing non-JSON fallback for model/JSON-mode issues.
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
-
         try:
             response = client.chat.completions.create(**request_kwargs)
             return parse_json_response(response.choices[0].message.content)
-
         except Exception as second_error:
             last_error = second_error
             if _is_rate_limit_error(second_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
-                print(
-                    f"AI RATE LIMIT: {model_name}; "
-                    "switching to the next available model"
-                )
+                rate_limit_errors.append(second_error)
+                print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
             else:
-                print(
-                    f"AI MODEL RETRY FAILED: {model_name}; "
-                    f"{type(second_error).__name__}"
-                )
+                print(f"AI MODEL RETRY FAILED: {model_name}; {type(second_error).__name__}")
 
+    all_groq_rate_limited = bool(GROQ_MODEL_FALLBACKS) and set(
+        GROQ_MODEL_FALLBACKS
+    ).issubset(_RATE_LIMITED_GROQ_MODELS)
+
+    # Independent provider prevents Groq exhaustion from freezing the queue.
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        try:
+            result = _gemini_json_request(
+                messages=messages,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+            )
+            print("AI PROVIDER: Gemini fallback succeeded")
+            return result
+        except Exception as gemini_error:
+            last_error = gemini_error
+            if all_groq_rate_limited:
+                if _is_rate_limit_error(gemini_error):
+                    retry_seconds = _rate_limit_retry_seconds(gemini_error)
+                    provider = "Groq and Gemini rate limits"
+                else:
+                    retry_seconds = 900
+                    provider = "AI provider fallback failure"
+                _notify_ai_rate_limit(retry_seconds, provider)
+                raise AIProviderRateLimited(retry_seconds) from gemini_error
+            print("AI GEMINI FALLBACK FAILED:", type(gemini_error).__name__)
+
+    if all_groq_rate_limited:
+        retry_seconds = max(
+            (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
+            default=3600,
+        )
+        _notify_ai_rate_limit(retry_seconds, "Groq model pool exhausted")
+        raise AIProviderRateLimited(retry_seconds) from last_error
     if last_error is not None:
         raise last_error
-
-    raise RuntimeError(
-        "All configured Groq models are rate-limited for this run"
-    )
+    raise RuntimeError("No configured AI provider was available")
 
 
 # ============================================================

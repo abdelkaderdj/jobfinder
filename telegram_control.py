@@ -249,10 +249,23 @@ class TelegramJobBot:
         sent_count = len(self._sent_records_today())
         undated_sent_count = len(self._sent_records_without_timestamp())
         paused = bool(self.state.get("paused"))
+        ai_retry_raw = self.state.get("ai_provider_retry_after_utc")
+        ai_status = "🟢 جاهز"
+        if ai_retry_raw:
+            try:
+                ai_retry_at = datetime.fromisoformat(str(ai_retry_raw))
+                if ai_retry_at.tzinfo is None:
+                    ai_retry_at = ai_retry_at.replace(tzinfo=timezone.utc)
+                ai_retry_at = ai_retry_at.astimezone(LOCAL_ZONE)
+                if ai_retry_at > now_local():
+                    ai_status = f"⏳ إعادة المحاولة {ai_retry_at.strftime('%H:%M')} (توقيت الجزائر)"
+            except (TypeError, ValueError):
+                ai_status = "⚠️ يحتاج إعادة فحص"
         return (
             "📡 حالة JobFinder — لوحة التحكم\n\n"
             f"الحالة: {'⏸ متوقف مؤقتًا' if paused else '🟢 نشط'}\n"
-            f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n\n"
+            f"آخر تشغيل: {self._last_run_display()} (توقيت الجزائر)\n"
+            f"الذكاء الاصطناعي: {ai_status}\n\n"
             f"📥 المراجعات المعلقة: {pending_count}\n"
             f"📨 طلبات مسجلة اليوم: {sent_count}\n"
             f"📚 سجلات إرسال قديمة بلا توقيت: {undated_sent_count}\n"
