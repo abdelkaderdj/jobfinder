@@ -24,6 +24,24 @@ def response_with_json(payload='{"route":"groq"}'):
 
 
 class AIProviderRoutingTests(unittest.TestCase):
+    def test_gemini_retry_delay_parses_structured_retry_delay(self):
+        error = RuntimeError('Gemini HTTP 429: {"error":{"details":[{"retryDelay":"42s"}]}}')
+        error.status_code = 429
+
+        seconds = processor._rate_limit_retry_seconds(error)
+
+        self.assertEqual(seconds, 57)
+
+    def test_default_gemini_fallbacks_include_multiple_stable_flash_models(self):
+        with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODELS": ""}):
+            models = processor._configured_gemini_models()
+
+        self.assertEqual(models[0], "gemini-3.8-flash")
+        self.assertIn("gemini-3.7-flash", models)
+        self.assertIn("gemini-3.5-flash", models)
+        self.assertIn("gemini-3.1-flash-lite", models)
+        self.assertEqual(len(models), len(set(models)))
+
     def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
         error = RuntimeError(
             'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}'
