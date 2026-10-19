@@ -776,6 +776,28 @@ _RATE_LIMITED_GROQ_MODELS: set[str] = set()
 _UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
+_AI_PROVIDER_LAST_REQUEST_AT: dict[str, float] = {}
+
+
+def _pace_ai_provider(provider: str) -> None:
+    """Apply an optional shared per-provider minimum interval to avoid quota bursts."""
+    raw_interval = os.getenv("JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS", "0").strip()
+    try:
+        interval = float(raw_interval)
+    except (TypeError, ValueError):
+        interval = 0.0
+    if interval <= 0:
+        return
+
+    provider_key = str(provider or "unknown").strip().lower()
+    now = time.monotonic()
+    previous = _AI_PROVIDER_LAST_REQUEST_AT.get(provider_key)
+    if previous is not None:
+        remaining = interval - (now - previous)
+        if remaining > 0:
+            time.sleep(remaining)
+            now += remaining
+    _AI_PROVIDER_LAST_REQUEST_AT[provider_key] = now
 
 
 class AIProviderRateLimited(RuntimeError):
@@ -1088,6 +1110,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 continue
             gemini_tried = True
             try:
+                _pace_ai_provider("gemini")
                 result = _gemini_json_request(
                     messages=messages,
                     temperature=temperature,
@@ -1148,6 +1171,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             model_kwargs = {"reasoning_effort": "low", "reasoning_format": "hidden"}
         request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(
                 **request_kwargs,
                 response_format={"type": "json_object"},
@@ -1168,6 +1192,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
         try:
+            _pace_ai_provider("groq")
             response = client.chat.completions.create(**request_kwargs)
             print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
             return parse_json_response(response.choices[0].message.content)
