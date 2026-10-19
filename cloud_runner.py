@@ -21,7 +21,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-RUNNER_VERSION = "2026-10-19-ai-provider-routing-v2"
+RUNNER_VERSION = "2026-10-19-ai-provider-health-v3"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -262,6 +262,9 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
     processor.set_job_event_callback(bot.on_job_event)
     processor.set_job_pre_send_guard(bot.pre_send_guard_for_job)
     processor.set_job_ai_rate_limit_callback(persist_ai_provider_cooldown)
+    processor.set_job_ai_provider_status_callback(
+        lambda snapshot: record_ai_provider_status(state, snapshot, bot)
+    )
 
     # Correct the single false-positive review created by the old forced-recovery
     # exception. Match both channel and message ID; never reject it as a job.
@@ -558,13 +561,19 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
 
 def main() -> int:
     print(f"JobFinder cloud runner version: {RUNNER_VERSION}")
-    if os.getenv("GEMINI_API_KEY", "").strip():
+    gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    groq_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
+    if gemini_configured and groq_configured:
         print("AI PROVIDER ROUTING: Gemini primary; Groq multi-model fallback enabled.")
-    else:
+    elif gemini_configured:
+        print("AI PROVIDER ROUTING: Gemini-only mode; Groq fallback is not configured.")
+    elif groq_configured:
         print(
             "AI PROVIDER ROUTING: Groq only. Independent Gemini fallback is inactive "
             "until the GitHub Actions secret GEMINI_API_KEY is populated."
         )
+    else:
+        print("AI PROVIDER ROUTING: no AI provider key is configured.")
     print(
         f"Batch limits: max {MAX_MESSAGES_PER_RUN} message(s), "
         f"{RUN_BUDGET_SECONDS}s processing budget"
