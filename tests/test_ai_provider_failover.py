@@ -85,6 +85,34 @@ class AIProviderRoutingTests(unittest.TestCase):
         finally:
             processor._AI_PROVIDER_LAST_REQUEST_AT.clear()
 
+    def test_extraction_fallback_cannot_be_sent_even_when_fields_look_complete(self):
+        item = {
+            "can_auto_send": True,
+            "record": {
+                "analysis_fallback": True,
+                "application_job_title": "Technicien de maintenance",
+                "emails": ["jobs@example.org"],
+                "cv": "/fake/cv.pdf",
+                "contact_scope_matched": True,
+                "location_status": "allowed_local",
+            },
+            "job": {
+                "job_title": "Technicien de maintenance",
+                "company": "Example Employer",
+                "location": "Oran",
+            },
+            "post": {"source": "rcrdz1", "message_id": 9001},
+            "advertisement": "Annonce not reliably parsed",
+        }
+        with patch.object(processor, "send_application") as send_application:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "extraction-fallback card cannot be submitted",
+            ):
+                processor.send_approved_review(item)
+
+        send_application.assert_not_called()
+
     def test_smtp_quit_failure_after_acceptance_does_not_report_send_failure(self):
         server = MagicMock()
         server.send_message.return_value = {}
