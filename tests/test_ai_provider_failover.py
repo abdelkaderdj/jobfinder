@@ -24,6 +24,18 @@ def response_with_json(payload='{"route":"groq"}'):
 
 
 class AIProviderRoutingTests(unittest.TestCase):
+    def test_provider_failure_diagnostic_surfaces_safe_http_detail(self):
+        error = RuntimeError(
+            'Gemini HTTP 400: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}'
+        )
+        error.status_code = 400
+
+        summary = processor._safe_ai_provider_error(error)
+
+        self.assertIn("HTTP 400", summary)
+        self.assertIn("API key not valid", summary)
+        self.assertNotIn("AIza", summary)
+
     def test_gemini_38_request_omits_deprecated_temperature_parameter(self):
         fake_response = MagicMock()
         fake_response.__enter__.return_value = fake_response

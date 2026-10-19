@@ -881,6 +881,29 @@ def _notify_ai_rate_limit(retry_after_seconds: int, provider: str) -> None:
         print("AI COOLDOWN PERSISTENCE ERROR:", type(exc).__name__)
 
 
+def _safe_ai_provider_error(error: Exception) -> str:
+    """Return a short provider diagnostic without exposing prompts or credentials."""
+    status_code = getattr(error, "status_code", None)
+    details = str(error or "")
+    message = ""
+    match = re.search(r"Gemini HTTP \d+:\s*(\{.*\})", details, flags=re.DOTALL)
+    if match:
+        try:
+            body = json.loads(match.group(1))
+            error_body = body.get("error") or {}
+            status_code = status_code or error_body.get("code")
+            message = str(error_body.get("message") or error_body.get("status") or "")
+        except (TypeError, ValueError):
+            message = ""
+    if not message:
+        # Do not print unknown exception bodies; only report a status and class.
+        return f"HTTP {status_code}" if status_code else type(error).__name__
+    message = re.sub(r"[\r\n\t]+", " ", message)
+    message = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[redacted]", message)
+    message = re.sub(r"\s+", " ", message).strip()[:220]
+    return f"HTTP {status_code}: {message}" if status_code else message
+
+
 def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, model_name=None):
     """Use Gemini as an independent provider after Groq's model pool is exhausted."""
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -1034,7 +1057,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 _GEMINI_DISABLED_FOR_RUN = True
                 print(
                     "AI GEMINI PROVIDER FAILED: "
-                    f"{type(gemini_error).__name__}; switching to Groq"
+                    f"{_safe_ai_provider_error(gemini_error)}; switching to Groq"
                 )
                 break
 
