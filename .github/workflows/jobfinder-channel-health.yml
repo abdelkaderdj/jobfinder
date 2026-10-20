@@ -2,6 +2,9 @@ name: JobFinder Telegram Channel Readability Audit
 
 on:
   workflow_dispatch:
+  schedule:
+    # Read-only channel/cursor health check; no AI calls or job applications.
+    - cron: "23 7 * * *"
   push:
     branches:
       - master
