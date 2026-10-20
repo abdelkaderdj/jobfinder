@@ -62,8 +62,10 @@ def require_ai_provider() -> str:
         return "Gemini"
     if os.getenv("GROQ_API_KEY", "").strip():
         return "Groq"
+    if os.getenv("OPENROUTER_API_KEY", "").strip():
+        return "OpenRouter (free fallback)"
     raise RuntimeError(
-        "At least one AI provider key is required: GEMINI_API_KEY or GROQ_API_KEY"
+        "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
 
