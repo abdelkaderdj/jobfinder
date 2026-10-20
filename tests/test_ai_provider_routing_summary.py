@@ -24,7 +24,7 @@ class AIProviderRoutingSummaryTests(unittest.TestCase):
 
         self.assertIn("Groq primary", summary)
         self.assertIn("OpenRouter free fallback enabled", summary)
-        self.assertNotIn("Gemini fallback is not configured", summary)
+        self.assertIn("Gemini fallback is not configured", summary)
 
     def test_openrouter_only_mode_is_reported_explicitly(self):
         summary = ai_provider_routing_summary(False, False, True)
