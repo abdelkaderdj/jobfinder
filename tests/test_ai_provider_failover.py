@@ -863,9 +863,10 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
                     [{"role": "user", "content": "Return a JSON object."}]
                 )
 
-        self.assertEqual(raised.exception.retry_after_seconds, 120)
+        # The retry policy intentionally adds a 15-second safety margin to Retry-After.
+        self.assertEqual(raised.exception.retry_after_seconds, 135)
         self.assertTrue(processor._OPENROUTER_DISABLED_FOR_RUN)
-        self.assertEqual(callbacks[0][0], 120)
+        self.assertEqual(callbacks[0][0], 135)
 
 
 if __name__ == "__main__":
