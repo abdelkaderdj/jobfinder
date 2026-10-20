@@ -7,6 +7,8 @@ WORKFLOWS = (
     ROOT / ".github" / "workflows" / "jobfinder-cloud.yml",
     ROOT / ".github" / "workflows" / "jobfinder-ai-provider-smoke-test.yml",
     ROOT / ".github" / "workflows" / "jobfinder-audit-48h.yml",
+    ROOT / ".github" / "workflows" / "jobfinder-telegram-control-test.yml",
+    ROOT / ".github" / "workflows" / "telegram-webhook-event.yml",
 )
 
 
