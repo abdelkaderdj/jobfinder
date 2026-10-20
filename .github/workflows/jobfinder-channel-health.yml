@@ -16,7 +16,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: jobfinder-channel-health-audit
+  # Share the production lock: both workflows use the same Telegram user session/state snapshot.
+  group: jobfinder-cloud-monitor
+  queue: max
   cancel-in-progress: false
 
 jobs:
