@@ -1553,18 +1553,28 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                 (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
                 default=3600,
             )
-            configured_providers = []
-            if gemini_configured:
-                configured_providers.append("Gemini")
-            if GROQ_MODEL_FALLBACKS:
-                configured_providers.append("Groq")
             if openrouter_configured:
+                configured_providers = []
+                if gemini_configured:
+                    configured_providers.append("Gemini")
+                if GROQ_MODEL_FALLBACKS:
+                    configured_providers.append("Groq")
                 configured_providers.append("OpenRouter")
-            provider_names = "/".join(configured_providers) or "configured AI"
-            provider = (
-                f"AI quota exhausted across {provider_names} routes; "
-                "some routes may also be temporarily overloaded"
-            )
+                provider_names = "/".join(configured_providers)
+                provider = (
+                    f"AI quota exhausted across {provider_names} routes; "
+                    "some routes may also be temporarily overloaded"
+                )
+            elif gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+                provider = (
+                    "AI quota exhausted across Gemini/Groq routes; "
+                    "some routes may also be temporarily overloaded"
+                )
+            else:
+                provider = (
+                    "Groq quota exhausted; configure GEMINI_API_KEY for an independent AI provider; "
+                    "some routes may also be temporarily overloaded"
+                )
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
 
@@ -1579,7 +1589,11 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             except (TypeError, ValueError):
                 outage_retry_seconds = 300
             outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
-            provider = "All configured AI provider routes are temporarily unavailable"
+            provider = "All configured Groq routes are temporarily overloaded"
+            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
+                provider = "All configured Gemini/Groq routes are temporarily unavailable"
+            if openrouter_configured:
+                provider = "All configured AI provider routes are temporarily unavailable"
             _notify_ai_rate_limit(outage_retry_seconds, provider)
             raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
 
