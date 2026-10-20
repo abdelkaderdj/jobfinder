@@ -1111,18 +1111,29 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
     def test_gemini_only_is_accepted_as_valid_runner_configuration(self):
         with patch.dict(
             os.environ,
-            {"GEMINI_API_KEY": "gemini-test-key", "GROQ_API_KEY": ""},
+            {"GEMINI_API_KEY": "gemini-test-key", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": ""},
         ):
             self.assertEqual(require_ai_provider(), "Gemini")
+
+    def test_openrouter_only_is_accepted_as_valid_runner_configuration(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY": "",
+                "GROQ_API_KEY": "",
+                "OPENROUTER_API_KEY": "openrouter-test-key",
+            },
+        ):
+            self.assertEqual(require_ai_provider(), "OpenRouter (free fallback)")
 
     def test_runner_fails_fast_when_no_ai_provider_key_is_configured(self):
         with patch.dict(
             os.environ,
-            {"GEMINI_API_KEY": "", "GROQ_API_KEY": ""},
+            {"GEMINI_API_KEY": "", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": ""},
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "GEMINI_API_KEY or GROQ_API_KEY",
+                "GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY",
             ):
                 require_ai_provider()
 

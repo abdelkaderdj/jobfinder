@@ -88,6 +88,10 @@ def main() -> int:
         route_summary = (
             "Groq fallback succeeded; no Gemini model returned a response in this run"
         )
+    elif "AI PROVIDER: OpenRouter (" in route_log:
+        route_summary = (
+            "OpenRouter free fallback succeeded; Gemini/Groq did not return a response in this run"
+        )
     else:
         route_summary = "router returned valid JSON; inspect the provider diagnostics above"
 

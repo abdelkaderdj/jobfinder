@@ -284,6 +284,8 @@ class TelegramJobBot:
                     ai_status = f"🟢 Gemini: {model}"
                 elif provider == "groq":
                     ai_status = f"🟢 Groq: {model}"
+                elif provider == "openrouter":
+                    ai_status = f"🟢 OpenRouter مجاني: {model}"
         if ai_retry_raw:
             try:
                 ai_retry_at = datetime.fromisoformat(str(ai_retry_raw))
