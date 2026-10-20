@@ -17,6 +17,9 @@ on:
 permissions:
   contents: read
 
+# Detailed audit results are delivered to the configured private Telegram chat.
+# Do not upload report files as Actions artifacts because this repository is public.
+
 # Share the production AI-provider lock so an audit cannot drain quotas while
 # the live monitor is processing its own queued posts.
 concurrency:
@@ -61,13 +64,3 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
         run: python tools/audit_recent_posts.py
-      - name: Upload private audit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jobfinder-read-only-audit-${{ github.run_id }}
-          path: |
-            jobfinder_audit_report.md
-            jobfinder_audit_report.json
-          if-no-files-found: warn
-          retention-days: 14
