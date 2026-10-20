@@ -68,6 +68,56 @@ def require_ai_provider() -> str:
         "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
+def ai_provider_routing_summary(
+    gemini_configured: bool | None = None,
+    groq_configured: bool | None = None,
+    openrouter_configured: bool | None = None,
+) -> str:
+    """Describe configured routing preference; this is not a live health check."""
+    if gemini_configured is None:
+        gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    if groq_configured is None:
+        groq_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
+    if openrouter_configured is None:
+        openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+
+    if gemini_configured:
+        fallbacks = []
+        if groq_configured:
+            fallbacks.append("Groq multi-model")
+        if openrouter_configured:
+            fallbacks.append("OpenRouter free")
+        if fallbacks:
+            return (
+                "AI PROVIDER ROUTING (configured): Gemini primary; "
+                + " then ".join(fallbacks)
+                + " fallback enabled. Live availability is not verified at startup."
+            )
+        return (
+            "AI PROVIDER ROUTING (configured): Gemini only; no Groq/OpenRouter "
+            "fallback is configured. Live availability is not verified at startup."
+        )
+
+    if groq_configured:
+        if openrouter_configured:
+            return (
+                "AI PROVIDER ROUTING (configured): Groq primary; OpenRouter free "
+                "fallback enabled; Gemini fallback is not configured. "
+                "Live availability is not verified at startup."
+            )
+        return (
+            "AI PROVIDER ROUTING (configured): Groq only; Gemini/OpenRouter "
+            "fallbacks are not configured. Live availability is not verified at startup."
+        )
+
+    if openrouter_configured:
+        return (
+            "AI PROVIDER ROUTING (configured): OpenRouter free only; Gemini/Groq "
+            "fallbacks are not configured. Live availability is not verified at startup."
+        )
+
+    return "AI PROVIDER ROUTING: no AI provider key is configured."
+
 
 def get_fernet() -> Fernet:
     key = required_env("JOBFINDER_FERNET_KEY").encode("ascii")
@@ -569,19 +619,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
 
 def main() -> int:
     print(f"JobFinder cloud runner version: {RUNNER_VERSION}")
-    gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
-    groq_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
-    if gemini_configured and groq_configured:
-        print("AI PROVIDER ROUTING: Gemini primary; Groq multi-model fallback enabled.")
-    elif gemini_configured:
-        print("AI PROVIDER ROUTING: Gemini-only mode; Groq fallback is not configured.")
-    elif groq_configured:
-        print(
-            "AI PROVIDER ROUTING: Groq only. Independent Gemini fallback is inactive "
-            "until the GitHub Actions secret GEMINI_API_KEY is populated."
-        )
-    else:
-        print("AI PROVIDER ROUTING: no AI provider key is configured.")
+    print(ai_provider_routing_summary())
     print(
         f"Batch limits: max {MAX_MESSAGES_PER_RUN} message(s), "
         f"{RUN_BUDGET_SECONDS}s processing budget"
