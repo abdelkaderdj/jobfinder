@@ -1,0 +1,44 @@
+name: JobFinder OpenRouter Free Provider Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize provider checks with the live monitor; a smoke test makes one real API request.
+concurrency:
+  group: jobfinder-cloud-monitor
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  openrouter-free-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check out current master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-cloud.txt
+
+      - name: Compile OpenRouter smoke test
+        run: python -m py_compile auto_jobfinder_cloud.py tools/openrouter_free_smoke_test.py
+
+      - name: Test the free OpenRouter route directly
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
+          GMAIL_APP_PASSWORD: smoke-test-unused
+          GMAIL_ADDRESS: smoke-test@example.invalid
+          JOBFINDER_CANDIDATE_PROFILE: OpenRouter smoke test only; no real candidate data.
+          JOBFINDER_CANDIDATE_NAME: OpenRouter Smoke Test
+        run: python tools/openrouter_free_smoke_test.py
