@@ -49,9 +49,12 @@ SMTP_PORT = 587
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 
-if not GROQ_API_KEY and not GEMINI_API_KEY:
-    raise RuntimeError("At least one AI provider key is required: GEMINI_API_KEY or GROQ_API_KEY")
+if not GROQ_API_KEY and not GEMINI_API_KEY and not OPENROUTER_API_KEY:
+    raise RuntimeError(
+        "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
+    )
 
 if not GMAIL_APP_PASSWORD:
     raise RuntimeError("GMAIL_APP_PASSWORD is not set")
@@ -787,6 +790,7 @@ _UNAVAILABLE_GROQ_MODELS: set[str] = set()
 _DISABLED_GEMINI_MODELS: set[str] = set()
 _GEMINI_DISABLED_FOR_RUN = False
 _GROQ_DISABLED_FOR_RUN = False
+_OPENROUTER_DISABLED_FOR_RUN = False
 _AI_PROVIDER_LAST_REQUEST_AT: dict[str, float] = {}
 
 
@@ -1051,11 +1055,15 @@ def _safe_ai_provider_error(error: Exception) -> str:
             fallback,
         )
         fallback = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[redacted]", fallback)
+        fallback = re.sub(r"sk-or-v1-[0-9A-Za-z_-]{20,}", "[redacted]", fallback)
+        fallback = re.sub(r"gsk_[0-9A-Za-z_-]{20,}", "[redacted]", fallback)
         fallback = re.sub(r"[\r\n\t]+", " ", fallback)
         fallback = re.sub(r"\s+", " ", fallback).strip()[:220]
         return fallback or (f"HTTP {status_code}" if status_code else type(error).__name__)
     message = re.sub(r"[\r\n\t]+", " ", message)
     message = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[redacted]", message)
+    message = re.sub(r"sk-or-v1-[0-9A-Za-z_-]{20,}", "[redacted]", message)
+    message = re.sub(r"gsk_[0-9A-Za-z_-]{20,}", "[redacted]", message)
     message = re.sub(r"\s+", " ", message).strip()[:220]
     return f"HTTP {status_code}: {message}" if status_code else message
 
@@ -1168,6 +1176,92 @@ def _configured_gemini_models():
     return tuple(models)
 
 
+
+def _configured_openrouter_model() -> str:
+    """Restrict the optional tertiary route to free OpenRouter model IDs."""
+    model = os.getenv("OPENROUTER_MODEL", "").strip() or "openrouter/free"
+    if model != "openrouter/free" and not model.endswith(":free"):
+        raise RuntimeError(
+            "OPENROUTER_MODEL must be openrouter/free or a model ID ending in :free; paid models are blocked"
+        )
+    return model
+
+
+def _openrouter_json_request(messages, temperature=0, max_completion_tokens=1000):
+    """Send a JSON-only request through OpenRouter's free-model router."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
+
+    model_name = _configured_openrouter_model()
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_completion_tokens,
+        "response_format": {"type": "json_object"},
+    }
+    request = urllib.request.Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://github.com/abdelkaderdj/jobfinder",
+            "X-Title": "JobFinder",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")[:500]
+        message = raw
+        try:
+            parsed = json.loads(raw)
+            error_body = parsed.get("error") if isinstance(parsed, dict) else None
+            if isinstance(error_body, dict):
+                message = str(error_body.get("message") or error_body.get("code") or raw)
+        except (TypeError, ValueError):
+            pass
+        error = RuntimeError(f"OpenRouter HTTP {exc.code}: {message}")
+        error.status_code = exc.code
+        error.headers = exc.headers
+        raise error from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", None)
+        detail = f"{type(reason).__name__}: {str(reason)[:150]}" if reason is not None else type(exc).__name__
+        raise RuntimeError(f"OpenRouter transport failure ({type(exc).__name__}): {detail}") from exc
+
+    if not isinstance(body, dict):
+        raise ValueError("OpenRouter returned an invalid response")
+    if isinstance(body.get("error"), dict):
+        error_body = body["error"]
+        code = error_body.get("code")
+        message = str(error_body.get("message") or "request rejected")
+        error = RuntimeError(f"OpenRouter error: {message}")
+        try:
+            error.status_code = int(code)
+        except (TypeError, ValueError):
+            pass
+        raise error
+    choices = body.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        raise ValueError("OpenRouter returned no response choices")
+    message = choices[0].get("message") or {}
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, dict)
+        )
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("OpenRouter returned empty content")
+    return parse_json_response(content)
+
+
 def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     """
     Route through independent provider/model quota pools.
@@ -1178,7 +1272,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     remaining request. If every provider is unavailable, preserve the cursor
     and let the cloud runner retry later; never mark the failed post processed.
     """
-    global _GEMINI_DISABLED_FOR_RUN, _GROQ_DISABLED_FOR_RUN
+    global _GEMINI_DISABLED_FOR_RUN, _GROQ_DISABLED_FOR_RUN, _OPENROUTER_DISABLED_FOR_RUN
 
     common_kwargs = {
         "messages": messages,
@@ -1188,6 +1282,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     last_error = None
     rate_limit_errors = []
     gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
     configured_gemini_models = _configured_gemini_models() if gemini_configured else ()
     primary_gemini_model = configured_gemini_models[0] if configured_gemini_models else ""
     gemini_issues = []
@@ -1382,6 +1477,58 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
                     f"{type(second_error).__name__}"
                 )
 
+    # One optional independent provider after Gemini and Groq are exhausted.
+    # The free router is a single endpoint, so a failure opens a per-run circuit
+    # breaker rather than spending more free requests against the same route.
+    if openrouter_configured and not _OPENROUTER_DISABLED_FOR_RUN:
+        try:
+            _pace_ai_provider("openrouter")
+            result = _openrouter_json_request(
+                messages=messages,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+            )
+            model_name = _configured_openrouter_model()
+            using_fallback = bool(gemini_configured or GROQ_MODEL_FALLBACKS)
+            reason = (
+                gemini_issues[0]
+                if gemini_issues
+                else "Gemini/Groq routes were unavailable; the OpenRouter free fallback responded."
+            )
+            _notify_ai_provider_status(
+                "openrouter",
+                model_name,
+                "degraded" if using_fallback else "healthy",
+                reason if using_fallback else "",
+                gemini_configured,
+            )
+            print(f"AI PROVIDER: OpenRouter ({model_name}) succeeded")
+            return result
+        except Exception as openrouter_error:
+            last_error = openrouter_error
+            _OPENROUTER_DISABLED_FOR_RUN = True
+            if _is_rate_limit_error(openrouter_error):
+                rate_limit_errors.append(openrouter_error)
+                print(
+                    "AI OPENROUTER RATE LIMIT: "
+                    f"{_safe_ai_provider_error(openrouter_error)}; disabled for this run"
+                )
+            elif _is_provider_configuration_error(openrouter_error):
+                print(
+                    "AI OPENROUTER AUTHENTICATION/CONFIGURATION ERROR: "
+                    f"{_safe_ai_provider_error(openrouter_error)}; disabled for this run"
+                )
+            elif _is_temporary_provider_overload(openrouter_error):
+                print(
+                    "AI OPENROUTER TEMPORARY OUTAGE: "
+                    f"{_safe_ai_provider_error(openrouter_error)}; disabled for this run"
+                )
+            else:
+                print(
+                    "AI OPENROUTER REQUEST FAILED: "
+                    f"{_safe_ai_provider_error(openrouter_error)}; disabled for this run"
+                )
+
     all_groq_routes_exhausted = (
         not GROQ_MODEL_FALLBACKS
         or _GROQ_DISABLED_FOR_RUN
@@ -1392,23 +1539,32 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
     all_gemini_routes_exhausted = (
         not gemini_configured or _GEMINI_DISABLED_FOR_RUN
     )
+    all_openrouter_routes_exhausted = (
+        not openrouter_configured or _OPENROUTER_DISABLED_FOR_RUN
+    )
 
-    if all_groq_routes_exhausted and all_gemini_routes_exhausted:
+    if (
+        all_groq_routes_exhausted
+        and all_gemini_routes_exhausted
+        and all_openrouter_routes_exhausted
+    ):
         if rate_limit_errors:
             retry_seconds = max(
                 (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
                 default=3600,
             )
-            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-                provider = (
-                    "AI quota exhausted across Gemini/Groq routes; "
-                    "some routes may also be temporarily overloaded"
-                )
-            else:
-                provider = (
-                    "Groq quota exhausted; configure GEMINI_API_KEY for an independent AI provider; "
-                    "some routes may also be temporarily overloaded"
-                )
+            configured_providers = []
+            if gemini_configured:
+                configured_providers.append("Gemini")
+            if GROQ_MODEL_FALLBACKS:
+                configured_providers.append("Groq")
+            if openrouter_configured:
+                configured_providers.append("OpenRouter")
+            provider_names = "/".join(configured_providers) or "configured AI"
+            provider = (
+                f"AI quota exhausted across {provider_names} routes; "
+                "some routes may also be temporarily overloaded"
+            )
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
 
@@ -1423,9 +1579,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
             except (TypeError, ValueError):
                 outage_retry_seconds = 300
             outage_retry_seconds = max(60, min(3600, outage_retry_seconds))
-            provider = "All configured Groq routes are temporarily overloaded"
-            if gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-                provider = "All configured Gemini/Groq routes are temporarily unavailable"
+            provider = "All configured AI provider routes are temporarily unavailable"
             _notify_ai_rate_limit(outage_retry_seconds, provider)
             raise AIProviderUnavailable(outage_retry_seconds, provider) from last_error
 
@@ -1439,7 +1593,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000):
         config_retry_seconds = max(300, min(3600, config_retry_seconds))
         provider = (
             "AI provider credentials/permissions rejected; check GEMINI_API_KEY, "
-            "GROQ_API_KEY, and model configuration"
+            "GROQ_API_KEY, OPENROUTER_API_KEY, and model configuration"
         )
         _notify_ai_rate_limit(config_retry_seconds, provider)
         raise AIProviderUnavailable(config_retry_seconds, provider) from last_error
