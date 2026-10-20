@@ -149,7 +149,13 @@ def make_markdown(report: dict[str, Any]) -> str:
 
 
 async def run_audit() -> dict[str, Any]:
-    required_env("GROQ_API_KEY")
+    if not any(
+        os.getenv(name, "").strip()
+        for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+    ):
+        raise RuntimeError(
+            "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
+        )
     required_env("GMAIL_APP_PASSWORD")
     api_id = int(required_env("TELEGRAM_API_ID"))
     api_hash = required_env("TELEGRAM_API_HASH")
@@ -309,12 +315,17 @@ async def run_audit() -> dict[str, Any]:
                 or bool(getattr(processor, "_GROQ_DISABLED_FOR_RUN", False))
                 or groq_routes.issubset(unavailable_routes)
             )
+            openrouter_routes_unavailable = (
+                not os.getenv("OPENROUTER_API_KEY", "").strip()
+                or bool(getattr(processor, "_OPENROUTER_DISABLED_FOR_RUN", False))
+            )
             all_models_unavailable = (
                 groq_routes_unavailable
                 and (
                     not os.getenv("GEMINI_API_KEY", "").strip()
                     or bool(getattr(processor, "_GEMINI_DISABLED_FOR_RUN", False))
                 )
+                and openrouter_routes_unavailable
             )
 
             if processor_result is False and all_models_unavailable:
