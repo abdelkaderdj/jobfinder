@@ -70,6 +70,14 @@ jobs:
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
+          JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
+          JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
+          JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
