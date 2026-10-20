@@ -68,6 +68,7 @@ def require_ai_provider() -> str:
         "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
+
 def ai_provider_routing_summary(
     gemini_configured: bool | None = None,
     groq_configured: bool | None = None,
