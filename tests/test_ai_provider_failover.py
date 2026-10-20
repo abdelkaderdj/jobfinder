@@ -834,39 +834,44 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         rate_limit.status_code = 429
         rate_limit.headers = {"retry-after": "120"}
         callbacks = []
+        original_openrouter_disabled = processor._OPENROUTER_DISABLED_FOR_RUN
+        processor._OPENROUTER_DISABLED_FOR_RUN = False
 
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "GEMINI_API_KEY": "",
-                    "GROQ_API_KEY": "",
-                    "OPENROUTER_API_KEY": "openrouter-test-key",
-                    "OPENROUTER_MODEL": "openrouter/free",
-                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
-                },
-            ),
-            patch.object(processor, "client", None),
-            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
-            patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
-            patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
-            patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
-            patch.object(processor, "_openrouter_json_request", side_effect=rate_limit),
-            patch.object(
-                processor,
-                "JOB_AI_RATE_LIMIT_CALLBACK",
-                lambda seconds, reason: callbacks.append((seconds, reason)),
-            ),
-        ):
-            with self.assertRaises(processor.AIProviderRateLimited) as raised:
-                processor.groq_json_request(
-                    [{"role": "user", "content": "Return a JSON object."}]
-                )
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GEMINI_API_KEY": "",
+                        "GROQ_API_KEY": "",
+                        "OPENROUTER_API_KEY": "openrouter-test-key",
+                        "OPENROUTER_MODEL": "openrouter/free",
+                        "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                    },
+                ),
+                patch.object(processor, "client", None),
+                patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+                patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_openrouter_json_request", side_effect=rate_limit) as openrouter,
+                patch.object(
+                    processor,
+                    "JOB_AI_RATE_LIMIT_CALLBACK",
+                    lambda seconds, reason: callbacks.append((seconds, reason)),
+                ),
+            ):
+                with self.assertRaises(processor.AIProviderRateLimited) as raised:
+                    processor.groq_json_request(
+                        [{"role": "user", "content": "Return a JSON object."}]
+                    )
 
-        # The retry policy intentionally adds a 15-second safety margin to Retry-After.
-        self.assertEqual(raised.exception.retry_after_seconds, 135)
-        self.assertTrue(processor._OPENROUTER_DISABLED_FOR_RUN)
-        self.assertEqual(callbacks[0][0], 135)
+            # The retry policy adds a 15-second safety margin to Retry-After.
+            self.assertEqual(raised.exception.retry_after_seconds, 135)
+            self.assertTrue(processor._OPENROUTER_DISABLED_FOR_RUN)
+            openrouter.assert_called_once()
+            self.assertEqual(callbacks[0][0], 135)
+        finally:
+            processor._OPENROUTER_DISABLED_FOR_RUN = original_openrouter_disabled
 
 
 if __name__ == "__main__":
