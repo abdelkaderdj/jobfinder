@@ -750,5 +750,123 @@ class AIProviderRoutingTests(unittest.TestCase):
         groq.assert_called_once()
 
 
+
+class OpenRouterFreeFallbackTests(unittest.TestCase):
+    def test_openrouter_free_route_posts_json_request_and_parses_result(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"route":"openrouter"}'}}]
+        }).encode("utf-8")
+
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENROUTER_API_KEY": "openrouter-test-key", "OPENROUTER_MODEL": "openrouter/free"},
+            ),
+            patch.object(processor.urllib.request, "urlopen", return_value=response) as urlopen,
+        ):
+            result = processor._openrouter_json_request(
+                [{"role": "user", "content": "Return a JSON object."}],
+                max_completion_tokens=64,
+            )
+
+        self.assertEqual(result, {"route": "openrouter"})
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"), "Bearer openrouter-test-key")
+        self.assertEqual(payload["model"], "openrouter/free")
+        self.assertEqual(payload["max_tokens"], 64)
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+
+    def test_openrouter_rejects_paid_models_before_making_a_request(self):
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENROUTER_API_KEY": "openrouter-test-key", "OPENROUTER_MODEL": "vendor/paid-model"},
+            ),
+            patch.object(processor.urllib.request, "urlopen") as urlopen,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "paid models are blocked"):
+                processor._openrouter_json_request(
+                    [{"role": "user", "content": "test"}]
+                )
+
+        urlopen.assert_not_called()
+
+    def test_openrouter_is_used_when_no_gemini_or_groq_route_is_available(self):
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "",
+                    "GROQ_API_KEY": "",
+                    "OPENROUTER_API_KEY": "openrouter-test-key",
+                    "OPENROUTER_MODEL": "openrouter/free",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+            patch.object(
+                processor,
+                "_openrouter_json_request",
+                return_value={"route": "openrouter"},
+            ) as openrouter,
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return a JSON object."}]
+            )
+
+        self.assertEqual(result, {"route": "openrouter"})
+        openrouter.assert_called_once()
+        self.assertEqual(snapshots[-1]["provider"], "openrouter")
+        self.assertEqual(snapshots[-1]["status"], "healthy")
+
+    def test_openrouter_quota_failure_sets_a_cooldown_and_fails_closed(self):
+        rate_limit = RuntimeError("OpenRouter HTTP 429: rate limit exceeded")
+        rate_limit.status_code = 429
+        rate_limit.headers = {"retry-after": "120"}
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "",
+                    "GROQ_API_KEY": "",
+                    "OPENROUTER_API_KEY": "openrouter-test-key",
+                    "OPENROUTER_MODEL": "openrouter/free",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_openrouter_json_request", side_effect=rate_limit),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderRateLimited) as raised:
+                processor.groq_json_request(
+                    [{"role": "user", "content": "Return a JSON object."}]
+                )
+
+        self.assertEqual(raised.exception.retry_after_seconds, 120)
+        self.assertTrue(processor._OPENROUTER_DISABLED_FOR_RUN)
+        self.assertEqual(callbacks[0][0], 120)
+
+
 if __name__ == "__main__":
     unittest.main()
