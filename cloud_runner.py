@@ -24,7 +24,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-RUNNER_VERSION = "2026-10-19-ai-provider-health-v3"
+RUNNER_VERSION = "2026-10-21-encrypted-decision-audit-v1"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
