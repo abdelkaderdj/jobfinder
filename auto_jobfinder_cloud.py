@@ -1340,7 +1340,10 @@ def _openrouter_json_request(messages, temperature=0, max_completion_tokens=1000
         "model": model_name,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_completion_tokens,
+        # The free router may select a reasoning model. Reasoning consumes the
+        # same output-token budget and can otherwise leave visible content empty.
+        "max_tokens": max(512, int(max_completion_tokens or 0)),
+        "reasoning": {"effort": "low", "exclude": True},
         "response_format": {"type": "json_object"},
     }
     request = urllib.request.Request(
@@ -1400,7 +1403,22 @@ def _openrouter_json_request(messages, temperature=0, max_completion_tokens=1000
             if isinstance(part, dict)
         )
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("OpenRouter returned empty content")
+        choice = choices[0]
+        finish_reason = str(choice.get("finish_reason") or "unknown")[:80]
+        response_model = str(body.get("model") or model_name)[:120]
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        completion_tokens = usage.get("completion_tokens", "unknown")
+        token_details = usage.get("completion_tokens_details")
+        reasoning_tokens = (
+            token_details.get("reasoning_tokens", "unknown")
+            if isinstance(token_details, dict)
+            else "unknown"
+        )
+        raise ValueError(
+            "OpenRouter returned empty content "
+            f"(model={response_model}, finish_reason={finish_reason}, "
+            f"completion_tokens={completion_tokens}, reasoning_tokens={reasoning_tokens})"
+        )
     return parse_json_response(content)
 
 
