@@ -151,7 +151,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             ]) + " |"
         )
 
-    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد |", "|---|---|---|---|---|---:|---|"])
+    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد |", "|---|---|---|---|---|---:|---:|---|"])
     for when, record in selected:
         source_url = str(record.get("source_url") or "")
         if source_url and re.fullmatch(r"https://t\.me/[A-Za-z0-9_]{1,80}/\d+", source_url):
