@@ -68,7 +68,7 @@ class OpenRouterSmokeTestTests(unittest.TestCase):
         self.assertEqual(result, 0)
         request.assert_called_once()
         kwargs = request.call_args.kwargs
-        self.assertEqual(kwargs["max_completion_tokens"], 80)
+        self.assertEqual(kwargs["max_completion_tokens"], 512)
         self.assertEqual(kwargs["messages"][-1]["role"], "user")
         self.assertIn("SMOKE TEST PASSED", output.getvalue())
         self.assertIn("openrouter/free", output.getvalue())
