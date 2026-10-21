@@ -72,6 +72,7 @@ JOB_EVENT_CALLBACK = None
 JOB_PRE_SEND_GUARD = None
 JOB_AI_RATE_LIMIT_CALLBACK = None
 JOB_AI_PROVIDER_STATUS_CALLBACK = None
+JOB_DECISION_AUDIT_CALLBACK = None
 
 
 def set_job_ai_rate_limit_callback(callback):
@@ -89,6 +90,12 @@ def set_job_ai_provider_status_callback(callback):
 def set_job_event_callback(callback):
     global JOB_EVENT_CALLBACK
     JOB_EVENT_CALLBACK = callback
+
+
+def set_job_decision_audit_callback(callback):
+    """Register the encrypted per-offer audit checkpoint callback."""
+    global JOB_DECISION_AUDIT_CALLBACK
+    JOB_DECISION_AUDIT_CALLBACK = callback
 
 
 def set_job_pre_send_guard(callback):
@@ -5221,16 +5228,23 @@ def emit_unparsed_vacancy_review(post, advertisement):
     if JOB_EVENT_CALLBACK is None:
         print("VACANCY EXTRACTION FALLBACK: callback unavailable; post will retry")
         return False
+    event = {
+        "post": post,
+        "record": record,
+        "job": {"job_title": title, "company": "", "location": ""},
+        "advertisement": str(advertisement or ""),
+    }
     try:
-        JOB_EVENT_CALLBACK({
-            "post": post,
-            "record": record,
-            "job": {"job_title": title, "company": "", "location": ""},
-            "advertisement": str(advertisement or ""),
-        })
+        JOB_EVENT_CALLBACK(event)
     except Exception as exc:
         print("VACANCY EXTRACTION FALLBACK CALLBACK ERROR:", type(exc).__name__)
         return False
+    if JOB_DECISION_AUDIT_CALLBACK is not None:
+        try:
+            JOB_DECISION_AUDIT_CALLBACK(event)
+        except Exception as exc:
+            print("DECISION AUDIT ERROR:", type(exc).__name__, "; post will retry")
+            return False
     print("VACANCY EXTRACTION FALLBACK: queued for manual review; automatic send disabled")
     return True
 
@@ -5800,16 +5814,27 @@ def process_post(
 
         # Emit structured events for the Telegram control bot. Notification failures
         # never change whether the source post is considered processed.
+        event = {
+            "post": post,
+            "record": record,
+            "job": job,
+            "advertisement": job_section_text if scope_matched else text,
+        }
         if JOB_EVENT_CALLBACK is not None:
             try:
-                JOB_EVENT_CALLBACK({
-                    "post": post,
-                    "record": record,
-                    "job": job,
-                    "advertisement": job_section_text if scope_matched else text,
-                })
+                JOB_EVENT_CALLBACK(event)
             except Exception as exc:
                 print("JOB EVENT CALLBACK ERROR:", type(exc).__name__)
+
+        # This separate callback is mandatory for historical quality statistics.
+        # It runs after the Telegram callback may apply a manual-rejection guard,
+        # so the audit records the final bot decision and not just the model output.
+        if JOB_DECISION_AUDIT_CALLBACK is not None:
+            try:
+                JOB_DECISION_AUDIT_CALLBACK(event)
+            except Exception as exc:
+                print("DECISION AUDIT ERROR:", type(exc).__name__, "; post will retry")
+                post_success = False
 
         print()
         log_job_result_safely(record, contact_review_reason)
