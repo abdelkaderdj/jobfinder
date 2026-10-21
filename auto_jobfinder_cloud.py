@@ -474,7 +474,14 @@ def calculate_candidate_cv_match(job, advertisement=""):
         r"\belectromecanique\b", r"\belectromechanical\b",
         r"\bmechanical design\b", r"\bhydraulique\b", r"\bhydraulic\b",
         r"\bcompresseur\w*\b", r"\bcompressor\w*\b",
-        r"\bميكانيك\w*\b", r"\bصيانة\b", r"\bمضخ\w*\b",
+        r"\benergy\b", r"\benergie\b", r"\benergetique\b",
+        r"\bengineer\w*\b", r"\bingenieur\w*\b",
+        r"\bindustrial\b", r"\bindustrie\b", r"\bindustriel\w*\b",
+        r"\belectromecanicien\w*\b", r"\bautomatisation\b",
+        r"\bautomatisme\b", r"\binstrumentation\b",
+        r"\bpiping\b", r"\btuyauterie\b", r"\bproduction\b",
+        r"\bfabrication\b", r"\bميكانيك\w*\b", r"\bصيانة\b",
+        r"\bمضخ\w*\b", r"\bطاقة\b", r"\bمهندس\b", r"\bصناعي\b",
     )
     title_adjacent = (
         r"\btechnicien\w*\b", r"\btechnician\w*\b", r"\btechnologue\b",
@@ -553,7 +560,18 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         r"experience en|experience|experience professionnelle obligatoire|"
         r"خبرة مهنية|خبرة في المجال|الخبرة المهنية|سنوات من الخبرة)"
     )
-    if re.search(experience_terms, ad) and re.search(mandatory, ad):
+    experience_not_required = re.search(
+        r"(no experience (?:is )?required|no prior experience|no previous experience|"
+        r"experience not required|without experience|without prior experience|"
+        r"no experience needed|no experience necessary|entry level no experience|"
+        r"sans experience|aucune experience exigee|experience non exigee|"
+        r"experience professionnelle non exigee|debutant accepte|debutante acceptee|"
+        r"debutants acceptes|open to beginners|no work experience required|"
+        r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة|"
+        r"بدون خبرة|دون خبرة|للمبتدئين)",
+        ad,
+    )
+    if re.search(experience_terms, ad) and re.search(mandatory, ad) and not experience_not_required:
         # A numbered minimum (months or years) is a concrete hard gate.
         years = re.search(
             r"(?:minimum|min\.?|at least|au moins|minimum de)\s*(\d+)\s*"
@@ -592,12 +610,20 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         "atex", "h2s", "bosiet", "caces", "nebosh", "api 510", "api 570",
         "iso 17025", "iso 45001 lead auditor", "pmp",
     )
-    if re.search(r"(certif|habilitation|permit|licence professionnelle|رخصة مهنية|شهادة اعتماد)", ad) and re.search(mandatory, ad):
-        for certificate in named_certifications:
-            if certificate in ad:
-                return True
-        if "solidworks" in ad and candidate_has_solidworks_training:
-            return False
+    for certificate in named_certifications:
+        if certificate not in ad:
+            continue
+        # Bind the mandatory language to the named credential, not to an
+        # unrelated experience clause elsewhere in the same position section.
+        escaped = re.escape(certificate)
+        if re.search(
+            rf"(?:{escaped}).{{0,50}}(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري)"
+            rf"|(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري).{{0,50}}(?:{escaped})",
+            ad,
+        ):
+            return True
+    if "solidworks" in ad and candidate_has_solidworks_training:
+        return False
 
     # Age, driving licence, gender, or residency facts absent from the CV are
     # unknown, not mismatches. Let REVIEW handle these unless a dedicated,
