@@ -4,6 +4,7 @@ import asyncio
 import csv
 import io
 import json
+import mimetypes
 import os
 import re
 import time
@@ -31,8 +32,13 @@ MONITOR_WORKFLOW_ID = "379675910"
 MAX_MESSAGES_SCANNED_PER_CHANNEL = 5000
 MAX_PAGES_OF_RUNS = 20
 LOG_FETCH_WORKERS = 8
+MAX_MEDIA_DOWNLOADS = 300
+MAX_MEDIA_FILE_BYTES = 8 * 1024 * 1024
+MAX_TOTAL_MEDIA_BYTES = 80 * 1024 * 1024
 REPORT_DIR = Path("historical_jobfinder_audit")
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_DIR = REPORT_DIR / "media"
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 NEW_POST_RE = re.compile(
@@ -280,6 +286,8 @@ async def collect_telegram_posts() -> tuple[list[dict[str, Any]], dict[str, int]
     channel_counts: dict[str, int] = {}
     channel_errors: dict[str, str] = {}
     channels_at_limit: list[str] = []
+    media_download_count = 0
+    media_bytes_downloaded = 0
     await client.connect()
     try:
         if not await client.is_user_authorized():
@@ -307,9 +315,79 @@ async def collect_telegram_posts() -> tuple[list[dict[str, Any]], dict[str, int]
                         reached_window_start = True
                         break
                     message_text = str(getattr(message, "message", None) or "").strip()
-                    if not message_text:
+                    has_media = bool(getattr(message, "media", None))
+                    if not message_text and not has_media:
                         continue
                     message_id = int(message.id)
+                    media_info = None
+                    if has_media:
+                        file_obj = getattr(message, "file", None)
+                        mime_type = str(getattr(file_obj, "mime_type", "") or "")
+                        original_name = str(getattr(file_obj, "name", "") or "")
+                        is_photo = bool(getattr(message, "photo", None))
+                        kind = "photo" if is_photo else ("document" if file_obj else "other_media")
+                        estimated_size = getattr(file_obj, "size", None) if file_obj else None
+                        if is_photo:
+                            photo_sizes = []
+                            for photo_size in getattr(getattr(message, "photo", None), "sizes", []) or []:
+                                direct_size = getattr(photo_size, "size", None)
+                                if isinstance(direct_size, int) and direct_size > 0:
+                                    photo_sizes.append(direct_size)
+                                progressive_sizes = getattr(photo_size, "sizes", None)
+                                if isinstance(progressive_sizes, (list, tuple)) and progressive_sizes:
+                                    numeric_sizes = [value for value in progressive_sizes if isinstance(value, int)]
+                                    if numeric_sizes:
+                                        photo_sizes.append(max(numeric_sizes))
+                            if photo_sizes:
+                                estimated_size = max(photo_sizes)
+                            mime_type = mime_type or "image/jpeg"
+
+                        media_info = {
+                            "kind": kind,
+                            "mime_type": mime_type or None,
+                            "original_name": original_name or None,
+                            "estimated_size_bytes": estimated_size if isinstance(estimated_size, int) else None,
+                            "download_status": "not_downloaded_unsupported_type",
+                            "zip_path": None,
+                        }
+                        supported_media = is_photo or mime_type.startswith("image/") or mime_type == "application/pdf"
+                        if supported_media:
+                            if not isinstance(estimated_size, int) or estimated_size <= 0:
+                                media_info["download_status"] = "not_downloaded_size_unknown"
+                            elif estimated_size > MAX_MEDIA_FILE_BYTES:
+                                media_info["download_status"] = "not_downloaded_file_too_large"
+                            elif media_download_count >= MAX_MEDIA_DOWNLOADS:
+                                media_info["download_status"] = "not_downloaded_item_limit"
+                            elif media_bytes_downloaded + estimated_size > MAX_TOTAL_MEDIA_BYTES:
+                                media_info["download_status"] = "not_downloaded_total_size_limit"
+                            else:
+                                suffix = (
+                                    ".jpg" if is_photo
+                                    else (Path(original_name).suffix.lower() or mimetypes.guess_extension(mime_type) or ".bin")
+                                )
+                                if not re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
+                                    suffix = mimetypes.guess_extension(mime_type) or ".bin"
+                                target = MEDIA_DIR / f"{source}_{message_id}{suffix}"
+                                try:
+                                    downloaded_path = await client.download_media(message, file=str(target))
+                                    if downloaded_path and Path(downloaded_path).is_file():
+                                        actual_path = Path(downloaded_path)
+                                        actual_size = actual_path.stat().st_size
+                                        if actual_size > MAX_MEDIA_FILE_BYTES:
+                                            actual_path.unlink(missing_ok=True)
+                                            media_info["download_status"] = "not_downloaded_actual_file_too_large"
+                                        else:
+                                            media_download_count += 1
+                                            media_bytes_downloaded += actual_size
+                                            media_info["download_status"] = "downloaded"
+                                            media_info["zip_path"] = f"media/{actual_path.name}"
+                                            media_info["downloaded_size_bytes"] = actual_size
+                                    else:
+                                        media_info["download_status"] = "download_failed"
+                                except Exception as media_exc:
+                                    target.unlink(missing_ok=True)
+                                    media_info["download_status"] = f"download_failed_{type(media_exc).__name__}"
+
                     posts.append({
                         "source": source,
                         "message_id": message_id,
@@ -317,6 +395,9 @@ async def collect_telegram_posts() -> tuple[list[dict[str, Any]], dict[str, int]
                         "published_at_algeria": message_utc.astimezone(ALGERIA).isoformat(timespec="seconds"),
                         "url": f"https://t.me/{source}/{message_id}",
                         "text": message_text,
+                        "has_media": has_media,
+                        "media_only": bool(has_media and not message_text),
+                        "media": media_info,
                     })
                     count += 1
                 if not reached_window_start and scanned >= MAX_MESSAGES_SCANNED_PER_CHANNEL:
