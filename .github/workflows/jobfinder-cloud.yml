@@ -65,13 +65,16 @@ jobs:
           TELEGRAM_WEBHOOK_MODE: ${{ secrets.TELEGRAM_WEBHOOK_URL != '' && '1' || '' }}
         run: python cloud_runner.py
 
-      - name: Commit encrypted state only
+      - name: Commit encrypted state and per-offer audit ciphertext
         if: always()
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cloud_private/state.enc cloud_private/decision_audit.enc
+          git add cloud_private/state.enc
+          if [ -f cloud_private/decision_audit.enc ]; then
+            git add cloud_private/decision_audit.enc
+          fi
           if git diff --cached --quiet; then
             echo "No encrypted state changes to save."
           else
