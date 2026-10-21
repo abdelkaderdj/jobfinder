@@ -2,10 +2,6 @@ name: JobFinder AI Provider Smoke Test
 
 on:
   workflow_dispatch:
-  # One-shot live connectivity probe on a temporary branch; never runs on master.
-  push:
-    branches:
-      - test/gemini-live-smoke-2026-10-21
 
 permissions:
   contents: read
