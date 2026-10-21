@@ -571,8 +571,8 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         r"بدون خبرة|دون خبرة|للمبتدئين)",
         ad,
     )
-    if re.search(experience_terms, ad) and re.search(mandatory, ad) and not experience_not_required:
-        # A numbered minimum (months or years) is a concrete hard gate.
+    if re.search(experience_terms, ad) and not experience_not_required:
+        # A numbered minimum (months or years) is an explicit hard gate itself.
         years = re.search(
             r"(?:minimum|min\.?|at least|au moins|minimum de)\s*(\d+)\s*"
             r"(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
@@ -580,13 +580,27 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         )
         if years and int(years.group(1)) > 0:
             return True
-        if re.search(
-            r"(experience professionnelle obligatoire|professional experience is mandatory|"
-            r"experience.*(?:obligatoire|mandatory|required)|"
-            r"(?:obligatoire|mandatory|required).*experience|"
-            r"يشترط.*خبرة|خبرة.*اجبارية|خبرة.*إجبارية)",
+
+        optional_experience = re.search(
+            r"(no experience (?:is )?required|experience not required|"
+            r"experience optional|experience souhait(?:e|ee)|experience appreciee|"
+            r"experience is a plus|experience is preferred|experience non obligatoire|"
+            r"sans experience|aucune experience exigee|debutant accepte|"
+            r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة)",
             ad,
-        ):
+        )
+        experience_mandatory_nearby = re.search(
+            r"(?:professional experience|experience professionnelle|work experience|"
+            r"experience|خبرة مهنية|خبرة).{0,35}"
+            r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+            r"اجبارية|إجبارية|مطلوبة|يشترط)"
+            r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+            r"اجبارية|إجبارية|مطلوبة|يشترط).{0,35}"
+            r"(?:professional experience|experience professionnelle|work experience|"
+            r"experience|خبرة مهنية|خبرة)",
+            ad,
+        )
+        if experience_mandatory_nearby and not optional_experience:
             return True
 
     # Candidate's verified highest credential is Licence/Bac+3 in Mechanical
@@ -597,8 +611,18 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         r"ماستر|شهادة مهندس|مهندس دولة|باك\s*5)",
         ad,
     )
-    if higher_degree_required and re.search(mandatory, ad):
-        return True
+    if higher_degree_required:
+        degree_window = ad[max(0, higher_degree_required.start() - 40):min(
+            len(ad), higher_degree_required.end() + 50
+        )]
+        degree_optional = re.search(
+            r"(preferred|desirable|optional|a plus|souhaite|souhaitee|apprecie|"
+            r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة إضافية|"
+            r"ليس إلزاميا|غير إجباري)",
+            degree_window,
+        )
+        if re.search(mandatory, degree_window) and not degree_optional:
+            return True
 
     # A Licence/Bachelor/Bac+3 requirement is met by the attached CV.
     # Do not convert a generic "degree required" or AI-inferred degree gap into
@@ -616,12 +640,24 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         # Bind the mandatory language to the named credential, not to an
         # unrelated experience clause elsewhere in the same position section.
         escaped = re.escape(certificate)
-        if re.search(
+        certificate_window_match = re.search(
             rf"(?:{escaped}).{{0,50}}(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري)"
             rf"|(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري).{{0,50}}(?:{escaped})",
             ad,
-        ):
-            return True
+        )
+        if certificate_window_match:
+            certificate_window = ad[
+                max(0, certificate_window_match.start() - 30):
+                min(len(ad), certificate_window_match.end() + 30)
+            ]
+            optional_certificate = re.search(
+                r"(preferred|desirable|optional|a plus|souhaite|souhaitee|apprecie|"
+                r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة إضافية|"
+                r"ليس إلزاميا|غير إجباري)",
+                certificate_window,
+            )
+            if not optional_certificate:
+                return True
     if "solidworks" in ad and candidate_has_solidworks_training:
         return False
 
