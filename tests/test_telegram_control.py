@@ -412,6 +412,33 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(decision, "REVIEW")
         self.assertEqual(status, "allowed_housing")
 
+    def test_unscoped_multi_position_location_routes_apply_to_review(self):
+        decision, status, reason = processor.enforce_location_rule(
+            {
+                "location": "Alger",
+                "accommodation_provided": "unknown",
+            },
+            "APPLY",
+            "",
+            section_verified=False,
+        )
+
+        self.assertEqual(decision, "REVIEW")
+        self.assertEqual(status, "location_section_unverified")
+        self.assertIn("automatic sending is disabled", reason)
+
+    def test_no_housing_provided_in_french_is_not_a_positive_signal(self):
+        self.assertFalse(
+            processor.accommodation_signal_in_text(
+                "Poste à Alger, aucun logement fourni par l'employeur."
+            )
+        )
+        self.assertFalse(
+            processor.accommodation_signal_in_text(
+                "Poste à Alger, hébergement non assuré."
+            )
+        )
+
     def test_ai_claimed_housing_without_explicit_ad_evidence_is_ignored(self):
         advertisement = "Poste basé à Alger. Résidence exigée pour les candidats."
         housing = processor.scoped_accommodation_value(
