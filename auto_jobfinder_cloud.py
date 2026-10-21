@@ -575,9 +575,8 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     # and Energy Engineering, not an engineering-state diploma or a Master.
     higher_degree_required = re.search(
         r"(diplome d ingenieur|diplome ingenieur|ingenieur d etat|"
-        r"engineer(?:ing)? degree|master(?:s)? degree|master 2|bac\s*\+\s*5|"
-        r"bac\+5|doctorat|phd|postgraduate degree|ماستر|شهادة مهندس|"
-        r"مهندس دولة|باك\s*\+\s*5)",
+        r"master(?:s)? degree|master 2|bac\s*5|doctorat|phd|postgraduate degree|"
+        r"ماستر|شهادة مهندس|مهندس دولة|باك\s*5)",
         ad,
     )
     if higher_degree_required and re.search(mandatory, ad):
@@ -5579,7 +5578,7 @@ def process_post(
         decision, role_fit_reason = enforce_candidate_fit_rule(
             job,
             decision,
-            job_section_text if scope_matched else text,
+            job_section_text if scope_matched else "",
             cv_match_score=cv_match_score,
         )
 
