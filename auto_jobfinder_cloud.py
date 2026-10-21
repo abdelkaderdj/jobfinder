@@ -354,11 +354,118 @@ GENERIC_TECHNICAL_ROLE_PATTERNS = (
 )
 
 
+def _is_senior_role_title(normalized_title: str) -> bool:
+    """Titles that are plainly above the candidate's junior/entry-level scope."""
+    return any(
+        re.search(pattern, normalized_title)
+        for pattern in (
+            r"\\bsenior\\b", r"\\bmanager\\b", r"\\bmanagement\\b",
+            r"\\bteam leader\\b", r"\\bleader\\b", r"\\bsupervisor\\b",
+            r"\\bsuperviseur\\w*\\b", r"\\bforeman\\b", r"\\bchef d atelier\\b",
+            r"\\bchef d equipe\\b", r"\\bhead of\\b", r"\\bdirector\\b",
+            r"\\bdirecteur\\w*\\b", r"\\bchief\\b", r"\\bresponsable\\b",
+            r"\\bمدير\\b", r"\\bرئيس\\b", r"\\bمشرف\\b",
+        )
+    )
+
+
+def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
+    """
+    Do not accept an AI-inferred requirement as a hard disqualifier unless the
+    advertisement itself contains a clear mandatory requirement of that type.
+    """
+    reason = normalize_text(str(job.get("reason") or ""))
+    ad = normalize_text(str(advertisement or ""))
+
+    if not reason or not ad:
+        return False
+
+    experience_reason = bool(re.search(
+        r"(experience|experience professionnelle|professional experience|"
+        r"work experience|training|formation|practical experience|trade experience|"
+        r"خبرة|تدريب|تجربة مهنية)",
+        reason,
+    ))
+    degree_reason = bool(re.search(
+        r"(degree|diploma|diplome|diplome d ingenieur|bachelor|master|licence|"
+        r"education|educational requirement|bac\+|qualification|"
+        r"شهادة|مؤهل|ليسانس|ماستر)",
+        reason,
+    ))
+    certification_reason = bool(re.search(
+        r"(certif|habilitation|license|licence|permit|accreditation|"
+        r"certification|qualification|رخصة|شهادة اعتماد|اعتماد مهني)",
+        reason,
+    ))
+
+    mandatory = r"(required|mandatory|must have|must hold|minimum|required to|"
+    mandatory += r"exige|exigee|exiges|obligatoire|requis|requise|"
+    mandatory += r"indispensable|obligatoirement|minimum de|au moins|"
+    mandatory += r"يشترط|شرط اساسي|شرط أساسي|إجباري|اجباري|لا تقل عن|"
+    mandatory += r"مطلوب توفر|ضروري توفر)"
+
+    if experience_reason:
+        explicit_years = bool(re.search(
+            r"(minimum|min\\.?|at least|at least|minimum of|au moins|minimum de)\\s*"
+            r"\\d+\\s*(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
+            ad,
+        ))
+        explicit_experience = bool(re.search(
+            r"(experience|experience professionnelle|professional experience|"
+            r"work experience|experience in|experience de|experience en|"
+            r"خبرة مهنية|خبرة في المجال|الخبرة المهنية)",
+            ad,
+        )) and bool(re.search(mandatory, ad))
+        if explicit_years or explicit_experience:
+            return True
+
+    if degree_reason:
+        explicit_degree = bool(re.search(
+            r"(degree|diploma|diplome|bachelor|master|licence|bac\\+\\d|"
+            r"ingenieur diplome|diplome d ingenieur|academic qualification|"
+            r"university degree|degree in|diploma in|شهادة جامعية|"
+            r"شهادة في|مستوى جامعي|ماستر|ليسانس)",
+            ad,
+        ))
+        if explicit_degree and (
+            re.search(mandatory, ad)
+            or re.search(r"(requires?|must possess|must hold|requirement|exig[eé]|obligatoire)", ad)
+        ):
+            return True
+
+    if certification_reason:
+        explicit_certificate = bool(re.search(
+            r"(certif|habilitation|license|licence|permit|accreditation|"
+            r"qualification|رخصة|شهادة اعتماد|اعتماد مهني)",
+            ad,
+        ))
+        if explicit_certificate and re.search(mandatory, ad):
+            return True
+
+    # Other explicit gates (age, sex, residency, driving licence, etc.) are
+    # accepted only when both the reason and advertisement mention the same kind.
+    other_reason_markers = {
+        "age": (r"(age|aged|years old|âge|ans?\\b|عمر|سن)", r"(age|aged|years old|âge|ans?\\b|عمر|سن)"),
+        "gender": (r"(female|male|woman|man|femme|homme|fille|garçon|أنثى|ذكر)", r"(female|male|woman|man|femme|homme|فقط للنساء|للرجال|أنثى|ذكر)"),
+        "driving": (r"(driver|driving|driving licence|driver.s license|chauffeur|permis|سائق|رخصة سياقة)", r"(driver|driving|permis|chauffeur|سائق|رخصة سياقة)"),
+        "residency": (r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)", r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)"),
+    }
+    for reason_pattern, ad_pattern in other_reason_markers.values():
+        if re.search(reason_pattern, reason) and re.search(ad_pattern, ad) and re.search(mandatory, ad):
+            return True
+
+    return False
+
+
 def enforce_candidate_fit_rule(job, decision, advertisement=""):
-    """Deterministic safety gate: reject obvious mismatches and weak-score roles."""
+    """
+    Keep clear mismatches rejected, but route plausible technical false negatives
+    to manual review unless the ad proves a mandatory disqualifier.
+    REVIEW never authorizes an automatic email.
+    """
     decision = str(decision or "REJECT").upper().strip()
-    if decision == "REJECT":
-        return "REJECT", ""
+    if decision not in {"APPLY", "REVIEW", "REJECT"}:
+        decision = "REJECT"
 
     title = str(
         job.get("job_title")
@@ -367,17 +474,6 @@ def enforce_candidate_fit_rule(job, decision, advertisement=""):
         or ""
     ).strip()
     normalized_title = normalize_text(title)
-
-    try:
-        score = float(job.get("score"))
-    except (TypeError, ValueError):
-        score = None
-
-    if score is not None and (score < 35 or score > 100):
-        return (
-            "REJECT",
-            f"الحاجز الآمن رفض الوظيفة: تقييم المطابقة {score:g}/100 أقل من الحد الأدنى 35/100 أو خارج النطاق.",
-        )
 
     if not normalized_title:
         return "REJECT", "الحاجز الآمن رفض الوظيفة لأن المسمى الوظيفي غير واضح."
@@ -389,10 +485,60 @@ def enforce_candidate_fit_rule(job, decision, advertisement=""):
                 "الحاجز الآمن رفض الوظيفة لأنها خارج مسارات الميكانيك والصيانة والصناعة والإنتاج المستهدفة.",
             )
 
-    if any(re.search(pattern, normalized_title) for pattern in STRONG_RELEVANT_ROLE_PATTERNS):
+    strong_relevance = any(
+        re.search(pattern, normalized_title)
+        for pattern in STRONG_RELEVANT_ROLE_PATTERNS
+    )
+    generic_technical = any(
+        re.search(pattern, normalized_title)
+        for pattern in GENERIC_TECHNICAL_ROLE_PATTERNS
+    )
+    potentially_relevant = strong_relevance or generic_technical
+
+    try:
+        score = float(job.get("score"))
+    except (TypeError, ValueError):
+        score = None
+
+    if score is not None and score > 100:
+        return "REJECT", "الحاجز الآمن رفض الوظيفة لأن درجة المطابقة خارج النطاق الصحيح 0–100."
+
+    if decision == "REJECT":
+        if not potentially_relevant:
+            return "REJECT", ""
+        if _is_senior_role_title(normalized_title):
+            return "REJECT", ""
+        if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
+            return "REJECT", ""
+
+        return (
+            "REVIEW",
+            "حُوّل الرفض الآلي إلى مراجعة بشرية: المسمى ذو صلة تقنية محتملة، "
+            "لكن الإعلان لا يثبت بوضوح أن سبب الرفض شرط إلزامي غير مستوفى. "
+            "لم يُسمح بإرسال تلقائي.",
+        )
+
+    if score is not None and score < 35:
+        if potentially_relevant and not _is_senior_role_title(normalized_title):
+            if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
+                return "REJECT", (
+                    "رُفضت الوظيفة لأن الإعلان يثبت شرطًا إلزاميًا غير مستوفى، "
+                    "رغم صلة المسمى بالمجال التقني."
+                )
+            return (
+                "REVIEW",
+                f"تقييم المطابقة منخفض ({score:g}/100)، لكن المسمى ذو صلة تقنية محتملة؛ "
+                "أُحيلت إلى المراجعة بدل الرفض التلقائي لتقليل فقدان الوظائف المناسبة.",
+            )
+        return (
+            "REJECT",
+            f"الحاجز الآمن رفض الوظيفة: تقييم المطابقة {score:g}/100 أقل من الحد الأدنى 35/100.",
+        )
+
+    if strong_relevance:
         return decision, ""
 
-    if any(re.search(pattern, normalized_title) for pattern in GENERIC_TECHNICAL_ROLE_PATTERNS):
+    if generic_technical:
         if decision == "APPLY":
             return (
                 "REVIEW",
@@ -404,7 +550,6 @@ def enforce_candidate_fit_rule(job, decision, advertisement=""):
         "REJECT",
         "الحاجز الآمن رفض الوظيفة لأن المسمى لا يثبت ارتباطًا واضحًا بالميكانيك أو الصيانة أو الصناعة أو الإنتاج أو الطاقة.",
     )
-
 
 def contains_arabic(text):
 
@@ -1658,6 +1803,13 @@ candidate genuinely matches the stated requirements.
 
 12. Extract every email address found in the advertisement.
 
+13. Do NOT assume that a technical role requires prior professional experience,
+   certification, trade training, or a specific degree merely because that is
+   common in the industry. Mark a requirement as mandatory only when the ad
+   explicitly states it. For a plausibly relevant junior/technical role, use
+   REVIEW if eligibility is uncertain; do not REJECT based on an inferred
+   requirement. REVIEW is safe because it cannot send an automatic email.
+
 ============================================================
 VERY IMPORTANT — COMMON / GLOBAL REQUIREMENTS
 ============================================================
@@ -1937,13 +2089,17 @@ REJECT:
 
 Use when:
 
-- a mandatory requirement is not met
-- experience is mandatory and candidate lacks it
-- required certification is missing
+- a clearly stated mandatory requirement in the advertisement is not met
+- explicitly required experience/certification/education is missing
 - location eligibility is not met
-- education level is not met
-- role is unrelated
+- the role is unrelated
 - seniority is clearly above junior level
+
+Do not infer a mandatory requirement from the job title or usual industry practice.
+If a mechanically/technically relevant role might fit but required experience,
+certification, or education is not explicitly stated in the ad, choose REVIEW,
+not REJECT. Do not use REJECT merely because the candidate's profile does not
+mention a skill; missing information is not proof of disqualification.
 
 ============================================================
 CV / APPLICATION LANGUAGE
