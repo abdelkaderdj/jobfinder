@@ -246,6 +246,75 @@ class TelegramControlTests(unittest.TestCase):
                 self.assertEqual(final, "REJECT")
                 self.assertTrue(reason)
 
+    def test_borderline_cnc_rejection_without_explicit_requirement_becomes_review(self):
+        job = {
+            "job_title": "Opérateur de Machine CNC",
+            "score": 30,
+            "reason": (
+                "The role requires professional experience or training in CNC "
+                "machining, which the candidate lacks."
+            ),
+        }
+        advertisement = (
+            "Recrutement: Opérateur de Machine CNC. "
+            "Envoyez votre CV à jobs@example.org."
+        )
+
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement
+        )
+
+        self.assertEqual(final, "REVIEW")
+        self.assertIn("مراجعة بشرية", reason)
+        self.assertIn("منع الإرسال التلقائي", reason)
+
+    def test_explicit_mandatory_experience_can_keep_relevant_role_rejected(self):
+        job = {
+            "job_title": "Opérateur de Machine CNC",
+            "score": 30,
+            "reason": (
+                "The role requires professional experience in CNC machining "
+                "and the candidate lacks it."
+            ),
+        }
+        advertisement = (
+            "Recrutement: Opérateur de Machine CNC. "
+            "Expérience professionnelle obligatoire, minimum 2 ans en usinage CNC."
+        )
+
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement
+        )
+
+        self.assertEqual(final, "REJECT")
+
+    def test_relevant_role_with_low_score_is_manual_review_not_auto_rejection(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 25,
+            "reason": "The candidate's experience is not confirmed.",
+        }
+
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "APPLY", "Technicien de maintenance — Oran."
+        )
+
+        self.assertEqual(final, "REVIEW")
+        self.assertTrue(reason)
+
+    def test_senior_technical_role_remains_rejected(self):
+        final, _reason = processor.enforce_candidate_fit_rule(
+            {
+                "job_title": "Chef d'atelier tuyauterie",
+                "score": 20,
+                "reason": "The candidate lacks leadership experience.",
+            },
+            "REJECT",
+            "Recrutement: Chef d'atelier tuyauterie.",
+        )
+
+        self.assertEqual(final, "REJECT")
+
     def test_candidate_fit_gate_keeps_strong_mechanical_role(self):
         final, reason = processor.enforce_candidate_fit_rule(
             {"job_title": "Junior Mechanical Maintenance Technician", "score": 75},
