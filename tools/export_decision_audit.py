@@ -200,14 +200,35 @@ def main() -> int:
         key = required_env("JOBFINDER_FERNET_KEY").encode("ascii")
         fernet = Fernet(key)
         rows = read_encrypted_decision_audit(AUDIT_PATH, fernet)
-        days_raw = os.getenv("JOBFINDER_AUDIT_DAYS", "2").strip()
-        try:
-            days = int(days_raw)
-        except ValueError:
-            days = 2
-        days = max(1, min(14, days))
-        report, summary = make_report(rows, days)
-        send_private_report(report, summary)
+        # Exact Algeria-local date window: 20 Oct 00:00 onward, through this run's cutoff.
+        window_start = datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc)
+        audit_cutoff = datetime.now(timezone.utc)
+        rows = [
+            row for row in rows
+            if (when := _parse_time(row.get("observed_at_utc"))) is not None
+            and window_start <= when <= audit_cutoff
+        ]
+        report, summary = make_report(rows, 2, now=audit_cutoff)
+        summary["window_start_utc"] = window_start.isoformat(timespec="seconds").replace("+00:00", "Z")
+        summary["audit_as_of_utc"] = audit_cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+        summary["audit_as_of_algeria"] = audit_cutoff.astimezone(timezone(timedelta(hours=1))).isoformat(timespec="seconds")
+        markdown, summary = make_report(rows, 2, now=audit_cutoff)
+        markdown = markdown.replace(
+            "# JobFinder — سجل قرارات الوظائف",
+            "# JobFinder — دفتر قرارات 20–21 أكتوبر 2026 (حتى وقت التدقيق)\\n\\n"
+            f"- بداية النافذة: {summary['window_start_utc']}\\n"
+            f"- وقت التدقيق الجزائر: {audit_cutoff.astimezone(timezone(timedelta(hours=1))).isoformat(timespec='seconds')}\\n"
+        )
+        (ROOT / "jobfinder_decision_audit_report.md").write_text(markdown, encoding="utf-8")
+        (ROOT / "jobfinder_decision_audit_report.json").write_text(
+            json.dumps({"summary": summary, "records": [
+                row for row in rows
+                if (_parse_time(row.get("observed_at_utc")) is not None
+                    and window_start <= _parse_time(row.get("observed_at_utc")) <= audit_cutoff)
+            ]}, ensure_ascii=False, indent=2) + "\\n",
+            encoding="utf-8",
+        )
+        send_private_report(markdown, summary)
     except Exception as exc:
         print(json.dumps({"decision_audit_export_failed": True, "error_type": type(exc).__name__}))
         return 1
