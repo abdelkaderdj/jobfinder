@@ -1010,7 +1010,21 @@ def accommodation_signal_in_text(text: str):
         "دون سكن",
         "sans prise en charge du logement",
         "logement a la charge du candidat",
+        "aucun logement fourni",
+        "aucun hebergement fourni",
+        "aucun hébergement fourni",
+        "hebergement non assure",
+        "hébergement non assuré",
+        "logement non assure",
+        "logement non assuré",
+        "housing is not provided",
+        "accommodation is not provided",
+        "the candidate must arrange housing",
         "السكن على عاتق المترشح",
+        "السكن على عاتق المترشح نفسه",
+        "لا توفر الشركة السكن",
+        "الشركة لا توفر السكن",
+        "لا تتكفل الشركة بالإقامة",
     ]
     if any(normalize_text(marker) in normalized for marker in negative_markers):
         return False
@@ -2771,7 +2785,8 @@ def explicit_accommodation_in_ad(
 def enforce_location_rule(
     job,
     decision,
-    job_section_text
+    job_section_text,
+    section_verified=True,
 ):
     category = job_location_category(job)
     accommodation = accommodation_value(job)
@@ -2794,6 +2809,22 @@ def enforce_location_rule(
             decision,
             "unknown_location",
             "Work location is not clearly identified",
+        )
+
+    # If a combined advertisement could not be mapped to this exact position,
+    # do not let another section's location/housing facts decide this one.
+    # REVIEW is safe: it blocks auto-send but avoids silently losing a plausible role.
+    if category == "other" and not section_verified:
+        if decision == "APPLY":
+            return (
+                "REVIEW",
+                "location_section_unverified",
+                "Could not verify this position's own location/accommodation section; automatic sending is disabled.",
+            )
+        return (
+            decision,
+            "location_section_unverified",
+            "This position's own location/accommodation section could not be verified; do not infer an accommodation benefit.",
         )
 
     # For other Algerian regions, only explicit employer-provided housing
@@ -5601,6 +5632,7 @@ def process_post(
             scoped_job,
             decision,
             job_section_text if scope_matched else "",
+            section_verified=scope_matched,
         )
 
         # ====================================================
