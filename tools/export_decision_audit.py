@@ -71,6 +71,21 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
     final_records = [item[1] for item in sorted(latest.values(), key=lambda item: item[0])]
     final_counts = Counter(str(r.get("final_decision") or "UNKNOWN").upper() for r in final_records)
     original_counts = Counter(str(r.get("original_ai_decision") or "UNKNOWN").upper() for r in final_records)
+    cv_scores = [
+        int(r["cv_match_score"])
+        for r in final_records
+        if isinstance(r.get("cv_match_score"), (int, float))
+        and not isinstance(r.get("cv_match_score"), bool)
+        and 0 <= r["cv_match_score"] <= 100
+    ]
+    cv_score_bands = {
+        "0-19": sum(0 <= score <= 19 for score in cv_scores),
+        "20-29": sum(20 <= score <= 29 for score in cv_scores),
+        "30-49": sum(30 <= score <= 49 for score in cv_scores),
+        "50-69": sum(50 <= score <= 69 for score in cv_scores),
+        "70-89": sum(70 <= score <= 89 for score in cv_scores),
+        "90-100": sum(90 <= score <= 100 for score in cv_scores),
+    }
     transitions = sum(
         1 for r in final_records
         if str(r.get("original_ai_decision") or "").upper()
@@ -83,6 +98,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "unique_post_positions": len(final_records),
         "original_ai_decisions": dict(original_counts),
         "final_bot_decisions": dict(final_counts),
+        "cv_match_score_bands": cv_score_bands,
+        "cv_match_scores_available": len(cv_scores),
         "decision_changed_by_rules_or_guard": transitions,
         "sent": sum(bool(r.get("sent")) for r in final_records),
     }
@@ -95,6 +112,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         f"- العروض/المناصب الفريدة بعد إزالة تكرار المحاولات: {summary['unique_post_positions']}",
         f"- قرار النموذج الأصلي: {json.dumps(summary['original_ai_decisions'], ensure_ascii=False)}",
         f"- قرار البوت النهائي: {json.dumps(summary['final_bot_decisions'], ensure_ascii=False)}",
+        f"- فئات مؤشر تطابق كلمات السيرة (ليس احتمال قبول): {json.dumps(summary['cv_match_score_bands'], ensure_ascii=False)}",
+        f"- عدد المناصب ذات مؤشر تطابق محفوظ: {summary['cv_match_scores_available']}",
         f"- مرات اختلاف قرار النموذج عن القرار النهائي بعد القواعد/الحواجز: {transitions}",
         f"- طلبات إرسال مسجلة ضمن آخر قرار لكل منصب: {summary['sent']}",
         "",
@@ -102,8 +121,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "",
         "## آخر قرار مسجّل لكل إعلان/منصب",
         "",
-        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | النموذج | قرار AI | قرار البوت | الدرجة | السبب المسجّل |",
-        "|---|---|---|---|---|---|---|---:|---|",
+        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | النموذج | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | السبب المسجّل |",
+        "|---|---|---|---|---|---|---|---:|---:|---|---|",
     ]
     for record in final_records:
         observed = _parse_time(record.get("observed_at_utc"))
@@ -126,11 +145,13 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
                 _cell(record.get("original_ai_decision"), 16),
                 _cell(record.get("final_decision"), 16),
                 score_text,
+                str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
+                _cell(", ".join(record.get("cv_matched_skill_groups") or []), 120),
                 _cell(record.get("reason"), 280),
             ]) + " |"
         )
 
-    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | الدرجة | المزوّد |", "|---|---|---|---|---|---:|---|"])
+    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد |", "|---|---|---|---|---|---:|---|"])
     for when, record in selected:
         source_url = str(record.get("source_url") or "")
         if source_url and re.fullmatch(r"https://t\.me/[A-Za-z0-9_]{1,80}/\d+", source_url):
@@ -145,6 +166,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             _cell(record.get("original_ai_decision"), 16),
             _cell(record.get("final_decision"), 16),
             score_text,
+            str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
             _cell(str(record.get("provider") or "") + "/" + str(record.get("model") or ""), 100),
         ]) + " |")
 
