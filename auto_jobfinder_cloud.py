@@ -404,7 +404,7 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     if experience_reason:
         explicit_years = bool(re.search(
             r"(minimum|min\.?|at least|at least|minimum of|au moins|minimum de)\s*"
-            r"\d+\\s*(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
+            r"\d+\s*(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
             ad,
         ))
         explicit_experience = bool(re.search(
@@ -442,7 +442,7 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     # Other explicit gates (age, sex, residency, driving licence, etc.) are
     # accepted only when both the reason and advertisement mention the same kind.
     other_reason_markers = {
-        "age": (r"(age|aged|years old|âge|ans?\b|عمر|سن)", r"(age|aged|years old|âge|ans?\\b|عمر|سن)"),
+        "age": (r"(age|aged|years old|âge|ans?\b|عمر|سن)", r"(age|aged|years old|âge|ans?\b|عمر|سن)"),
         "gender": (r"(female|male|woman|man|femme|homme|fille|garçon|أنثى|ذكر)", r"(female|male|woman|man|femme|homme|فقط للنساء|للرجال|أنثى|ذكر)"),
         "driving": (r"(driver|driving|driving licence|driver.s license|chauffeur|permis|سائق|رخصة سياقة)", r"(driver|driving|permis|chauffeur|سائق|رخصة سياقة)"),
         "residency": (r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)", r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)"),
