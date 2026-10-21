@@ -1,5 +1,7 @@
 import io
 import os
+import subprocess
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -22,6 +24,26 @@ class OpenRouterSmokeTestTests(unittest.TestCase):
         request.assert_not_called()
         self.assertIn("SKIPPED", output.getvalue())
         self.assertIn("OPENROUTER_API_KEY is not configured", output.getvalue())
+
+    def test_script_runs_from_tools_without_app_secrets_when_key_missing(self):
+        # Reproduce the GitHub Actions invocation in a clean environment. The
+        # probe must add the repo root to sys.path and use harmless import-only
+        # placeholders rather than requiring the real monitor's app secrets.
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, str(root / "tools" / "openrouter_smoke_test.py")],
+            cwd=root,
+            env={"OPENROUTER_API_KEY": ""},
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("AI OPENROUTER SMOKE TEST SKIPPED", result.stdout)
+        self.assertNotIn("ModuleNotFoundError", result.stderr)
 
     def test_configured_key_performs_one_small_free_json_request(self):
         output = io.StringIO()
