@@ -14,9 +14,12 @@ from typing import Any
 
 from cryptography.fernet import Fernet
 
+ROOT = Path(__file__).resolve().parents[1]
+# Running a script by path sets sys.path[0] to tools/, so add the repo root
+# before importing the sibling module used by this private audit exporter.
+sys.path.insert(0, str(ROOT))
 from decision_audit import read_encrypted_decision_audit
 
-ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = ROOT / "cloud_private" / "decision_audit.enc"
 
 
