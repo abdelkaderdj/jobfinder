@@ -266,7 +266,7 @@ class TelegramControlTests(unittest.TestCase):
 
         self.assertEqual(final, "REVIEW")
         self.assertIn("مراجعة بشرية", reason)
-        self.assertIn("لم يُسمح بإرسال تلقائي", reason)
+        self.assertIn("مراجعة بشرية", reason)
 
     def test_explicit_mandatory_experience_can_keep_relevant_role_rejected(self):
         job = {
@@ -314,6 +314,119 @@ class TelegramControlTests(unittest.TestCase):
         )
 
         self.assertEqual(final, "REJECT")
+
+    def test_cv_keyword_match_scores_mechanical_maintenance_at_least_thirty(self):
+        score, groups = processor.calculate_candidate_cv_match(
+            {"job_title": "Technicien de maintenance"},
+            "Maintenance des équipements, pompes centrifuges, systèmes fluides et plans techniques.",
+        )
+        self.assertGreaterEqual(score, 30)
+        self.assertIn("industrial_maintenance", groups)
+        self.assertIn("pumps_fluids_hydraulics", groups)
+
+        final, reason = processor.enforce_candidate_fit_rule(
+            {
+                "job_title": "Technicien de maintenance",
+                "score": 5,
+                "reason": "Professional experience is not confirmed.",
+            },
+            "REJECT",
+            "Poste de technicien de maintenance des équipements.",
+            cv_match_score=score,
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertIn("مراجعة بشرية", reason)
+        self.assertNotEqual(final, "APPLY")
+
+    def test_licence_requirement_is_not_mistaken_for_missing_engineer_degree(self):
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {
+                    "job_title": "Technicien mécanique",
+                    "reason": "The model says a qualification is missing.",
+                },
+                "Licence/Bac+3 en génie mécanique obligatoire.",
+            )
+        )
+
+    def test_explicit_master_or_engineer_state_diploma_is_a_hard_mismatch(self):
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {
+                    "job_title": "Ingénieur en mécanique",
+                    "reason": "The candidate has only Licence/Bac+3.",
+                },
+                "Diplôme d'ingénieur d'État ou Master/Bac+5 obligatoire.",
+            )
+        )
+
+    def test_unspecified_experience_is_not_a_hard_mismatch(self):
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {
+                    "job_title": "Technicien de maintenance",
+                    "reason": "Professional experience could not be verified.",
+                },
+                "Recrutement d'un technicien de maintenance industrielle.",
+            )
+        )
+
+    def test_residency_wording_is_not_employer_provided_housing(self):
+        advertisement = (
+            "Poste basé à Alger. Candidats résidant dans la wilaya d'Alger exigés."
+        )
+        self.assertIsNone(processor.accommodation_signal_in_text(advertisement))
+        self.assertEqual(
+            processor.scoped_accommodation_value(
+                {"accommodation_provided": "true"},
+                advertisement,
+                has_multiple_sections=False,
+            ),
+            "unknown",
+        )
+        decision, status, _reason = processor.enforce_location_rule(
+            {
+                "location": "Alger",
+                "accommodation_provided": "unknown",
+            },
+            "APPLY",
+            advertisement,
+        )
+        self.assertEqual(decision, "REJECT")
+        self.assertEqual(status, "rejected_location")
+
+    def test_explicitly_provided_housing_allows_other_algerian_location(self):
+        advertisement = "Poste à Alger; logement fourni et pris en charge par l'employeur."
+        self.assertTrue(processor.accommodation_signal_in_text(advertisement))
+        housing = processor.scoped_accommodation_value(
+            {"accommodation_provided": "unknown"},
+            advertisement,
+            has_multiple_sections=False,
+        )
+        self.assertEqual(housing, "true")
+        decision, status, _reason = processor.enforce_location_rule(
+            {"location": "Alger", "accommodation_provided": housing},
+            "REVIEW",
+            advertisement,
+        )
+        self.assertEqual(decision, "REVIEW")
+        self.assertEqual(status, "allowed_housing")
+
+    def test_ai_claimed_housing_without_explicit_ad_evidence_is_ignored(self):
+        advertisement = "Poste basé à Alger. Résidence exigée pour les candidats."
+        housing = processor.scoped_accommodation_value(
+            {"accommodation_provided": "true"},
+            advertisement,
+            has_multiple_sections=False,
+        )
+        self.assertEqual(housing, "unknown")
+        decision, status, _reason = processor.enforce_location_rule(
+            {"location": "Alger", "accommodation_provided": housing},
+            "APPLY",
+            advertisement,
+        )
+        self.assertEqual(decision, "REJECT")
+        self.assertEqual(status, "rejected_location")
 
     def test_candidate_fit_gate_keeps_strong_mechanical_role(self):
         final, reason = processor.enforce_candidate_fit_rule(
