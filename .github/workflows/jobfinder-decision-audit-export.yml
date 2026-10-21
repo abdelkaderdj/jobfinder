@@ -13,6 +13,9 @@ on:
           - "2"
           - "7"
           - "14"
+  push:
+    branches:
+      - audit/decision-ledger-export-oct20-21
 
 permissions:
   contents: read
@@ -28,10 +31,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check out current master
+      - name: Check out the ledger audit revision
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.ref }}
+
+      - name: Refresh only the encrypted decision-audit sidecar from latest master
+        shell: bash
+        run: |
+          git fetch origin master
+          if git cat-file -e origin/master:cloud_private/decision_audit.enc 2>/dev/null; then
+            git show origin/master:cloud_private/decision_audit.enc > cloud_private/decision_audit.enc
+          else
+            echo "No decision-audit sidecar exists on latest master."
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,5 +62,16 @@ jobs:
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
-          JOBFINDER_AUDIT_DAYS: ${{ inputs.days }}
+          JOBFINDER_AUDIT_DAYS: "2"
         run: python tools/export_decision_audit.py
+
+      - name: Upload temporary ledger report for comparison
+        if: success() && github.ref_name == 'audit/decision-ledger-export-oct20-21'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobfinder-decision-ledger-oct20-21
+          path: |
+            jobfinder_decision_audit_report.md
+            jobfinder_decision_audit_report.json
+          if-no-files-found: error
+          retention-days: 1
