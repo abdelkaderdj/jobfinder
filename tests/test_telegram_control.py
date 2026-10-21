@@ -265,7 +265,7 @@ class TelegramControlTests(unittest.TestCase):
         )
 
         self.assertEqual(final, "REVIEW")
-        self.assertIn("mراجعة بشرية".replace("م", "م"), reason)
+        self.assertIn("مراجعة بشرية", reason)
         self.assertIn("منع الإرسال التلقائي", reason)
 
     def test_explicit_mandatory_experience_can_keep_relevant_role_rejected(self):
