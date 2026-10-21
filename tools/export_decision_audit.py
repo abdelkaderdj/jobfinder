@@ -200,32 +200,33 @@ def main() -> int:
         key = required_env("JOBFINDER_FERNET_KEY").encode("ascii")
         fernet = Fernet(key)
         rows = read_encrypted_decision_audit(AUDIT_PATH, fernet)
-        # Exact Algeria-local date window: 20 Oct 00:00 onward, through this run's cutoff.
+
+        # Exact Algeria-local window: 20 Oct 00:00 through this read-only export cutoff.
         window_start = datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc)
         audit_cutoff = datetime.now(timezone.utc)
-        rows = [
-            row for row in rows
-            if (when := _parse_time(row.get("observed_at_utc"))) is not None
-            and window_start <= when <= audit_cutoff
-        ]
-        report, summary = make_report(rows, 2, now=audit_cutoff)
+        filtered_rows = []
+        for row in rows:
+            when = _parse_time(row.get("observed_at_utc"))
+            if when is not None and window_start <= when <= audit_cutoff:
+                filtered_rows.append(row)
+
+        markdown, summary = make_report(filtered_rows, 2, now=audit_cutoff)
+        audit_as_of_local = audit_cutoff.astimezone(timezone(timedelta(hours=1)))
         summary["window_start_utc"] = window_start.isoformat(timespec="seconds").replace("+00:00", "Z")
         summary["audit_as_of_utc"] = audit_cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
-        summary["audit_as_of_algeria"] = audit_cutoff.astimezone(timezone(timedelta(hours=1))).isoformat(timespec="seconds")
-        markdown, summary = make_report(rows, 2, now=audit_cutoff)
-        markdown = markdown.replace(
-            "# JobFinder — سجل قرارات الوظائف",
+        summary["audit_as_of_algeria"] = audit_as_of_local.isoformat(timespec="seconds")
+        summary["partial_snapshot"] = audit_cutoff < datetime(2026, 10, 21, 23, 0, tzinfo=timezone.utc)
+
+        header = (
             "# JobFinder — دفتر قرارات 20–21 أكتوبر 2026 (حتى وقت التدقيق)\\n\\n"
-            f"- بداية النافذة: {summary['window_start_utc']}\\n"
-            f"- وقت التدقيق الجزائر: {audit_cutoff.astimezone(timezone(timedelta(hours=1))).isoformat(timespec='seconds')}\\n"
+            f"- بداية النافذة UTC: {summary['window_start_utc']}\\n"
+            f"- وقت التدقيق الجزائر: {summary['audit_as_of_algeria']}\\n"
+            f"- الفترة: {'جزئية' if summary['partial_snapshot'] else 'مكتملة'}\\n\\n"
         )
+        markdown = markdown.replace("# JobFinder — سجل قرارات الوظائف\\n\\n", header, 1)
         (ROOT / "jobfinder_decision_audit_report.md").write_text(markdown, encoding="utf-8")
         (ROOT / "jobfinder_decision_audit_report.json").write_text(
-            json.dumps({"summary": summary, "records": [
-                row for row in rows
-                if (_parse_time(row.get("observed_at_utc")) is not None
-                    and window_start <= _parse_time(row.get("observed_at_utc")) <= audit_cutoff)
-            ]}, ensure_ascii=False, indent=2) + "\\n",
+            json.dumps({"summary": summary, "records": filtered_rows}, ensure_ascii=False, indent=2) + "\\n",
             encoding="utf-8",
         )
         send_private_report(markdown, summary)
@@ -234,7 +235,7 @@ def main() -> int:
         return 1
 
     print(json.dumps(summary, ensure_ascii=False))
-    print("DECISION AUDIT REPORT SENT PRIVATELY; no plaintext report was uploaded as a public artifact.")
+    print("DECISION AUDIT REPORT SENT PRIVATELY; encrypted state/profile/CVs were not read.")
     return 0
 
 
