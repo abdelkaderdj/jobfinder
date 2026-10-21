@@ -4,6 +4,22 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+
+# Executing a file under tools/ sets sys.path[0] to tools/, not the repo root.
+# Add the root so this standalone workflow script can import the provider module.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# auto_jobfinder_cloud validates these app-only settings during import. The probe
+# never uses them and never reads candidate files, state, or sends applications.
+os.environ.setdefault("GROQ_API_KEY", "smoke-test-unused")
+os.environ.setdefault("GMAIL_APP_PASSWORD", "smoke-test-unused")
+os.environ.setdefault("GMAIL_ADDRESS", "smoke-test@example.invalid")
+os.environ.setdefault(
+    "JOBFINDER_CANDIDATE_PROFILE",
+    "Provider smoke test only; no real candidate data.",
+)
+os.environ.setdefault("JOBFINDER_CANDIDATE_NAME", "Provider Smoke Test")
 
 import auto_jobfinder_cloud as processor
 
