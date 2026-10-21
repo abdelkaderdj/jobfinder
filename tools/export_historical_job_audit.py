@@ -528,6 +528,8 @@ def render_markdown(summary: dict[str, Any], posts: list[dict[str, Any]], log_fa
         "",
         f"- التوقيت: الجزائر (UTC+01:00).",
         f"- النافذة: {summary['window_start_local']} إلى {summary['window_end_local_exclusive']} (النهاية غير مشمولة).",
+        f"- توقيت جمع الأدلة: {summary.get('audit_as_of_local', 'غير مسجل')}.",
+        f"- اكتمال الفترة: {'كاملة' if not summary.get('partial_snapshot') else 'جزئية حتى وقت الجمع'}؛ اليوم 21 يظل جزئيًا إلى أن يغلق اليوم بتوقيت الجزائر.",
         f"- المنشورات النصية المجمّعة: **{summary['posts_collected']}**.",
         f"- المنشورات التي ظهر لها أثر في سجل المراقب: **{summary['posts_with_matching_bot_trace']}**.",
         f"- المنشورات ذات قرارات وظائف مسجّلة: **{summary['posts_with_logged_job_decisions']}**.",
@@ -660,7 +662,8 @@ def send_private_report(path: Path, summary: dict[str, Any]) -> None:
 
 def main() -> int:
     now = datetime.now(timezone.utc)
-    if now < WINDOW_END_UTC:
+    allow_partial = os.getenv("JOBFINDER_AUDIT_ALLOW_PARTIAL", "").strip() == "1"
+    if now < WINDOW_END_UTC and not allow_partial:
         print(
             "HISTORICAL AUDIT SKIPPED: the 21 October Algeria-local window has not ended; "
             "rerun after 00:00 Algeria time on 22 October."
@@ -677,7 +680,8 @@ def main() -> int:
     token = required_env("GITHUB_TOKEN")
     posts, channel_counts, channel_errors, channels_at_limit = asyncio.run(collect_telegram_posts())
 
-    runs = list_monitor_runs(repository, token, now)
+    audit_cutoff = min(now, WINDOW_END_UTC)
+    runs = list_monitor_runs(repository, token, audit_cutoff)
     downloaded: list[tuple[int, list[str], str]] = []
     with ThreadPoolExecutor(max_workers=LOG_FETCH_WORKERS) as executor:
         futures = {
@@ -692,6 +696,10 @@ def main() -> int:
         posts, history, channel_counts, channel_errors, channels_at_limit,
         log_failures, len(runs),
     )
+    summary["audit_as_of_utc"] = audit_cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+    summary["audit_as_of_local"] = audit_cutoff.astimezone(ALGERIA).isoformat(timespec="seconds")
+    summary["partial_snapshot"] = audit_cutoff < WINDOW_END_UTC
+    summary["requested_window_complete"] = audit_cutoff >= WINDOW_END_UTC
     report = {
         "summary": summary,
         "posts": enriched_posts,
@@ -704,7 +712,7 @@ def main() -> int:
             "read_or_decrypted_cv_files": False,
             "changed_channel_cursors_or_state": False,
             "sent_job_applications_or_emails": False,
-            "report_destination": "configured private Telegram chat only; no public artifact uploaded",
+            "report_destination": "configured private Telegram chat plus a temporary one-day artifact containing public job posts and decision evidence",
         },
     }
 
@@ -729,7 +737,7 @@ def main() -> int:
         "audit_complete": True,
         "summary": summary,
         "report_sent_to_private_telegram": True,
-        "public_artifact_uploaded": False,
+        "partial_snapshot": bool(summary.get("partial_snapshot")),
         "no_ai_calls_or_job_applications": True,
     }, ensure_ascii=False))
     return 0
