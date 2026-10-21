@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - test/channel-health-once-2026-10-21
     paths:
       - "tools/check_telegram_channels.py"
       - ".github/workflows/jobfinder-channel-health.yml"
