@@ -1137,27 +1137,78 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
             ):
                 require_ai_provider()
 
-    def test_provider_health_notifications_fire_only_on_degraded_and_recovery_transitions(self):
+    def test_short_gemini_overload_and_recovery_do_not_spam_telegram(self):
         bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
-        degraded = {
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "degraded",
+                "provider": "gemini",
+                "model": "gemini-3.6-flash",
+                "reason": "gemini-3.8-flash: HTTP 503: high demand",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T10:00:00Z",
+            },
+            bot,
+        )
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
+        self.assertEqual(bot.state["ai_provider_degraded_since_utc"], "2026-10-19T10:00:00+00:00")
+
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "degraded",
+                "provider": "gemini",
+                "model": "gemini-3.6-flash",
+                "reason": "gemini-3.8-flash: HTTP 503: high demand",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T10:04:00Z",
+            },
+            bot,
+        )
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
+
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "healthy",
+                "provider": "gemini",
+                "model": "gemini-3.8-flash",
+                "reason": "",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T10:06:00Z",
+            },
+            bot,
+        )
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
+        self.assertNotIn("ai_provider_degraded_since_utc", bot.state)
+        self.assertNotIn("ai_provider_degraded_alert_sent", bot.state)
+
+    def test_sustained_degradation_alerts_once_and_recovery_is_reported_once(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        first = {
             "status": "degraded",
-            "provider": "groq",
-            "model": "openai/gpt-oss-120b",
-            "reason": "gemini-primary-test: HTTP 503: high demand",
+            "provider": "gemini",
+            "model": "gemini-3.6-flash",
+            "reason": "gemini-3.8-flash: HTTP 503: high demand",
             "gemini_configured": True,
             "checked_at_utc": "2026-10-19T10:00:00Z",
         }
+        record_ai_provider_status(bot.state, first, bot)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
 
-        record_ai_provider_status(bot.state, degraded, bot)
+        persistent = dict(first, checked_at_utc="2026-10-19T10:16:00Z")
+        record_ai_provider_status(bot.state, persistent, bot)
         self.assertEqual(len(bot.state["telegram_outbox"]), 1)
-        self.assertIn("المزوّد الاحتياطي", bot.state["telegram_outbox"][0]["text"])
+        self.assertIn("استمر تعذّر المسار الأساسي لمدة 15 دقيقة", bot.state["telegram_outbox"][0]["text"])
 
-        repeated_degraded = dict(
-            degraded,
-            model="openai/gpt-oss-20b",
-            checked_at_utc="2026-10-19T10:01:00Z",
+        repeated = dict(
+            persistent,
+            provider="groq",
+            model="openai/gpt-oss-120b",
+            checked_at_utc="2026-10-19T10:21:00Z",
         )
-        record_ai_provider_status(bot.state, repeated_degraded, bot)
+        record_ai_provider_status(bot.state, repeated, bot)
         self.assertEqual(len(bot.state["telegram_outbox"]), 1)
 
         record_ai_provider_status(
@@ -1168,12 +1219,14 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
                 "model": "gemini-3.8-flash",
                 "reason": "",
                 "gemini_configured": True,
-                "checked_at_utc": "2026-10-19T10:02:00Z",
+                "checked_at_utc": "2026-10-19T10:25:00Z",
             },
             bot,
         )
         self.assertEqual(len(bot.state["telegram_outbox"]), 2)
-        self.assertIn("تعافى مسار الذكاء الاصطناعي", bot.state["telegram_outbox"][1]["text"])
+        self.assertIn("استقر مسار الذكاء الاصطناعي", bot.state["telegram_outbox"][1]["text"])
+        self.assertNotIn("ai_provider_degraded_since_utc", bot.state)
+        self.assertNotIn("ai_provider_degraded_alert_sent", bot.state)
 
     def test_gemini_activation_after_groq_only_sends_owner_notification(self):
         bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
