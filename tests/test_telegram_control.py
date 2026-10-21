@@ -266,7 +266,7 @@ class TelegramControlTests(unittest.TestCase):
 
         self.assertEqual(final, "REVIEW")
         self.assertIn("مراجعة بشرية", reason)
-        self.assertIn("منع الإرسال التلقائي", reason)
+        self.assertIn("لم يُسمح بإرسال تلقائي", reason)
 
     def test_explicit_mandatory_experience_can_keep_relevant_role_rejected(self):
         job = {
