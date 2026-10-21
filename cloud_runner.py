@@ -181,12 +181,27 @@ def _serialized_state(state: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+AI_PROVIDER_DEGRADED_ALERT_AFTER_SECONDS = 15 * 60
+
+
+def _parse_provider_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def record_ai_provider_status(
     state: dict[str, Any],
     snapshot: dict[str, Any],
     bot: Any,
 ) -> None:
-    """Persist provider health and notify the owner only on state transitions."""
+    """Persist provider status; alert only when degradation lasts 15+ minutes."""
     if not isinstance(snapshot, dict):
         return
     status = str(snapshot.get("status") or "").strip().lower()
@@ -198,11 +213,13 @@ def record_ai_provider_status(
     checked_at = str(snapshot.get("checked_at_utc") or time.strftime(
         "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
     ))[:40]
+    checked_at_dt = _parse_provider_timestamp(checked_at) or datetime.now(timezone.utc)
     previous = state.get("ai_provider_status")
     if not isinstance(previous, dict):
         previous = {}
     previous_status = str(previous.get("status") or "").strip().lower()
     previous_provider = str(previous.get("provider") or "").strip().lower()
+    previous_degraded_alert_sent = bool(state.get("ai_provider_degraded_alert_sent"))
 
     current = {
         "status": status,
@@ -214,38 +231,57 @@ def record_ai_provider_status(
     }
     state["ai_provider_status"] = current
 
-    if status == "degraded" and previous_status != "degraded":
-        if provider == "gemini":
-            route_text = f"نموذج Gemini الاحتياطي: {model or 'نموذج بديل'}"
-        else:
-            route_text = f"المزوّد الاحتياطي: {provider.upper()} ({model or 'نموذج بديل'})"
-        message = (
-            "⚠️ تنبيه مسار الذكاء الاصطناعي في JobFinder\n\n"
-            "تعذّر استخدام مسار Gemini الأساسي، لكن البديل أجاب بنجاح.\n"
-            f"{route_text}\n"
-            f"التشخيص: {reason or 'المسار الأساسي غير متاح مؤقتًا'}\n\n"
-            "تستمر المعالجة عبر البديل؛ راجع حالة النظام لمتابعة المسار المستخدم."
-        )
-        bot._enqueue("ai-provider-degraded:" + checked_at, message)
-    elif status == "healthy" and previous_status == "degraded":
-        message = (
-            "✅ تعافى مسار الذكاء الاصطناعي في JobFinder\n\n"
-            f"عاد المسار الأساسي للعمل: {provider.upper()} ({model or 'النموذج الأساسي'})."
-        )
-        bot._enqueue("ai-provider-recovered:" + checked_at, message)
+    if status == "degraded":
+        degraded_since = _parse_provider_timestamp(state.get("ai_provider_degraded_since_utc"))
+        if previous_status != "degraded" or degraded_since is None:
+            degraded_since = checked_at_dt
+            state["ai_provider_degraded_since_utc"] = degraded_since.isoformat(timespec="seconds")
+            state["ai_provider_degraded_alert_sent"] = False
+
+        alert_sent = bool(state.get("ai_provider_degraded_alert_sent"))
+        degraded_seconds = max(0, (checked_at_dt - degraded_since).total_seconds())
+        if not alert_sent and degraded_seconds >= AI_PROVIDER_DEGRADED_ALERT_AFTER_SECONDS:
+            if provider == "gemini":
+                route_text = f"نموذج Gemini الاحتياطي: {model or 'نموذج بديل'}"
+            else:
+                route_text = f"المزوّد الاحتياطي: {provider.upper()} ({model or 'نموذج بديل'})"
+            message = (
+                "⚠️ تنبيه استمرار خلل مسار الذكاء الاصطناعي في JobFinder\\n\\n"
+                "استمر تعذّر المسار الأساسي لمدة 15 دقيقة على الأقل.\\n"
+                f"{route_text}\\n"
+                f"آخر تشخيص: {reason or 'المسار الأساسي غير متاح مؤقتًا'}\\n\\n"
+                "تستمر المعالجة عبر المسار الاحتياطي. لن يتكرر هذا التنبيه خلال فترة الخلل نفسها؛ "
+                "يمكنك مراجعة /start لمعرفة المسار النشط."
+            )
+            since_key = degraded_since.isoformat(timespec="seconds")
+            bot._enqueue("ai-provider-degraded:" + since_key, message)
+            state["ai_provider_degraded_alert_sent"] = True
+        return
+
+    # End the degraded episode. A recovery message is useful only if a warning
+    # was actually sent for a sustained incident; short 503 spikes stay silent.
+    state.pop("ai_provider_degraded_since_utc", None)
+    state.pop("ai_provider_degraded_alert_sent", None)
+
+    if status == "healthy" and previous_status == "degraded":
+        if previous_degraded_alert_sent:
+            message = (
+                "✅ استقر مسار الذكاء الاصطناعي في JobFinder\\n\\n"
+                f"عاد المسار إلى حالة مستقرة: {provider.upper()} ({model or 'النموذج النشط'})."
+            )
+            bot._enqueue("ai-provider-recovered:" + checked_at, message)
     elif status == "healthy" and previous_status == "groq_only" and provider == "gemini":
         message = (
-            "✅ تم تفعيل Gemini بنجاح في JobFinder\n\n"
+            "✅ تم تفعيل Gemini بنجاح في JobFinder\\n\\n"
             f"استجاب المسار الأساسي: {model or 'Gemini'}؛ لم يعد البوت مضطرًا للاعتماد على Groq وحده."
         )
         bot._enqueue("ai-provider-gemini-activated:" + checked_at, message)
     elif status == "groq_only" and previous_provider == "gemini":
         message = (
-            "⚠️ أصبح JobFinder يعمل عبر Groq فقط\n\n"
+            "⚠️ أصبح JobFinder يعمل عبر Groq فقط\\n\\n"
             "لم يعد مفتاح Gemini متاحًا في إعداد التشغيل؛ تحقق من GitHub Secrets."
         )
         bot._enqueue("ai-provider-groq-only:" + checked_at, message)
-
 
 def persist_checkpoint(
     state: dict[str, Any],
