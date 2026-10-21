@@ -69,6 +69,22 @@ def make_decision_audit_record(
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         score = None
 
+    cv_match_score = record.get("cv_match_score")
+    if (
+        not isinstance(cv_match_score, (int, float))
+        or isinstance(cv_match_score, bool)
+        or not 0 <= cv_match_score <= 100
+    ):
+        cv_match_score = None
+    matched_groups = record.get("cv_matched_skill_groups")
+    if not isinstance(matched_groups, list):
+        matched_groups = []
+    matched_groups = [
+        _safe_text(item, 60)
+        for item in matched_groups
+        if isinstance(item, str) and item.strip()
+    ][:12]
+
     return {
         "record_id": record_id,
         "run_id": run_id,
@@ -85,6 +101,8 @@ def make_decision_audit_record(
         "original_ai_decision": _safe_text(record.get("original_ai_decision"), 20).upper(),
         "final_decision": _safe_text(record.get("decision"), 20).upper(),
         "score": score,
+        "cv_match_score": cv_match_score,
+        "cv_matched_skill_groups": matched_groups,
         "reason": _safe_text(record.get("reason"), 700),
         "location_status": _safe_text(record.get("location_status"), 80),
         "contact_scope_matched": bool(record.get("contact_scope_matched")),
