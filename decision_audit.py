@@ -96,6 +96,20 @@ def make_decision_audit_record(
     }
 
 
+def read_encrypted_decision_audit(path: Path, fernet: Any) -> list[dict[str, Any]]:
+    """Read only the new encrypted decision-audit sidecar; never reads state/profile/CV files."""
+    if not path.exists():
+        return []
+    try:
+        decrypted = fernet.decrypt(path.read_bytes())
+        payload = json.loads(decrypted.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Could not read encrypted decision-audit history") from exc
+    if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+        raise RuntimeError("Encrypted decision-audit history has an invalid structure")
+    return payload
+
+
 def append_encrypted_decision_audit(
     path: Path,
     record: dict[str, Any],
@@ -109,18 +123,8 @@ def append_encrypted_decision_audit(
 
     current = _utc_now(now)
     cutoff = current - timedelta(days=DECISION_AUDIT_RETENTION_DAYS)
-    rows: list[dict[str, Any]] = []
-
-    if path.exists():
-        try:
-            decrypted = fernet.decrypt(path.read_bytes())
-            payload = json.loads(decrypted.decode("utf-8"))
-        except Exception as exc:
-            # Fail closed: never silently overwrite a corrupt private audit history.
-            raise RuntimeError("Could not read encrypted decision-audit history") from exc
-        if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
-            raise RuntimeError("Encrypted decision-audit history has an invalid structure")
-        rows = payload
+    # Fail closed: never silently overwrite a corrupt private audit history.
+    rows = read_encrypted_decision_audit(path, fernet)
 
     kept: list[dict[str, Any]] = []
     for item in rows:
