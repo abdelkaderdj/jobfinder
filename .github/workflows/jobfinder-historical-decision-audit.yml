@@ -2,6 +2,9 @@ name: JobFinder Historical Decision Audit — Oct 20–21, 2026
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - audit/oct20-21-as-of-2026-10-21
   # Algeria is UTC+01:00. Run at 00:40 on Oct 22 local time so the full
   # Oct 20 and Oct 21 local calendar days have closed and the last monitor
   # executions have had time to finish. The script is one-off date-guarded.
@@ -13,7 +16,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: jobfinder-historical-audit-oct20-21
+  # Use the production lock to avoid overlapping the Telegram session with the monitor.
+  group: jobfinder-cloud-monitor
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -21,10 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Check out current master
+      - name: Check out the audit revision
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,11 +41,21 @@ jobs:
 
       - name: Export dated Telegram posts and match actual monitor decisions
         env:
-          TELEGRAM_API_ID: \${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: \${{ secrets.TELEGRAM_API_HASH }}
-          TELEGRAM_SESSION: \${{ secrets.TELEGRAM_SESSION }}
-          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_BOT_CHAT_ID: \${{ secrets.TELEGRAM_BOT_CHAT_ID }}
-          GITHUB_TOKEN: \${{ github.token }}
-          GITHUB_REPOSITORY: \${{ github.repository }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOBFINDER_AUDIT_ALLOW_PARTIAL: "1"
         run: python tools/export_historical_job_audit.py
+
+      - name: Upload one-day historical audit archive for review
+        if: success() && github.ref_name == 'audit/oct20-21-as-of-2026-10-21'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobfinder-historical-audit-as-of-2026-10-21
+          path: jobfinder_oct20_oct21_historical_audit.zip
+          if-no-files-found: error
+          retention-days: 1
