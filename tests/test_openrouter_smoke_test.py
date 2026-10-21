@@ -51,6 +51,25 @@ class OpenRouterSmokeTestTests(unittest.TestCase):
         self.assertIn("SMOKE TEST PASSED", output.getvalue())
         self.assertIn("openrouter/free", output.getvalue())
 
+    def test_openrouter_secret_is_wired_to_live_monitor_and_safe_smoke_workflow(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        monitor = (root / ".github" / "workflows" / "jobfinder-cloud.yml").read_text(
+            encoding="utf-8"
+        )
+        smoke = (
+            root / ".github" / "workflows" / "jobfinder-ai-provider-smoke-test.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", monitor)
+        self.assertIn(
+            "OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}",
+            monitor,
+        )
+        self.assertIn("run: python tools/openrouter_smoke_test.py", smoke)
+        self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", smoke)
+
     def test_unexpected_json_payload_fails_smoke_test(self):
         with (
             patch.dict(os.environ, {"OPENROUTER_API_KEY": "unit-test-key"}),
