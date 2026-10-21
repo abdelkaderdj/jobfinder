@@ -34,6 +34,8 @@ class DecisionAuditTests(unittest.TestCase):
                 "original_ai_decision": "REJECT",
                 "decision": "REVIEW",
                 "score": 30,
+                "cv_match_score": 55,
+                "cv_matched_skill_groups": ["industrial_maintenance", "pumps_fluids_hydraulics"],
                 "reason": "Mandatory experience could not be verified.",
                 "emails": ["private@example.org"],
                 "cv": "/runner/cvs/private.pdf",
@@ -56,6 +58,11 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(result["original_ai_decision"], "REJECT")
         self.assertEqual(result["final_decision"], "REVIEW")
         self.assertEqual(result["score"], 30)
+        self.assertEqual(result["cv_match_score"], 55)
+        self.assertEqual(
+            result["cv_matched_skill_groups"],
+            ["industrial_maintenance", "pumps_fluids_hydraulics"],
+        )
         self.assertEqual(result["provider"], "gemini")
         for forbidden in ("text", "advertisement", "emails", "cv", "candidate_profile"):
             self.assertNotIn(forbidden, result)
@@ -148,6 +155,8 @@ class DecisionAuditTests(unittest.TestCase):
                 "original_ai_decision": "REJECT",
                 "decision": "REVIEW",
                 "score": 35,
+                "cv_match_score": 55,
+                "cv_matched_skill_groups": ["industrial_maintenance"],
                 "reason": "Relevant technical role; verify experience.",
             },
         }
@@ -166,6 +175,10 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(summary["unique_post_positions"], 1)
         self.assertEqual(summary["final_bot_decisions"], {"APPLY": 1})
         self.assertEqual(summary["sent"], 1)
+        self.assertEqual(summary["cv_match_scores_available"], 1)
+        self.assertEqual(summary["cv_match_score_bands"]["50-69"], 1)
+        self.assertIn("مؤشر CV", report)
+        self.assertIn("55", report)
         self.assertIn("https://t.me/rcrdz1/123", report)
         self.assertIn("قرار البوت النهائي", report)
         self.assertIn("Relevant technical role; verify experience.", report)
