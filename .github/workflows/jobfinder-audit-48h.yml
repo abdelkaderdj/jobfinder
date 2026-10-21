@@ -14,10 +14,6 @@ on:
           - "20"
           - "40"
 
-  push:
-    branches:
-      - test/read-only-3-post-audit-2026-10-21
-
 permissions:
   contents: read
 
