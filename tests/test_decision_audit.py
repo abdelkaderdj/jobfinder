@@ -10,6 +10,7 @@ from decision_audit import (
     append_encrypted_decision_audit,
     make_decision_audit_record,
 )
+from tools.export_decision_audit import make_report
 
 
 class DecisionAuditTests(unittest.TestCase):
@@ -132,6 +133,60 @@ class DecisionAuditTests(unittest.TestCase):
             self.assertEqual(append_encrypted_decision_audit(path, current, fernet, now=now), 1)
             decoded = json.loads(fernet.decrypt(path.read_bytes()).decode("utf-8"))
             self.assertEqual([item["record_id"] for item in decoded], ["current"])
+
+
+    def test_report_uses_latest_attempt_per_position_but_retains_attempt_count(self):
+        now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+        event = {
+            "post": {"source": "rcrdz1", "message_id": 123, "date": "2026-10-21T10:00:00Z"},
+            "record": {
+                "source": "rcrdz1",
+                "message_id": 123,
+                "job_title": "Technicien de maintenance",
+                "application_job_title": "Technicien de maintenance",
+                "company": "Industry Co",
+                "original_ai_decision": "REJECT",
+                "decision": "REVIEW",
+                "score": 35,
+                "reason": "Relevant technical role; verify experience.",
+            },
+        }
+        first = make_decision_audit_record(
+            event, run_id="run1", observed_at=now - timedelta(hours=1)
+        )
+        second = make_decision_audit_record(
+            event, run_id="run2", observed_at=now
+        )
+        second["final_decision"] = "APPLY"
+        second["sent"] = True
+
+        report, summary = make_report([first, second], 2, now=now)
+
+        self.assertEqual(summary["decision_attempts"], 2)
+        self.assertEqual(summary["unique_post_positions"], 1)
+        self.assertEqual(summary["final_bot_decisions"], {"APPLY": 1})
+        self.assertEqual(summary["sent"], 1)
+        self.assertIn("https://t.me/rcrdz1/123", report)
+        self.assertIn("قرار البوت النهائي", report)
+        self.assertIn("Relevant technical role; verify experience.", report)
+
+    def test_report_excludes_records_outside_the_selected_window(self):
+        now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+        record = {
+            "record_id": "too-old",
+            "observed_at_utc": (now - timedelta(days=4)).isoformat(),
+            "source": "rcrdz1",
+            "message_id": "1",
+            "final_decision": "REJECT",
+            "original_ai_decision": "REJECT",
+            "application_job_title": "Old Role",
+        }
+
+        report, summary = make_report([record], 2, now=now)
+
+        self.assertEqual(summary["decision_attempts"], 0)
+        self.assertEqual(summary["unique_post_positions"], 0)
+        self.assertNotIn("Old Role", report)
 
 
 if __name__ == "__main__":
