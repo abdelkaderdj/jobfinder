@@ -164,6 +164,9 @@ def download_run_log_texts(repository: str, token: str, run: dict[str, Any]) -> 
 
 
 def parse_decision_from_line(line: str) -> dict[str, Any] | None:
+    # "ORIGINAL AI DECISION" is metadata for the same job, not a second event.
+    if ORIGINAL_DECISION_RE.search(line):
+        return None
     match = DECISION_RE.search(line)
     if not match:
         return None
