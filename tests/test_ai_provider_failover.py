@@ -777,8 +777,40 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
         self.assertEqual(request.get_header("Authorization"), "Bearer openrouter-test-key")
         self.assertEqual(payload["model"], "openrouter/free")
-        self.assertEqual(payload["max_tokens"], 64)
+        self.assertEqual(payload["max_tokens"], 512)
+        self.assertEqual(payload["reasoning"], {"effort": "low", "exclude": True})
         self.assertEqual(payload["response_format"], {"type": "json_object"})
+
+    def test_openrouter_empty_content_reports_model_and_token_budget_diagnostics(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps({
+            "model": "deepseek/deepseek-r1:free",
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": None},
+            }],
+            "usage": {
+                "completion_tokens": 512,
+                "completion_tokens_details": {"reasoning_tokens": 512},
+            },
+        }).encode("utf-8")
+
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENROUTER_API_KEY": "openrouter-test-key", "OPENROUTER_MODEL": "openrouter/free"},
+            ),
+            patch.object(processor.urllib.request, "urlopen", return_value=response),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"empty content .*model=deepseek/deepseek-r1:free.*finish_reason=length.*reasoning_tokens=512",
+            ):
+                processor._openrouter_json_request(
+                    [{"role": "user", "content": "Return a JSON object."}],
+                    max_completion_tokens=64,
+                )
 
     def test_openrouter_rejects_paid_models_before_making_a_request(self):
         with (
