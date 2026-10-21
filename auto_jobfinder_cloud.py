@@ -356,17 +356,14 @@ GENERIC_TECHNICAL_ROLE_PATTERNS = (
 
 def _is_senior_role_title(normalized_title: str) -> bool:
     """Titles that are plainly above the candidate's junior/entry-level scope."""
-    return any(
-        re.search(pattern, normalized_title)
-        for pattern in (
-            r"\\bsenior\\b", r"\\bmanager\\b", r"\\bmanagement\\b",
-            r"\\bteam leader\\b", r"\\bleader\\b", r"\\bsupervisor\\b",
-            r"\\bsuperviseur\\w*\\b", r"\\bforeman\\b", r"\\bchef d atelier\\b",
-            r"\\bchef d equipe\\b", r"\\bhead of\\b", r"\\bdirector\\b",
-            r"\\bdirecteur\\w*\\b", r"\\bchief\\b", r"\\bresponsable\\b",
-            r"\\bمدير\\b", r"\\bرئيس\\b", r"\\bمشرف\\b",
-        )
+    senior_markers = (
+        "senior", "manager", "management", "team leader", "leader",
+        "supervisor", "superviseur", "foreman", "chef d atelier",
+        "chef atelier", "chef d equipe", "head of", "director",
+        "directeur", "chief", "responsable", "مدير", "رئيس", "مشرف",
     )
+    normalized = normalize_text(normalized_title)
+    return any(marker in normalized for marker in senior_markers)
 
 
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
@@ -406,8 +403,8 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
 
     if experience_reason:
         explicit_years = bool(re.search(
-            r"(minimum|min\\.?|at least|at least|minimum of|au moins|minimum de)\\s*"
-            r"\\d+\\s*(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
+            r"(minimum|min\.?|at least|at least|minimum of|au moins|minimum de)\s*"
+            r"\d+\\s*(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
             ad,
         ))
         explicit_experience = bool(re.search(
@@ -421,7 +418,7 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
 
     if degree_reason:
         explicit_degree = bool(re.search(
-            r"(degree|diploma|diplome|bachelor|master|licence|bac\\+\\d|"
+            r"(degree|diploma|diplome|bachelor|master|licence|bac\+\d|"
             r"ingenieur diplome|diplome d ingenieur|academic qualification|"
             r"university degree|degree in|diploma in|شهادة جامعية|"
             r"شهادة في|مستوى جامعي|ماستر|ليسانس)",
@@ -445,7 +442,7 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     # Other explicit gates (age, sex, residency, driving licence, etc.) are
     # accepted only when both the reason and advertisement mention the same kind.
     other_reason_markers = {
-        "age": (r"(age|aged|years old|âge|ans?\\b|عمر|سن)", r"(age|aged|years old|âge|ans?\\b|عمر|سن)"),
+        "age": (r"(age|aged|years old|âge|ans?\b|عمر|سن)", r"(age|aged|years old|âge|ans?\\b|عمر|سن)"),
         "gender": (r"(female|male|woman|man|femme|homme|fille|garçon|أنثى|ذكر)", r"(female|male|woman|man|femme|homme|فقط للنساء|للرجال|أنثى|ذكر)"),
         "driving": (r"(driver|driving|driving licence|driver.s license|chauffeur|permis|سائق|رخصة سياقة)", r"(driver|driving|permis|chauffeur|سائق|رخصة سياقة)"),
         "residency": (r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)", r"(residen|residency|resident|domicile|habite|مقيم|الإقامة|السكن)"),
