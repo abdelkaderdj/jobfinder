@@ -468,7 +468,9 @@ def summarize(
 
         item = dict(post)
         item["bot_history_status"] = (
-            "decision_logged"
+            "media_only_not_processed_by_text_poller"
+            if post.get("media_only")
+            else "decision_logged"
             if decisions
             else "processing_trace_without_job_decision"
             if attempts
@@ -498,6 +500,10 @@ def summarize(
         "posts_with_logged_job_decisions": posts_with_job_decisions,
         "posts_with_trace_but_no_job_decision": posts_without_job_decisions,
         "posts_without_matching_bot_trace": len(enriched) - posts_with_trace,
+        "posts_with_media": sum(1 for item in enriched if item.get("has_media")),
+        "media_only_posts_not_sent_to_text_analyzer": sum(1 for item in enriched if item.get("media_only")),
+        "media_files_downloaded": sum(1 for item in enriched if (item.get("media") or {}).get("download_status") == "downloaded"),
+        "media_files_not_downloaded_or_unsupported": sum(1 for item in enriched if item.get("media") and (item.get("media") or {}).get("download_status") != "downloaded"),
         "logged_job_decision_counts_latest_attempt_per_post": aggregate_decisions,
         "channel_read_errors": channel_errors,
         "channels_at_scan_limit": channels_at_limit,
@@ -522,6 +528,8 @@ def render_markdown(summary: dict[str, Any], posts: list[dict[str, Any]], log_fa
         f"- المنشورات النصية المجمّعة: **{summary['posts_collected']}**.",
         f"- المنشورات التي ظهر لها أثر في سجل المراقب: **{summary['posts_with_matching_bot_trace']}**.",
         f"- المنشورات ذات قرارات وظائف مسجّلة: **{summary['posts_with_logged_job_decisions']}**.",
+        f"- المنشورات ذات مرفقات: **{summary['posts_with_media']}**؛ منها بلا نص: **{summary['media_only_posts_not_sent_to_text_analyzer']}**.",
+        f"- ملفات الصور/PDF المضمّنة في الأرشيف: **{summary['media_files_downloaded']}**؛ مرفقات أخرى لم تُحمّل أو لم تدعمها حدود التدقيق: **{summary['media_files_not_downloaded_or_unsupported']}**.",
         f"- قرارات المناصب من آخر محاولة مسجّلة لكل منشور: APPLY={summary['logged_job_decision_counts_latest_attempt_per_post']['APPLY']}, REVIEW={summary['logged_job_decision_counts_latest_attempt_per_post']['REVIEW']}, REJECT={summary['logged_job_decision_counts_latest_attempt_per_post']['REJECT']}.",
         f"- سجلات تشغيل تعذّر تنزيلها: **{summary['monitor_log_download_failures']}**.",
         f"- اكتمال تغطية القنوات والسجلات: **{summary['coverage_complete_for_sources_and_logs']}**.",
@@ -564,7 +572,17 @@ def render_markdown(summary: dict[str, Any], posts: list[dict[str, Any]], log_fa
                         f"أُرسل {decision.get('sent') if decision.get('sent') is not None else 'غير مسجل'}؛ "
                         f"مكرر {decision.get('duplicate') if decision.get('duplicate') is not None else 'غير مسجل'}."
                     )
-        lines.extend(["", "**نص المنشور الأصلي:**", "", post["text"], ""])
+        media = post.get("media") or {}
+        if post.get("has_media"):
+            lines.append(
+                "- المرفق: "
+                f"{media.get('kind') or 'غير محدد'} / {media.get('mime_type') or 'نوع غير محدد'}؛ "
+                f"حالة التنزيل: {media.get('download_status') or 'غير مسجلة'}؛ "
+                f"مسار الأرشيف: {media.get('zip_path') or 'لا يوجد'}."
+            )
+        if post.get("media_only"):
+            lines.append("- ملاحظة مهمة: هذا منشور وسائط بلا نص. المراقب الحالي يتجاهل الرسائل الخالية من النص قبل التحليل؛ تُراجع الصورة/PDF إن كان متاحًا.")
+        lines.extend(["", "**نص المنشور الأصلي:**", "", post["text"] or "(لا يوجد نص؛ افحص المرفق داخل ZIP)", ""])
     if log_failures:
         lines.extend(["## سجلات تعذّر الوصول إليها", ""])
         lines.extend(
@@ -582,14 +600,16 @@ def render_markdown(summary: dict[str, Any], posts: list[dict[str, Any]], log_fa
 def create_csv(posts: list[dict[str, Any]], output_path: Path) -> None:
     fields = [
         "published_at_algeria", "source", "message_id", "url", "bot_history_status",
-        "latest_logged_bot_decisions", "bot_history_attempts", "text",
+        "has_media", "media_only", "media", "latest_logged_bot_decisions",
+        "bot_history_attempts", "text",
     ]
     with output_path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         for post in posts:
             writer.writerow({
-                **{key: post.get(key, "") for key in ("published_at_algeria", "source", "message_id", "url", "bot_history_status", "text")},
+                **{key: post.get(key, "") for key in ("published_at_algeria", "source", "message_id", "url", "bot_history_status", "has_media", "media_only", "text")},
+                "media": json.dumps(post.get("media") or {}, ensure_ascii=False),
                 "latest_logged_bot_decisions": json.dumps(post.get("latest_logged_bot_decisions") or [], ensure_ascii=False),
                 "bot_history_attempts": json.dumps(post.get("bot_history_attempts") or [], ensure_ascii=False),
             })
@@ -697,6 +717,9 @@ def main() -> int:
         archive.write(json_path, arcname=json_path.name)
         archive.write(md_path, arcname=md_path.name)
         archive.write(csv_path, arcname=csv_path.name)
+        for media_file in sorted(MEDIA_DIR.rglob("*")):
+            if media_file.is_file():
+                archive.write(media_file, arcname=f"media/{media_file.name}")
 
     send_private_report(zip_path, summary)
     print(json.dumps({
