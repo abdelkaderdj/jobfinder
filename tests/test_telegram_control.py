@@ -338,6 +338,36 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعة بشرية", reason)
         self.assertNotEqual(final, "APPLY")
 
+    def test_energy_engineer_title_matches_relevant_cv_domain(self):
+        score, groups = processor.calculate_candidate_cv_match(
+            {"job_title": "Energy Engineer"},
+            "Energy systems and industrial equipment.",
+        )
+        self.assertGreaterEqual(score, 30)
+        self.assertIn("energy", groups)
+
+    def test_no_experience_required_must_not_be_treated_as_a_hard_mismatch(self):
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {
+                    "job_title": "Junior Maintenance Technician",
+                    "reason": "The candidate has no professional experience.",
+                },
+                "Débutant accepté. Aucune expérience professionnelle exigée.",
+            )
+        )
+
+    def test_unrelated_mandatory_licence_does_not_make_at_ex_a_hard_mismatch(self):
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {
+                    "job_title": "Technicien de maintenance",
+                    "reason": "ATEX is not listed in the CV.",
+                },
+                "Expérience appréciée. Certification ATEX souhaitée; permis de conduire obligatoire.",
+            )
+        )
+
     def test_licence_requirement_is_not_mistaken_for_missing_engineer_degree(self):
         self.assertFalse(
             processor._advertisement_explicitly_requires_missing_qualification(
