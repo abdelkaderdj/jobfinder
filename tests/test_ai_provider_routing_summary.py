@@ -32,6 +32,13 @@ class AIProviderRoutingSummaryTests(unittest.TestCase):
         self.assertIn("OpenRouter free only", summary)
         self.assertIn("fallbacks are not configured", summary)
 
+    def test_missing_openrouter_key_is_called_out_explicitly(self):
+        summary = ai_provider_routing_summary(True, True, False)
+
+        self.assertIn("Gemini primary", summary)
+        self.assertIn("Groq multi-model", summary)
+        self.assertIn("OPENROUTER_API_KEY is empty", summary)
+
     def test_gemini_only_mode_is_reported_explicitly(self):
         summary = ai_provider_routing_summary(True, False, False)
 
