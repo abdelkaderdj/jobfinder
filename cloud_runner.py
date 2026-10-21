@@ -105,6 +105,7 @@ def ai_provider_routing_summary(
             "AI PROVIDER ROUTING (configured): Gemini only; no Groq/OpenRouter "
             "fallback is configured. Live availability is not verified at startup."
             + openrouter_note
+        )
 
     if groq_configured:
         if openrouter_configured:
@@ -117,6 +118,7 @@ def ai_provider_routing_summary(
             "AI PROVIDER ROUTING (configured): Groq only; Gemini/OpenRouter "
             "fallbacks are not configured. Live availability is not verified at startup."
             + openrouter_note
+        )
 
     if openrouter_configured:
         return (
