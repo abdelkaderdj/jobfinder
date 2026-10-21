@@ -14,9 +14,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
+from decision_audit import append_encrypted_decision_audit, make_decision_audit_record
+
 BASE_DIR = Path(__file__).resolve().parent
 PRIVATE_DIR = BASE_DIR / "cloud_private"
 STATE_ENC = PRIVATE_DIR / "state.enc"
+DECISION_AUDIT_ENC = PRIVATE_DIR / "decision_audit.enc"
 ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
@@ -364,6 +367,19 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         persist_checkpoint(state, fernet, "AI provider cooldown saved", checkpoint_cache)
 
     processor.set_job_event_callback(bot.on_job_event)
+
+    def persist_decision_audit(event: dict[str, Any]) -> None:
+        entry = make_decision_audit_record(
+            event,
+            run_id=os.getenv("GITHUB_RUN_ID", "local"),
+            run_attempt=os.getenv("GITHUB_RUN_ATTEMPT", "1"),
+            provider_status=state.get("ai_provider_status"),
+        )
+        append_encrypted_decision_audit(DECISION_AUDIT_ENC, entry, fernet)
+        # Do not print job titles, decisions, reasons or candidate-fit details to public logs.
+        print("Encrypted per-offer decision audit checkpoint saved.")
+
+    processor.set_job_decision_audit_callback(persist_decision_audit)
     processor.set_job_pre_send_guard(bot.pre_send_guard_for_job)
     processor.set_job_ai_rate_limit_callback(persist_ai_provider_cooldown)
     processor.set_job_ai_provider_status_callback(
