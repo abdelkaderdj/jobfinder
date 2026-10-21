@@ -1,0 +1,53 @@
+name: JobFinder Private Decision Audit Export
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Look-back period for recorded decisions"
+        required: true
+        type: choice
+        default: "2"
+        options:
+          - "1"
+          - "2"
+          - "7"
+          - "14"
+
+permissions:
+  contents: read
+
+# Avoid reading the encrypted ledger while the monitor is writing its checkpoint.
+concurrency:
+  group: jobfinder-cloud-monitor
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  export-private-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out current master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cloud dependencies
+        run: python -m pip install -r requirements-cloud.txt
+
+      - name: Compile private report exporter
+        run: python -m py_compile decision_audit.py tools/export_decision_audit.py
+
+      - name: Decrypt only the decision-audit sidecar and send a private report
+        env:
+          JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
+          JOBFINDER_AUDIT_DAYS: ${{ inputs.days }}
+        run: python tools/export_decision_audit.py
