@@ -691,6 +691,11 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
                 "الإعلان يذكر شرطًا إلزاميًا لا تثبته السيرة الذاتية؛ مُنع التقديم التلقائي.",
             )
         if cv_match_score < 30:
+            if not potentially_relevant:
+                return (
+                    "REJECT",
+                    f"مؤشر تطابق كلمات السيرة منخفض جدًا ({cv_match_score}/100) ولا يظهر في المسمى ارتباط تقني مناسب؛ رُفضت الوظيفة.",
+                )
             return (
                 "REVIEW",
                 f"تطابق كلمات السيرة منخفض ({cv_match_score}/100)، لذلك يلزم تحقق بشري قبل أي تقديم.",
