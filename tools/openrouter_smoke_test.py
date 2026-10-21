@@ -48,7 +48,7 @@ def main() -> int:
             },
         ],
         temperature=0,
-        max_completion_tokens=80,
+        max_completion_tokens=512,
     )
     if not isinstance(result, dict) or result.get("ok") is not True:
         raise RuntimeError("OpenRouter did not return the expected JSON probe result.")
