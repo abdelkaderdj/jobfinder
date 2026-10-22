@@ -365,6 +365,8 @@ STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bhydraulic systems\b", r"\bsystemes fluidiques\b",
     r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
     r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
+    r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+    r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
 )
 
 GENERIC_TECHNICAL_ROLE_PATTERNS = (
@@ -381,6 +383,8 @@ CV_MATCH_SKILL_GROUPS = (
         (
             r"\bmaintenance\b", r"\bmainten\w*\b", r"\bpreventive maintenance\b",
             r"\bcorrective maintenance\b", r"\bصيانة\b", r"\bالصيانة\b",
+            r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+            r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
             r"\bdiagnostic\b", r"\bdepannage\b",
         ),
     ),
@@ -498,6 +502,8 @@ def calculate_candidate_cv_match(job, advertisement=""):
         r"\btechnicien hydraulique\b", r"\btechnicien des pompes\b",
         r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
         r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
+        r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+        r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
     )
     title_adjacent = (
         r"\btechnicien\w*\b", r"\btechnician\w*\b",
@@ -821,7 +827,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         )
 
     experience_only_override = (
-        experience_policy == "waive_experience"
+        experience_policy in {"waive_experience", None}
         and potentially_relevant
         and cv_match_score >= 30
         and _reason_is_experience_only(job.get("reason", ""))
@@ -829,10 +835,16 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if experience_only_override:
         if decision in {"REJECT", "REVIEW"}:
             decision = "APPLY"
-        experience_waiver_reason = (
-            f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
-            "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
-        )
+        if experience_policy == "waive_experience":
+            experience_waiver_reason = (
+                f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
+                "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
+            )
+        else:
+            experience_waiver_reason = (
+                "لا يذكر الإعلان شرط خبرة إلزاميًا، لذلك لم يُستخدم نقص الخبرة سببًا للرفض؛ "
+                "بقية حواجز التخصص والمؤهل والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
+            )
     else:
         experience_waiver_reason = ""
 
