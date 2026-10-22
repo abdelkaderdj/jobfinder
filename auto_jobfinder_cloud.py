@@ -1361,6 +1361,29 @@ def resolve_job_position_scope(
                 values.append(value)
         return values
 
+    def line_matches_multiple_roles(normalized_line: str) -> bool:
+        """A shared headline listing several roles is not a position-specific title block."""
+        line_tokens = set(_scope_title_tokens(normalized_line))
+        matched_roles = 0
+        for candidate_job in valid_jobs:
+            role_matched = False
+            for candidate in title_variants(candidate_job):
+                normalized_candidate = normalize_text(candidate)
+                if normalized_candidate and normalized_candidate in normalized_line:
+                    role_matched = True
+                    break
+                tokens = _scope_title_tokens(candidate)
+                if tokens:
+                    coverage = sum(token in line_tokens for token in tokens) / len(tokens)
+                    if coverage >= 0.75:
+                        role_matched = True
+                        break
+            if role_matched:
+                matched_roles += 1
+                if matched_roles > 1:
+                    return True
+        return False
+
     def match_line(item: dict) -> tuple[int | None, float]:
         best_idx, best_score = None, 0.0
         variants = title_variants(item)
@@ -1369,6 +1392,8 @@ def resolve_job_position_scope(
         for idx, line in enumerate(lines):
             normalized_line = normalize_text(line)
             if not normalized_line or "http" in normalized_line:
+                continue
+            if line_matches_multiple_roles(normalized_line):
                 continue
             line_tokens = set(_scope_title_tokens(normalized_line))
             for candidate in variants:
