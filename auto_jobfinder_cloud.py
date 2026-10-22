@@ -818,16 +818,15 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
-    experience_only_override = False
-    if (
+    experience_only_override = (
         experience_policy == "waive_experience"
-        and decision in {"REJECT", "REVIEW"}
         and potentially_relevant
         and cv_match_score >= 30
         and _reason_is_experience_only(job.get("reason", ""))
-    ):
-        decision = "APPLY"
-        experience_only_override = True
+    )
+    if experience_only_override:
+        if decision in {"REJECT", "REVIEW"}:
+            decision = "APPLY"
         experience_waiver_reason = (
             f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
             "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
