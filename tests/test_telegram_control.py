@@ -440,6 +440,26 @@ Kaader5881@gmail.com
                 self.assertEqual(final, "REJECT")
                 self.assertIn("Licence/Bac+3", reason)
 
+    def test_engineer_maintenance_title_is_reviewed_when_licence_is_explicitly_accepted_and_bac5_is_not_required(self):
+        job = {
+            "job_title": "Ingénieur Maintenance Mécanique",
+            "score": 15,
+            "reason": "The candidate may fit the role, but the job title needs manual review.",
+        }
+        advertisement = (
+            "Offre d'emploi: Ingénieur Maintenance Mécanique. "
+            "Diplôme: Licence / Bac+3 accepté. Bac+5 non requis. "
+            "Missions: maintenance préventive des pompes et compresseurs."
+        )
+        self.assertTrue(processor._advertisement_explicitly_accepts_licence_bac3(advertisement))
+        self.assertFalse(processor._advertisement_explicitly_requires_missing_qualification(job, advertisement))
+        cv_score, _groups = processor.calculate_candidate_cv_match(job, advertisement)
+        self.assertGreaterEqual(cv_score, 30)
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement, cv_match_score=cv_score
+        )
+        self.assertEqual(final, "REVIEW")
+
     def test_electrical_and_electromechanical_trades_are_excluded(self):
         titles = [
             "Électricien Industriel",
@@ -767,6 +787,36 @@ Expérience pratique de 2 à 5 ans en logistique.
                 self.assertEqual(years, expected_years)
                 self.assertEqual(policy, expected_policy)
 
+    def test_experience_upper_bounds_are_not_misread_as_minimums(self):
+        cases = [
+            "Technicien de maintenance. Expérience exigée: 4 ans maximum.",
+            "Maintenance technician. Up to 3 years of professional experience.",
+            "Mechanical maintenance. Experience: no more than 4 years.",
+            "الصيانة الميكانيكية. الخبرة: 4 سنوات كحد أقصى.",
+            "Maintenance mécanique. Expérience: 3 ans au maximum.",
+        ]
+        for advertisement in cases:
+            with self.subTest(advertisement=advertisement):
+                years, policy = processor._experience_requirement_policy(advertisement)
+                self.assertIsNone(years)
+                self.assertIsNone(policy)
+
+        job = {
+            "job_title": "Technicien Maintenance Mécanique",
+            "score": 15,
+            "reason": "The candidate lacks professional experience.",
+        }
+        advertisement = (
+            "Offre de recrutement: Technicien Maintenance Mécanique. "
+            "Expérience exigée: 4 ans maximum. "
+            "Maintenance préventive des pompes et moteurs."
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement, cv_match_score=60
+        )
+        self.assertEqual(final, "APPLY")
+        self.assertIn("n’a pas", reason.lower() if "n’a pas" in reason.lower() else " ".join(reason.lower().split()) if False else "بقية حواجز" if "بقية حواجز" in reason else "does-not-apply")
+    
     def test_four_year_requirement_not_sent_automatically(self):
         job = {
             "job_title": "Technicien de maintenance",
@@ -983,6 +1033,48 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(final, "REVIEW")
         self.assertTrue(reason)
 
+    def test_review_shows_unscoped_ad_emails_without_claiming_no_email_exists(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        event["record"]["emails"] = []
+        event["record"]["contact_scope_matched"] = False
+        event["advertisement"] = (
+            "Technicien de Maintenance Mécanique. "
+            "Contacts: hiring-a@example.org and hiring-b@example.org. "
+            "Verify which address is linked to the role."
+        )
+        item = {
+            "record": event["record"],
+            "advertisement": event["advertisement"],
+            "post": event["post"],
+            "can_auto_send": False,
+        }
+        rendered = bot._review_text(item)
+        self.assertIn("hiring-a@example.org", rendered)
+        self.assertIn("hiring-b@example.org", rendered)
+        self.assertIn("تعذّر ربط", rendered)
+        self.assertNotIn("لم يُعثر على بريد واضح مرتبط بهذه الوظيفة", rendered)
+
+    def test_review_shows_explicit_application_form_url_when_no_email_is_available(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        event["record"]["emails"] = []
+        event["record"]["contact_scope_matched"] = True
+        ad = (
+            "Technicien Maintenance. Les candidatures doivent être déposées "
+            "uniquement via le formulaire de recrutement: "
+            "https://www.example.com/postuler"
+        )
+        item = {
+            "record": event["record"],
+            "advertisement": ad,
+            "post": event["post"],
+            "can_auto_send": False,
+        }
+        rendered = bot._review_text(item)
+        self.assertIn("https://www.example.com/postuler", rendered)
+        self.assertIn("رابط التقديم الظاهر في الإعلان", rendered)
+
     def test_review_is_queued_and_shows_controls(self):
         bot, sent = self.build_bot()
         bot.on_job_event(sample_event())
@@ -1170,6 +1262,35 @@ Expérience pratique de 2 à 5 ans en logistique.
         bot.on_job_event(repost)
         self.assertEqual(len(bot.state["pending_reviews"]), 0)
         self.assertEqual(len(sent), before)
+
+    def test_rejection_of_same_title_does_not_block_different_employer_using_shared_inbox(self):
+        bot, _sent = self.build_bot()
+        first = sample_event("REVIEW")
+        bot.on_job_event(first)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        bot._handle_callback({
+            "id": "reject-company-a",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:reject:{pending_id}",
+        })
+
+        repost = sample_event("REVIEW")
+        repost["post"]["message_id"] = 99
+        repost["record"]["message_id"] = 99
+        repost["record"]["company"] = "Different Company"
+        repost["job"]["company"] = "Different Company"
+        self.assertEqual(
+            bot.pre_send_guard_for_job(
+                repost["job"],
+                repost["record"]["application_job_title"],
+                repost["record"]["emails"],
+                repost["post"],
+            ),
+            "",
+        )
+        bot.on_job_event(repost)
+        self.assertEqual(len(bot.state["pending_reviews"]), 1)
 
     def test_unauthorized_user_cannot_approve(self):
         processor = FakeProcessor()
@@ -1775,6 +1896,29 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertTrue(
             processor.same_job_identity(
                 current_job, "Mécaniciens", email, old_record
+            )
+        )
+
+    def test_same_email_and_title_do_not_deduplicate_different_known_companies(self):
+        email = "recruitment@example.com"
+        old_record = {
+            "application_job_title": "Technicien Maintenance Mécanique",
+            "email": email,
+            "company": "Company A",
+            "location": "Oran",
+            "identity_key": processor.job_identity_key(
+                {"company": "Company A", "location": "Oran"},
+                "Technicien Maintenance Mécanique",
+                email,
+            ),
+        }
+        current_job = {"company": "Company B", "location": "Oran"}
+        self.assertFalse(
+            processor.same_job_identity(
+                current_job,
+                "Technicien Maintenance Mécanique",
+                email,
+                old_record,
             )
         )
 
