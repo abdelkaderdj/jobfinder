@@ -564,7 +564,7 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     # "6 أشهر على الأقل", and "2 à 5 ans".
     explicit_time_requirement = re.search(
         rf"(?:minimum|min\.?|at least|no less than|au moins|minimum de)\s*\d+\s*{time_unit}"
-        rf"|\d+\s*{time_unit}\s*(?:minimum|min\.?|at least|au moins|sur au moins|على الأقل|كحد أدنى)"
+        rf"|\d+\s*{time_unit}\s*(?:minimum|min\.?|at least|au moins|sur au moins|على الاقل|كحد أدنى)"
         rf"|\d+\s*(?:to|à|a|[-–])\s*\d+\s*{time_unit}"
         rf"|(?:experience|experience professionnelle|خبرة).{0,25}\d+\s*{time_unit}\s*(?:minimum|min\.?|au moins|على الأقل)",
         ad,
@@ -668,18 +668,18 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if not normalized_title:
         return "REJECT", "رُفضت الوظيفة لأن المسمى الوظيفي غير واضح."
 
+    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
+        return (
+            "REJECT",
+            "رُفضت الوظيفة لأن المسمى Ingénieur/Engineer يتطلب مسار مهندس، بينما مؤهل المرشح Licence/Bac+3 وليس شهادة مهندس. لا تتغلب الكلمات الميكانيكية داخل المسمى على هذا الشرط.",
+        )
+
     for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
         if re.search(pattern, normalized_title):
             return (
                 "REJECT",
                 "رُفضت الوظيفة لأن تخصصها خارج المسارات المتفق عليها: الميكانيك والصيانة الميكانيكية والمضخات/الموائع والتصميم الميكانيكي.",
             )
-
-    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
-        return (
-            "REJECT",
-            "رُفضت الوظيفة لأن المسمى Ingénieur/Engineer يتطلب مسار مهندس، بينما مؤهل المرشح Licence/Bac+3 وليس شهادة مهندس. لا تتغلب الكلمات الميكانيكية داخل المسمى على هذا الشرط.",
-        )
 
     if cv_match_score is None:
         cv_match_score, _matched_groups = calculate_candidate_cv_match(job, advertisement)
@@ -715,7 +715,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         if potentially_relevant:
             return (
                 "REVIEW",
-                f"الدور قريب من مسار المرشح (مؤشر CV {cv_match_score}/100) لكن الإعلان ضمن هذا القسم لا يثبت شرطًا إلزاميًا مفقودًا؛ لذلك يلزم تحقق يدوي بدل رفض آلي. لا إرسال تلقائي.",
+                f"الدور قريب من مسار المرشح (مؤشر CV {cv_match_score}/100) لكن الإعلان ضمن هذا القسم لا يثبت شرطًا إلزاميًا مفقودًا؛ لذلك حُوّل إلى مراجعة بشرية بدل الرفض الآلي. لا إرسال تلقائي.",
             )
         return "REJECT", "رُفضت الوظيفة لأن المسمى ومهارات المنصب المحددة لا يثبتان ارتباطًا كافيًا بسيرة المرشح."
 
