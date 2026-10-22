@@ -338,14 +338,241 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعة بشرية", reason)
         self.assertNotEqual(final, "APPLY")
 
-    def test_energy_engineer_title_matches_relevant_cv_domain(self):
-        score, groups = processor.calculate_candidate_cv_match(
-            {"job_title": "Energy Engineer"},
-            "Energy systems and industrial equipment.",
-        )
-        self.assertGreaterEqual(score, 30)
-        self.assertIn("energy", groups)
+    def test_engineer_title_is_rejected_even_when_mechanical_keywords_overlap(self):
+        titles = [
+            "Ingénieur Électromécanique",
+            "Ingénieur Génie Mécanique",
+            "Ingénieur Génie Civil",
+            "Ingénieur Électricité",
+            "Ingénieur Irrigation et Hydraulique",
+            "Ingénieur HSE",
+            "Aircraft Maintenance Engineer",
+        ]
+        for title in titles:
+            with self.subTest(title=title):
+                score, groups = processor.calculate_candidate_cv_match(
+                    {"job_title": title},
+                    "Maintenance, pumps, fluids, hydraulics, industrial equipment, energy.",
+                )
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+                final, reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 80},
+                    "REVIEW",
+                    "Diplôme Licence/Bac+3 en génie mécanique.",
+                )
+                self.assertEqual(final, "REJECT")
+                self.assertIn("Licence/Bac+3", reason)
 
+    def test_electrical_and_electromechanical_trades_are_excluded(self):
+        titles = [
+            "Électricien Industriel",
+            "Electrical Technician",
+            "Électromécanicien",
+            "Ingénieur Électromécanique",
+        ]
+        for title in titles:
+            with self.subTest(title=title):
+                final, _reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 90},
+                    "APPLY",
+                    "Maintenance, industrial equipment and pumps.",
+                )
+                self.assertEqual(final, "REJECT")
+
+    def test_stock_and_laboratory_positions_are_excluded_despite_shared_post_keywords(self):
+        for title in ("Gestionnaire des Stocks", "Technologist – Laboratory, Assoc"):
+            with self.subTest(title=title):
+                score, groups = processor.calculate_candidate_cv_match(
+                    {"job_title": title},
+                    "Industrial maintenance, pumps, fluids, production and mechanical equipment.",
+                )
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+                final, _reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 95},
+                    "REVIEW",
+                    "Industrial maintenance, pumps, fluids, production and mechanical equipment.",
+                )
+                self.assertEqual(final, "REJECT")
+
+    def test_six_months_at_least_arabic_is_hard_rejection_even_if_ai_says_review(self):
+        title = "Service Operator I – Surface Solutions / Baroid"
+        advertisement = (
+            "Service Operator I – Surface Solutions / Baroid\\n"
+            "المستوى المطلوب: شهادة ثانوية أو ما يعادلها.\\n"
+            "الخبرة: 6 أشهر على الأقل في المجال.\\n"
+            "تشغيل ومتابعة معدات معالجة سوائل الحفر."
+        )
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {"job_title": title}, advertisement
+            )
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            {"job_title": title, "score": 30},
+            "REVIEW",
+            advertisement,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("شرط خبرة", reason)
+
+    def test_french_two_to_five_year_requirement_is_hard_rejection(self):
+        advertisement = (
+            "Technicien Maintenance\\n"
+            "Expérience pratique de 2 à 5 ans dans un environnement industriel."
+        )
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {"job_title": "Technicien Maintenance"}, advertisement
+            )
+        )
+
+    def test_combined_ad_resolves_position_blocks_without_borrowing_other_job_experience(self):
+        advertisement = """SARL BATELEC – recrutement de plusieurs postes
+1️⃣ Opérateur de Ligne
+Missions: conduite de ligne, contrôle qualité, nettoyage et maintenance de premier niveau.
+Niveau: CAP/BEP ou bac professionnel technique.
+Expérience: débutant accepté.
+2️⃣ Gestionnaire des Stocks
+Missions: inventaire et gestion du stock.
+Expérience pratique de 2 à 5 ans en logistique.
+3️⃣ Technicien Maintenance
+"""
+        operator = {
+            "job_title": "Opérateur de Ligne",
+            "application_title_fr": "Opérateur de Ligne",
+        }
+        stocks = {
+            "job_title": "Gestionnaire des Stocks",
+            "application_title_fr": "Gestionnaire des Stocks",
+        }
+        maintenance = {
+            "job_title": "Technicien Maintenance",
+            "application_title_fr": "Technicien Maintenance",
+        }
+        jobs = [operator, stocks, maintenance]
+        op_text, op_ok, _ = processor.resolve_job_position_scope(operator, advertisement, jobs)
+        stock_text, stock_ok, _ = processor.resolve_job_position_scope(stocks, advertisement, jobs)
+        maint_text, maint_ok, _ = processor.resolve_job_position_scope(maintenance, advertisement, jobs)
+
+        self.assertTrue(op_ok)
+        self.assertTrue(stock_ok)
+        self.assertTrue(maint_ok)
+        self.assertIn("debutant accepte", processor.normalize_text(op_text))
+        self.assertNotIn("2 a 5 ans", processor.normalize_text(op_text))
+        self.assertIn("2 a 5 ans", processor.normalize_text(stock_text))
+        self.assertNotIn("2 a 5 ans", processor.normalize_text(maint_text))
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                maintenance, maint_text
+            )
+        )
+
+    def test_electrical_and_electromechanical_trades_are_excluded(self):
+        titles = [
+            "Électricien Industriel",
+            "Electrical Technician",
+            "Électromécanicien",
+            "Ingénieur Électromécanique",
+        ]
+        for title in titles:
+            with self.subTest(title=title):
+                final, _reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 90},
+                    "APPLY",
+                    "Maintenance, industrial equipment and pumps.",
+                )
+                self.assertEqual(final, "REJECT")
+
+    def test_stock_and_laboratory_positions_are_excluded_despite_shared_post_keywords(self):
+        for title in ("Gestionnaire des Stocks", "Technologist – Laboratory, Assoc"):
+            with self.subTest(title=title):
+                score, groups = processor.calculate_candidate_cv_match(
+                    {"job_title": title},
+                    "Industrial maintenance, pumps, fluids, production and mechanical equipment.",
+                )
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+                final, _reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 95},
+                    "REVIEW",
+                    "Industrial maintenance, pumps, fluids, production and mechanical equipment.",
+                )
+                self.assertEqual(final, "REJECT")
+
+    def test_six_months_at_least_arabic_is_hard_rejection_even_if_ai_says_review(self):
+        title = "Service Operator I – Surface Solutions / Baroid"
+        advertisement = (
+            "Service Operator I – Surface Solutions / Baroid\\n"
+            "المستوى المطلوب: شهادة ثانوية أو ما يعادلها.\\n"
+            "الخبرة: 6 أشهر على الأقل في المجال.\\n"
+            "تشغيل ومتابعة معدات معالجة سوائل الحفر."
+        )
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {"job_title": title}, advertisement
+            )
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            {"job_title": title, "score": 30},
+            "REVIEW",
+            advertisement,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("شرط خبرة", reason)
+
+    def test_french_two_to_five_year_requirement_is_hard_rejection(self):
+        advertisement = (
+            "Technicien Maintenance\\n"
+            "Expérience pratique de 2 à 5 ans dans un environnement industriel."
+        )
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                {"job_title": "Technicien Maintenance"}, advertisement
+            )
+        )
+
+    def test_combined_ad_resolves_position_blocks_without_borrowing_other_job_experience(self):
+        advertisement = """SARL BATELEC – recrutement de plusieurs postes
+1️⃣ Opérateur de Ligne
+Missions: conduite de ligne, contrôle qualité, nettoyage et maintenance de premier niveau.
+Niveau: CAP/BEP ou bac professionnel technique.
+Expérience: débutant accepté.
+2️⃣ Gestionnaire des Stocks
+Missions: inventaire et gestion du stock.
+Expérience pratique de 2 à 5 ans en logistique.
+3️⃣ Technicien Maintenance
+"""
+        operator = {
+            "job_title": "Opérateur de Ligne",
+            "application_title_fr": "Opérateur de Ligne",
+        }
+        stocks = {
+            "job_title": "Gestionnaire des Stocks",
+            "application_title_fr": "Gestionnaire des Stocks",
+        }
+        maintenance = {
+            "job_title": "Technicien Maintenance",
+            "application_title_fr": "Technicien Maintenance",
+        }
+        jobs = [operator, stocks, maintenance]
+        op_text, op_ok, _ = processor.resolve_job_position_scope(operator, advertisement, jobs)
+        stock_text, stock_ok, _ = processor.resolve_job_position_scope(stocks, advertisement, jobs)
+        maint_text, maint_ok, _ = processor.resolve_job_position_scope(maintenance, advertisement, jobs)
+
+        self.assertTrue(op_ok)
+        self.assertTrue(stock_ok)
+        self.assertTrue(maint_ok)
+        self.assertIn("debutant accepte", processor.normalize_text(op_text))
+        self.assertNotIn("2 a 5 ans", processor.normalize_text(op_text))
+        self.assertIn("2 a 5 ans", processor.normalize_text(stock_text))
+        self.assertNotIn("2 a 5 ans", processor.normalize_text(maint_text))
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                maintenance, maint_text
+            )
+        )
     def test_no_experience_required_must_not_be_treated_as_a_hard_mismatch(self):
         self.assertFalse(
             processor._advertisement_explicitly_requires_missing_qualification(
