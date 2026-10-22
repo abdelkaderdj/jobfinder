@@ -564,16 +564,16 @@ def _is_explicitly_not_required(text: str) -> bool:
     """Detect negated/optional qualification language after text normalization."""
     normalized = normalize_text(str(text or ""))
     return bool(re.search(
-        r"(?:\\bnot required\\b|\\bnot mandatory\\b|\\bnot necessary\\b|"
-        r"\\bnot needed\\b|\\bnot a requirement\\b|\\bis not required\\b|"
-        r"\\bis not mandatory\\b|\\bpas requis(?:e)?\\b|\\bnon requis(?:e)?\\b|"
-        r"\\bpas exige(?:e)?\\b|\\bnon exige(?:e)?\\b|"
-        r"\\bpas obligatoire\\b|\\bnon obligatoire\\b|"
-        r"\\bpas necessaire\\b|\\bnon necessaire\\b|"
-        r"\\bn est pas requis(?:e)?\\b|\\bn est pas exige(?:e)?\\b|"
-        r"\\bغير مطلوب(?:ة)?\\b|\\bليس مطلوب(?:ا|ة)?\\b|"
-        r"\\bلا يشترط\\b|\\bغير إجباري\\b|\\bليس إلزامي(?:ا|ة)?\\b|"
-        r"\\bلا يلزم\\b)",
+        r"(?:\bnot required\b|\bnot mandatory\b|\bnot necessary\b|"
+        r"\bnot needed\b|\bnot a requirement\b|\bis not required\b|"
+        r"\bis not mandatory\b|\bpas requis(?:e)?\b|\bnon requis(?:e)?\b|"
+        r"\bpas exige(?:e)?\b|\bnon exige(?:e)?\b|"
+        r"\bpas obligatoire\b|\bnon obligatoire\b|"
+        r"\bpas necessaire\b|\bnon necessaire\b|"
+        r"\bn est pas requis(?:e)?\b|\bn est pas exige(?:e)?\b|"
+        r"\bغير مطلوب(?:ة)?\b|\bليس مطلوب(?:ا|ة)?\b|"
+        r"\bلا يشترط\b|\bغير إجباري\b|\bليس إلزامي(?:ا|ة)?\b|"
+        r"\bلا يلزم\b)",
         normalized,
         flags=re.IGNORECASE,
     ))
@@ -583,16 +583,16 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
     """True only when the position-specific ad explicitly accepts/requires Licence/Bac+3."""
     text = normalize_text(str(advertisement or ""))
     degree_pattern = re.compile(
-        r"(?:\\blicence\\b|\\bbachelor(?: degree)?\\b|"
-        r"\\bbac ?\\+? ?3\\b|\\bbac3\\b|"
+        r"(?:\blicence\b|\bbachelor(?: degree)?\b|"
+        r"\bbac ?\+? ?3\b|\bbac3\b|"
         r"شهادة ليسانس|ليسانس|شهادة البكالوريوس|بكالوريوس)",
         flags=re.IGNORECASE,
     )
     acceptance_pattern = re.compile(
-        r"(?:\\baccepted\\b|\\baccept(?:ed|able)\\b|\\baccepte(?:e|es|s)?\\b|"
-        r"\\badmissible\\b|\\beligible\\b|\\brequired\\b|\\brequis(?:e)?\\b|"
-        r"\\bexige(?:e)?\\b|\\bobligatoire\\b|\\badmis(?:e)?\\b|"
-        r"\\bequivalent\\b|\\bminimum\\b|\\bsuffisant(?:e)?\\b|"
+        r"(?:\baccepted\b|\baccept(?:ed|able)\b|\baccepte(?:e|es|s)?\b|"
+        r"\badmissible\b|\beligible\b|\brequired\b|\brequis(?:e)?\b|"
+        r"\bexige(?:e)?\b|\bobligatoire\b|\badmis(?:e)?\b|"
+        r"\bequivalent\b|\bminimum\b|\bsuffisant(?:e)?\b|"
         r"مقبول(?:ة)?|مطلوب(?:ة)?|مؤهل|معادل|لازم)",
         flags=re.IGNORECASE,
     )
@@ -608,8 +608,8 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
         for marker in acceptance_pattern.finditer(window):
             marker_prefix = window[max(0, marker.start() - 25):marker.start()]
             if re.search(
-                r"(?:\\bnot|\\bpas|\\bnon|\\bn est pas|\\bis not|"
-                r"\\bisnt|\\bne pas|\\bغير|\\bليس|\\bلا)\\s*$",
+                r"(?:\bnot|\bpas|\bnon|\bn est pas|\bis not|"
+                r"\bisnt|\bne pas|\bغير|\bليس|\bلا)\s*$",
                 marker_prefix,
                 flags=re.IGNORECASE,
             ):
@@ -620,8 +620,8 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
             break
 
     holder_patterns = (
-        r"\\bholders? of (?:a )?(?:licence|bachelor)(?: degree)?\\b",
-        r"\\btitulaires? d une licence\\b",
+        r"\bholders? of (?:a )?(?:licence|bachelor)(?: degree)?\b",
+        r"\btitulaires? d une licence\b",
         r"حاملو شهادة ليسانس|حاملي شهادة ليسانس|حامل شهادة ليسانس",
     )
     explicitly_accepted = explicitly_accepted or any(
@@ -701,9 +701,9 @@ def _experience_requirement_years(advertisement: str):
         flags=re.IGNORECASE,
     )
     max_only_markers = re.compile(
-        r"(?:\\bup to\\b|\\bat most\\b|\\bno more than\\b|\\bnot more than\\b|"
-        r"\\bmaximum(?: of)?\\b|\\bmax\\.?\\b|\\bau maximum\\b|\\bau plus\\b|"
-        r"\\bmaximal(?:e)?(?: de)?\\b|\\bor less\\b|\\bor fewer\\b|"
+        r"(?:\bup to\b|\bat most\b|\bno more than\b|\bnot more than\b|"
+        r"\bmaximum(?: of)?\b|\bmax\.?\b|\bau maximum\b|\bau plus\b|"
+        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|"
         r"كحد اقصى|بحد اقصى|على الاكثر|لا يزيد عن|لا تتجاوز|اقصى حد)",
         flags=re.IGNORECASE,
     )
