@@ -568,7 +568,7 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
         r"\b(?:licence|bachelor)(?: degree)?\b.{0,65}\b(?:required|accepted|eligible|in one of)\b",
         r"\btitulaires? d une licence\b",
         r"\blicence en\b",
-        r"\bbac ?\+? ?3\b",
+        r"\bbac ?\+? ?3\b.{0,45}\b(?:required|accepted|eligible|license|licence|degree|diploma)\b",
         r"\bحاملو شهادة ليسانس\b",
         r"\bحاملي شهادة ليسانس\b",
         r"\bحامل شهادة ليسانس\b",
