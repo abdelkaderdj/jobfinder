@@ -1351,7 +1351,7 @@ def _extract_application_urls(text: Any) -> list[str]:
         r"(?:postuler|apply|submit).{0,70}(?:via|sur|at|through|here|lien|link)|"
         r"(?:formulaire.{0,60}(?:recrutement|candidature|application))|"
         r"(?:mode de candidature|application method|how to apply|"
-        r"طريقة التقديم|رابط التقديم|التقديم عبر|إرسال الطلب عبر)",
+        r"طريقة التقديم|رابط التقديم|التقديم عبر|إرسال الطلب عبر))",
         flags=re.IGNORECASE | re.DOTALL,
     )
     application_path = re.compile(
