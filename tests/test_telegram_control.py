@@ -343,6 +343,77 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعة بشرية", reason)
         self.assertNotEqual(final, "APPLY")
 
+    def test_engineer_maintenance_title_can_be_reviewed_when_ad_explicitly_accepts_licence(self):
+        advertisement = """🔸 هندسة صيانة (Maintenance)
+✅ شروط التوظيف :
+حاملو شهادة ليسانس في أحد التخصصات المذكورة.
+القبول ممكن حتى بدون خبرة مهنية (sans expérience).
+📍 مكان العمل : oran
+📩 للمهتمين، يُرجى إرسال السيرة الذاتية
+Kaader5881@gmail.com
+"""
+        job = {
+            "job_title": "Ingénieur Maintenance",
+            "application_title_fr": "Ingénieur Maintenance",
+            "application_title_en": "Maintenance Engineer",
+            "score": 0,
+            "reason": "The title suggests an engineer role; the candidate has no professional experience.",
+        }
+        score, groups = processor.calculate_candidate_cv_match(job, advertisement)
+        self.assertGreaterEqual(score, 30)
+        self.assertIn("industrial_maintenance", groups)
+        self.assertTrue(processor._advertisement_explicitly_accepts_licence_bac3(advertisement))
+
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement, cv_match_score=score
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertTrue(reason or final == "REVIEW")
+
+    def test_multirole_maintenance_electronics_quality_titles_map_to_their_own_blocks(self):
+        advertisement = """🔹 إعلان توظيف – مهندسين إلكترونيك / صيانة / مراقبة الجودة
+🔸 هندسة إلكترونية (Électronique)
+🔸 هندسة صيانة (Maintenance)
+🔸 مراقبة الجودة (Contrôle Qualité)
+✅ شروط التوظيف :
+حاملو شهادة ليسانس في أحد التخصصات المذكورة.
+القبول ممكن حتى بدون خبرة مهنية (sans expérience).
+الجدية والانضباط في العمل.
+📍 مكان العمل : oran
+📩 للمهتمين، يُرجى إرسال السيرة الذاتية
+Kaader5881@gmail.com
+"""
+        electronics = {
+            "job_title": "Ingénieur électronique",
+            "application_title_fr": "Ingénieur électronique",
+            "application_title_en": "Electronics Engineer",
+        }
+        maintenance = {
+            "job_title": "Ingénieur Maintenance",
+            "application_title_fr": "Ingénieur Maintenance",
+            "application_title_en": "Maintenance Engineer",
+        }
+        quality = {
+            "job_title": "Contrôle Qualité",
+            "application_title_fr": "Contrôle Qualité",
+            "application_title_en": "Quality Control",
+        }
+        jobs = [electronics, maintenance, quality]
+        for job in jobs:
+            with self.subTest(role=job["job_title"]):
+                scoped, matched, _reason = processor.resolve_job_position_scope(
+                    job, advertisement, jobs
+                )
+                self.assertTrue(matched)
+                self.assertIn("حاملو شهادة ليسانس", scoped)
+                self.assertIn("sans expérience", scoped)
+
+        maintenance_text, matched, _reason = processor.resolve_job_position_scope(
+            maintenance, advertisement, jobs
+        )
+        self.assertTrue(matched)
+        self.assertTrue(processor._advertisement_explicitly_accepts_licence_bac3(maintenance_text))
+
     def test_engineer_title_is_rejected_even_when_mechanical_keywords_overlap(self):
         titles = [
             "Ingénieur Électromécanique",
