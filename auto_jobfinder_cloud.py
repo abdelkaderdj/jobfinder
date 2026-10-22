@@ -1194,6 +1194,22 @@ def resolve_job_section(
     return best_section, True, f"section {best_index + 1} of {len(sections)}"
 
 
+def _is_shared_global_experience_footer_line(line: str) -> bool:
+    """Identify explicit, post-wide experience conditions outside position blocks."""
+    if _experience_requirement_years(line) is None:
+        return False
+
+    normalized = normalize_text(line)
+    global_markers = (
+        "شرط اساسي", "شرط عام", "شرط موحد", "متطلب عام", "المتطلب العام",
+        "متطلبات عامة", "general condition", "general requirement",
+        "common requirement", "for all positions", "all positions",
+        "all candidates", "conditions generales", "condition generale",
+        "condition essentielle", "exigence generale",
+    )
+    return any(marker in normalized for marker in global_markers)
+
+
 def resolve_job_position_scope(
     job: dict,
     section_text: str,
@@ -1267,7 +1283,27 @@ def resolve_job_position_scope(
 
     later_starts = sorted({idx for idx, item, score in matches if idx > target_idx and score >= 0.75})
     end_idx = later_starts[0] if later_starts else len(lines)
-    block = "\n".join(lines[target_idx:end_idx]).strip()
+
+    # Explicit post-wide conditions placed after the final role title belong to
+    # every position, not only the last bullet. Restrict this to clearly global
+    # experience-condition lines so requirements for one role are never copied
+    # into sibling positions.
+    last_title_idx = max(idx for idx, _item, score in matches if score >= 0.75)
+    shared_experience_footer = [
+        line
+        for idx, line in enumerate(lines)
+        if idx > last_title_idx and _is_shared_global_experience_footer_line(line)
+    ]
+
+    block_lines = list(lines[target_idx:end_idx])
+    block_normalized = {normalize_text(line) for line in block_lines if normalize_text(line)}
+    for footer_line in shared_experience_footer:
+        normalized_footer = normalize_text(footer_line)
+        if normalized_footer and normalized_footer not in block_normalized:
+            block_lines.append(footer_line)
+            block_normalized.add(normalized_footer)
+
+    block = "\n".join(block_lines).strip()
     if not block:
         return "", False, "position title block is empty"
 
