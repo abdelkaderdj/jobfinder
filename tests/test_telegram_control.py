@@ -503,6 +503,65 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "APPLY")
         self.assertIn("بقية حواجز", reason)
 
+    def test_shared_global_three_year_experience_footer_applies_to_each_position(self):
+        advertisement = """🔴فرص توظيف مميزة – شركة Dsolution (وهران)
+✅ الأتمتة والضبط (Automatisme et régulation)
+✅ الهندسة الكهربائية (Électrotechnique)
+✅ القياس والأجهزة (Mesure et instrumentation)
+✅ الصيانة الصناعية (Maintenance industrielle)
+✅ الكهروميكانيك (Électromécanique)
+📍 مكان العمل: ولاية وهران
+📌 شرط أساسي: خبرة 3 سنوات او اقل
+📧 إرسال السيرة الذاتية إلى:
+Kaader5881@gmail.com
+"""
+        jobs = [
+            {"job_title": "Automatisme et régulation"},
+            {"job_title": "Électrotechnique"},
+            {"job_title": "Mesure et instrumentation"},
+            {"job_title": "Maintenance industrielle"},
+            {"job_title": "Électromécanique"},
+        ]
+
+        for job in jobs:
+            with self.subTest(role=job["job_title"]):
+                scoped_text, matched, _reason = processor.resolve_job_position_scope(
+                    job, advertisement, jobs
+                )
+                self.assertTrue(matched)
+                self.assertIn("خبرة 3 سنوات او اقل", scoped_text)
+                self.assertEqual(
+                    processor._experience_requirement_policy(scoped_text),
+                    (3, "waive_experience"),
+                )
+
+        # The relevant mechanical-maintenance role must no longer be rejected
+        # solely because the shared three-year condition sat in the post footer.
+        maintenance = jobs[3]
+        maintenance_text, matched, _reason = processor.resolve_job_position_scope(
+            maintenance, advertisement, jobs
+        )
+        self.assertTrue(matched)
+        maintenance_job = {
+            **maintenance,
+            "score": 45,
+            "reason": (
+                "The role requires experience in industrial maintenance, "
+                "which the candidate lacks."
+            ),
+        }
+        cv_match_score, _matched_groups = processor.calculate_candidate_cv_match(
+            maintenance_job, maintenance_text
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            maintenance_job,
+            "REJECT",
+            maintenance_text,
+            cv_match_score=cv_match_score,
+        )
+        self.assertEqual(final, "APPLY")
+        self.assertIn("تجاوز شرط الخبرة", reason)
+
     def test_arabic_batelec_maintenance_title_does_not_borrow_stock_manager_experience(self):
         advertisement = """SARL BATELEC – plusieurs postes
 1️⃣ Opérateur de Ligne
