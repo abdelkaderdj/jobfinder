@@ -417,6 +417,110 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "REJECT")
         self.assertIn("شرط خبرة", reason)
 
+    def test_halliburton_arabic_role_headings_bind_experience_to_the_correct_position(self):
+        advertisement = """إعلان توظيف | Halliburton
+المناصب المطلوبة:
+1️⃣ مشرف خدمات السمنتة
+🔢 الرقم المرجعي: 209555
+الخبرة: سنتان على الأقل في منصب Service Supervisor – Cementing II.
+2️⃣ مساعد تقني مخبر
+🔢 الرقم المرجعي: 211980
+الخبرة: 4 سنوات في التكنولوجيا الكيميائية أو الهندسية.
+3️⃣ مشغل خدمات – معالجة سوائل الحفر
+🔹 تشغيل ومتابعة معدات معالجة سوائل الحفر والمواد الصلبة وإعداد التقارير الفنية.
+الخبرة: 6 أشهر على الأقل في المجال.
+تنبيه: اختر المنصب الصحيح.
+🔹 209555 – Service Supervisor III – Cementing
+🔹 211980 – Technologist – Laboratory, Assoc
+🔹 211974 – Service Operator I – SS
+"""
+        supervisor = {
+            "job_title": "Service Supervisor III – Cementing",
+            "application_title_fr": "Superviseur de services – Cimentation",
+            "application_title_en": "Service Supervisor III – Cementing",
+        }
+        laboratory = {
+            "job_title": "Technologist – Laboratory, Assoc",
+            "application_title_fr": "Technologue de laboratoire associé",
+            "application_title_en": "Technologist – Laboratory, Assoc",
+        }
+        operator = {
+            "job_title": "Service Operator I – Surface Solutions / Baroid",
+            "application_title_fr": "Opérateur de services – Traitement des fluides de forage",
+            "application_title_en": "Service Operator I – Surface Solutions / Baroid",
+        }
+        jobs = [supervisor, laboratory, operator]
+
+        supervisor_text, supervisor_ok, _ = processor.resolve_job_position_scope(
+            supervisor, advertisement, jobs
+        )
+        laboratory_text, laboratory_ok, _ = processor.resolve_job_position_scope(
+            laboratory, advertisement, jobs
+        )
+        operator_text, operator_ok, _ = processor.resolve_job_position_scope(
+            operator, advertisement, jobs
+        )
+
+        self.assertTrue(supervisor_ok)
+        self.assertTrue(laboratory_ok)
+        self.assertTrue(operator_ok)
+        self.assertIn("سنتان على الاقل", processor.normalize_text(supervisor_text))
+        self.assertNotIn("4 سنوات", laboratory_text)
+        self.assertNotIn("6 اشهر", processor.normalize_text(supervisor_text))
+        self.assertIn("4 سنوات", laboratory_text)
+        self.assertNotIn("6 اشهر", processor.normalize_text(laboratory_text))
+        self.assertIn("6 اشهر على الاقل", processor.normalize_text(operator_text))
+        self.assertNotIn("4 سنوات", processor.normalize_text(operator_text))
+        self.assertTrue(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                operator, operator_text
+            )
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            {**operator, "score": 30},
+            "REVIEW",
+            operator_text,
+            cv_match_score=30,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("شرط خبرة", reason)
+
+    def test_arabic_batelec_maintenance_title_does_not_borrow_stock_manager_experience(self):
+        advertisement = """SARL BATELEC – plusieurs postes
+1️⃣ Opérateur de Ligne
+Missions: conduite de ligne, contrôle qualité, nettoyage et maintenance de premier niveau.
+Niveau: CAP/BEP ou bac professionnel technique.
+Expérience: débutant accepté.
+2️⃣ Gestionnaire des Stocks
+Missions: inventaire et gestion du stock.
+Expérience pratique de 2 à 5 ans en logistique.
+3️⃣ تقني صيانة
+"""
+        operator = {
+            "job_title": "Opérateur de Ligne",
+            "application_title_fr": "Opérateur de Ligne",
+        }
+        stock = {
+            "job_title": "Gestionnaire des Stocks",
+            "application_title_fr": "Gestionnaire des Stocks",
+        }
+        maintenance = {
+            "job_title": "Technicien Maintenance",
+            "application_title_fr": "Technicien Maintenance",
+        }
+        jobs = [operator, stock, maintenance]
+        maintenance_text, matched, _ = processor.resolve_job_position_scope(
+            maintenance, advertisement, jobs
+        )
+        self.assertTrue(matched)
+        self.assertIn("تقني صيانة", processor.normalize_text(maintenance_text))
+        self.assertNotIn("2 a 5 ans", processor.normalize_text(maintenance_text))
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(
+                maintenance, maintenance_text
+            )
+        )
+
     def test_french_two_to_five_year_requirement_is_hard_rejection(self):
         advertisement = (
             "Technicien Maintenance\\n"
