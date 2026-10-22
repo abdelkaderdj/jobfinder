@@ -319,47 +319,60 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\btoxicologie\b", r"\btoxicologue\b", r"\btoxicology\b",
     r"\btoxicologist\b", r"\blaborantin\b",
     r"\btechnicien de laboratoire\b", r"\blaboratory technician\b",
+    r"\btechnologist\b.*\blaboratory\b", r"\blaboratory\b.*\btechnologist\b",
+    r"\btechnologue\b.*\blaboratoire\b", r"\blaboratoire\b.*\btechnologue\b",
     r"\bbiologiste\b", r"\bmicrobiologiste\b", r"\bbiologist\b",
     r"\bmicrobiologist\b", r"\bchimiste\b", r"\bchemist\b",
     r"\bpharmacien\b", r"\binfirmier\b", r"\bnurse\b",
     r"\bcomptable\b", r"\baccountant\b", r"\bressources humaines\b",
     r"\bhuman resources\b", r"\bhr officer\b", r"\bassistant administratif\b",
     r"\bserveur\b", r"\bcuisinier\b", r"\bchef de cuisine\b",
+    r"\b(electrician|electricien\w*|electricite|electrical|electrique)\b",
+    r"\b(electromechanical|electromec\w*)\b",
+    r"\b(instrumentation|instrumentiste|automation|automatisation|automatisme)\b",
+    r"\b(climatisation|hvac|air conditioning)\b",
+    r"\bgestionnaire des stocks\b", r"\bstock manager\b",
+    r"\binventory\b", r"\bwarehouse\b", r"\bstorekeeper\b",
+    r"\blogistics\b", r"\blogistique\b", r"\bsupply chain\b",
+    r"\baircraft\b", r"\baviation\b", r"\bairframe\b",
+    r"\bcivil engineer\b", r"\bgenie civil\b",
+    r"\bhse engineer\b", r"\bingenieur hse\b",
     r"\bتجاري\b", r"\bمبيعات\b", r"\bتسويق\b", r"\bاستقبال\b",
     r"\bحارس\b", r"\bامن\b", r"\bأمن\b", r"\bسموم\b",
     r"\bمختبر\b", r"\bمخبر\b", r"\bبيولوج\b", r"\bميكروبيولوج\b",
     r"\bكيميائي\b", r"\bمحاسب\b", r"\bموارد بشرية\b",
-    r"\bسكرتير\b", r"\bسكرتيرة\b",
+    r"\bسكرتير\b", r"\bسكرتيرة\b", r"\bكهربائي\b", r"\bكهرباء\b",
+    r"\bكهروميكانيك\b", r"\bكهروميكانيكي\b", r"\bمخازن\b",
+    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
+)
+
+# The candidate holds a Licence/Bac+3, not an engineering diploma.
+ENGINEERING_GRADE_ROLE_TITLE_PATTERNS = (
+    r"\bingenieur\b",
+    r"\bengineer\b",
+    r"\bingenieur d etat\b",
+    r"\bمهندس\b",
 )
 
 STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
     r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
-    r"\bproduction\b", r"\bmanufactur\w*\b", r"\bfabrication\b",
-    r"\bindustr\w*\b", r"\benergy\b", r"\benergie\b", r"\benergetique\b",
-    r"\bengineer\w*\b", r"\bingenieur\w*\b", r"\bpump\w*\b",
-    r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
-    r"\bturbine\w*\b", r"\brotating\b", r"\bequipment\b",
-    r"\bequipement\w*\b", r"\breliability\b", r"\bfiabilite\b",
-    r"\batelier\b", r"\bmethodes\b", r"\bmethods\b",
-    r"\bautomation\b", r"\bautomatisation\b", r"\bautomatisme\b",
-    r"\binstrumentation\b", r"\belectromechanical\b",
-    r"\belectromecanique\b", r"\belectromecanicien\w*\b",
-    r"\bpiping\b", r"\btuyauterie\b", r"\bchaudronnerie\b",
-    r"\bwelding\b", r"\bsoudure\b", r"\bhvac\b", r"\bclimatisation\b",
-    r"\bhydraulique\b", r"\bprocess\b", r"\bquality control\b",
-    r"\bميكانيك\w*\b", r"\bصيانة\b", r"\bإنتاج\b", r"\bانتاج\b",
-    r"\bمعدات\b", r"\bطاقة\b", r"\bمصانع\b", r"\bالآلات\b",
+    r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
+    r"\bturbine\b", r"\brotating equipment\b", r"\bequipment maintenance\b",
+    r"\bequipement mecanique\b", r"\bequipements mecaniques\b",
+    r"\bsolidworks\b", r"\bconception mecanique\b", r"\bmechanical design\b",
+    r"\bdessinateur industriel\b", r"\bprojeteur mecanique\b",
+    r"\bhydraulic systems\b", r"\bsystemes fluidiques\b",
+    r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
+    r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
 )
 
 GENERIC_TECHNICAL_ROLE_PATTERNS = (
     r"\btechnicien\w*\b", r"\btechnician\w*\b",
     r"\btechnical\b", r"\btechnique\w*\b",
     r"\boperateur\w*\b", r"\boperator\w*\b",
-    r"\belectricien\w*\b", r"\belectrical\b", r"\btechnologie\b",
-    r"\bتقني\w*\b", r"\bفني\w*\b", r"\bكهربائي\w*\b",
+    r"\bتقني\w*\b", r"\bفني\w*\b", r"\bمشغل\b",
 )
-
 
 CV_MATCH_SKILL_GROUPS = (
     (
@@ -448,67 +461,71 @@ CV_MATCH_SKILL_GROUPS = (
 
 def calculate_candidate_cv_match(job, advertisement=""):
     """
-    Calculate an explainable keyword-overlap score from the uploaded CV facts.
+    Explainable overlap against this specific position, not the whole Telegram post.
 
-    This is a routing signal, not a probability of hiring. Scores >=30 indicate
-    that a vacancy deserves REVIEW when uncertainty remains; they never
-    authorize an automatic application by themselves.
+    The caller must pass only the position-specific block. Explicitly excluded
+    disciplines and Ingénieur/Engineer titles cannot become a match due to
+    coincidental words in a combined advertisement.
     """
-    if not isinstance(job, dict):
-        job = {}
-
+    job = job if isinstance(job, dict) else {}
     title = str(
         job.get("job_title")
         or job.get("application_title_fr")
         or job.get("application_title_en")
         or ""
     ).strip()
-    title_normalized = normalize_text(title)
+    normalized_title = normalize_text(title)
 
+    if not normalized_title:
+        return 0, []
+
+    if any(re.search(pattern, normalized_title) for pattern in UNRELATED_ROLE_TITLE_PATTERNS):
+        return 0, []
+
+    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
+        return 0, []
+
+    # A purely industrial word is not enough: title alignment must begin with
+    # mechanics, maintenance, pumps/fluids, or mechanical design.
     title_direct = (
         r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
         r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
-        r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcentrifug\w*\b",
-        r"\bsolidworks\b", r"\bcad\b", r"\bdessinateur\b",
-        r"\bprojeteur\b", r"\bconception mecanique\b",
-        r"\belectromecanique\b", r"\belectromechanical\b",
-        r"\bmechanical design\b", r"\bhydraulique\b", r"\bhydraulic\b",
-        r"\bcompresseur\w*\b", r"\bcompressor\w*\b",
-        r"\benergy\b", r"\benergie\b", r"\benergetique\b",
-        r"\bengineer\w*\b", r"\bingenieur\w*\b",
-        r"\bindustrial\b", r"\bindustrie\b", r"\bindustriel\w*\b",
-        r"\belectromecanicien\w*\b", r"\bautomatisation\b",
-        r"\bautomatisme\b", r"\binstrumentation\b",
-        r"\bpiping\b", r"\btuyauterie\b", r"\bproduction\b",
-        r"\bfabrication\b", r"\bميكانيك\w*\b", r"\bصيانة\b",
-        r"\bمضخ\w*\b", r"\bطاقة\b", r"\bمهندس\b", r"\bصناعي\b",
+        r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b",
+        r"\bcompresseur\w*\b", r"\bsolidworks\b", r"\bcad\b",
+        r"\bconception mecanique\b", r"\bmechanical design\b",
+        r"\bdessinateur industriel\b", r"\bprojeteur mecanique\b",
+        r"\bhydraulic systems\b", r"\bsystemes fluidiques\b",
+        r"\btechnicien hydraulique\b", r"\btechnicien des pompes\b",
+        r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
+        r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
     )
     title_adjacent = (
-        r"\btechnicien\w*\b", r"\btechnician\w*\b", r"\btechnologue\b",
-        r"\boperator\w*\b", r"\boperateur\w*\b",
-        r"\bproduction\b", r"\bindustr\w*\b", r"\bequipement\w*\b",
-        r"\bprocess\w*\b", r"\batelier\b", r"\bfabrication\b",
-        r"\btechnicien\w* industriel\w*\b", r"\bمهندس\b", r"\bتقني\w*\b",
-        r"\bفني\w*\b", r"\bمشغل\b", r"\bمعدات\b",
+        r"\btechnicien\w*\b", r"\btechnician\w*\b",
+        r"\boperator\b", r"\boperateur\b",
+        r"\boperateur de ligne\b", r"\bproduction operator\b",
+        r"\bمشغل\b", r"\bتقني ميكانيك\b", r"\bتقني صيانة\b",
     )
 
-    if any(re.search(pattern, title_normalized) for pattern in title_direct):
+    if any(re.search(pattern, normalized_title) for pattern in title_direct):
         score = 30
-    elif any(re.search(pattern, title_normalized) for pattern in title_adjacent):
+    elif any(re.search(pattern, normalized_title) for pattern in title_adjacent):
         score = 20
     else:
         score = 0
 
+    # Only job-specific structured fields and the caller-provided role block
+    # may contribute. Never pass the entire multi-position Telegram post here.
     text_parts = [title]
     for field in (
-        "description", "responsibilities", "duties", "requirements",
-        "qualifications", "skills", "experience", "education",
+        "job_description", "job_summary", "job_specific_requirements",
+        "responsibilities", "duties", "requirements", "qualifications", "skills",
     ):
         value = job.get(field)
         if isinstance(value, str):
             text_parts.append(value)
         elif isinstance(value, (list, tuple)):
             text_parts.extend(str(item) for item in value if isinstance(item, str))
+
     if isinstance(advertisement, str) and advertisement.strip():
         text_parts.append(advertisement)
 
@@ -520,7 +537,6 @@ def calculate_candidate_cv_match(job, advertisement=""):
             score += points
 
     return min(100, score), matched_groups
-
 
 def _is_senior_role_title(normalized_title: str) -> bool:
     """Titles that are plainly above the candidate's junior/entry-level scope."""
@@ -537,142 +553,105 @@ def _is_senior_role_title(normalized_title: str) -> bool:
 
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
     """
-    Return True only for an explicit, verifiable hard requirement that this CV
-    does not meet. Unknown age/licences/residency data is never treated as proof.
+    Verify a missing qualification only against this position's own ad block.
     """
-    reason = normalize_text(str(job.get("reason") or ""))
     ad = normalize_text(str(advertisement or ""))
     if not ad:
         return False
 
-    mandatory = (
-        r"(required|mandatory|must have|must hold|minimum|required to|"
-        r"exige|exigee|exiges|obligatoire|requis|requise|"
-        r"indispensable|obligatoirement|minimum de|au moins|"
-        r"يشترط|شرط اساسي|شرط أساسي|إجباري|اجباري|لا تقل عن|"
-        r"مطلوب توفر|ضروري توفر)"
+    time_unit = r"(?:years?|ans|annees|an|months?|mois|سنوات|سنة|اشهر|شهر)"
+    # Covers "at least 6 months", "2 years minimum", "2 to 5 years",
+    # "6 أشهر على الأقل", and "2 à 5 ans".
+    explicit_time_requirement = re.search(
+        rf"(?:minimum|min\.?|at least|no less than|au moins|minimum de)\s*\d+\s*{time_unit}"
+        rf"|\d+\s*{time_unit}\s*(?:minimum|min\.?|at least|au moins|sur au moins|على الاقل|كحد أدنى)"
+        rf"|\d+\s*(?:to|à|a|[-–])\s*\d+\s*{time_unit}"
+        rf"|(?:experience|experience professionnelle|خبرة).{0,25}\d+\s*{time_unit}\s*(?:minimum|min\.?|au moins|على الأقل)",
+        ad,
     )
 
-    # The CV explicitly states no professional engineering experience.
-    experience_terms = (
-        r"(experience professionnelle|professional experience|work experience|"
-        r"years of experience|years experience|experience in|experience de|"
-        r"experience en|experience|experience professionnelle obligatoire|"
-        r"خبرة مهنية|خبرة في المجال|الخبرة المهنية|سنوات من الخبرة)"
-    )
-    experience_not_required = re.search(
+    no_experience_required = re.search(
         r"(no experience (?:is )?required|no prior experience|no previous experience|"
         r"experience not required|without experience|without prior experience|"
         r"no experience needed|no experience necessary|entry level no experience|"
         r"sans experience|aucune experience exigee|experience non exigee|"
         r"experience professionnelle non exigee|debutant accepte|debutante acceptee|"
         r"debutants acceptes|open to beginners|no work experience required|"
+        r"experience is optional|experience is a plus|experience is preferred|"
+        r"experience souhaitee|experience appreciee|experience non obligatoire|"
         r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة|"
         r"بدون خبرة|دون خبرة|للمبتدئين)",
         ad,
     )
-    if re.search(experience_terms, ad) and not experience_not_required:
-        # A numbered minimum (months or years) is an explicit hard gate itself.
-        years = re.search(
-            r"(?:minimum|min\.?|at least|au moins|minimum de)\s*(\d+)\s*"
-            r"(years?|ans|annees|months?|mois|سنوات|سنة|أشهر|اشهر)",
-            ad,
-        )
-        if years and int(years.group(1)) > 0:
-            return True
+    if explicit_time_requirement and not no_experience_required:
+        return True
 
-        optional_experience = re.search(
-            r"(no experience (?:is )?required|experience not required|"
-            r"experience optional|experience souhait(?:e|ee)|experience appreciee|"
-            r"experience is a plus|experience is preferred|experience non obligatoire|"
-            r"sans experience|aucune experience exigee|debutant accepte|"
-            r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة)",
-            ad,
-        )
-        experience_mandatory_nearby = re.search(
-            r"(?:professional experience|experience professionnelle|work experience|"
-            r"experience|خبرة مهنية|خبرة).{0,35}"
-            r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-            r"اجبارية|إجبارية|مطلوبة|يشترط)"
-            r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-            r"اجبارية|إجبارية|مطلوبة|يشترط).{0,35}"
-            r"(?:professional experience|experience professionnelle|work experience|"
-            r"experience|خبرة مهنية|خبرة)",
-            ad,
-        )
-        if experience_mandatory_nearby and not optional_experience:
-            return True
+    experience_language = re.search(
+        r"(experience professionnelle|professional experience|work experience|"
+        r"experience in the field|experience|خبرة مهنية|خبرة في المجال|خبرة)",
+        ad,
+    )
+    mandatory_experience_nearby = re.search(
+        r"(?:professional experience|experience professionnelle|work experience|"
+        r"experience|خبرة مهنية|خبرة).{0,40}"
+        r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+        r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية)"
+        r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+        r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية).{0,40}"
+        r"(?:professional experience|experience professionnelle|work experience|"
+        r"experience|خبرة مهنية|خبرة)",
+        ad,
+    )
+    if experience_language and mandatory_experience_nearby and not no_experience_required:
+        return True
 
-    # Candidate's verified highest credential is Licence/Bac+3 in Mechanical
-    # and Energy Engineering, not an engineering-state diploma or a Master.
-    higher_degree_required = re.search(
+    # A Licence/Bac+3 is not an Ingénieur d'État/Master/Bac+5 qualification.
+    # Explicit Engineer title mismatches are handled in the title gate below.
+    higher_degree = re.search(
         r"(diplome d ingenieur|diplome ingenieur|ingenieur d etat|"
         r"master(?:s)? degree|master 2|bac\s*5|doctorat|phd|postgraduate degree|"
         r"ماستر|شهادة مهندس|مهندس دولة|باك\s*5)",
         ad,
     )
-    if higher_degree_required:
-        degree_window = ad[max(0, higher_degree_required.start() - 40):min(
-            len(ad), higher_degree_required.end() + 50
-        )]
-        degree_optional = re.search(
+    if higher_degree:
+        window = ad[max(0, higher_degree.start() - 40):min(len(ad), higher_degree.end() + 50)]
+        optional = re.search(
             r"(preferred|desirable|optional|a plus|souhaite|souhaitee|apprecie|"
-            r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة إضافية|"
+            r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة اضافية|"
             r"ليس إلزاميا|غير إجباري)",
-            degree_window,
+            window,
         )
-        if re.search(mandatory, degree_window) and not degree_optional:
+        mandatory = r"(required|mandatory|must have|must hold|obligatoire|requis|requise|exige|indispensable|يشترط|إجباري|اجباري|ضروري)"
+        if re.search(mandatory, window) and not optional:
             return True
 
-    # A Licence/Bachelor/Bac+3 requirement is met by the attached CV.
-    # Do not convert a generic "degree required" or AI-inferred degree gap into
-    # a rejection: the candidate does have a relevant bachelor's-level degree.
-
-    # Only named, mandatory credentials absent from the CV can be hard gates.
-    candidate_has_solidworks_training = True
-    named_certifications = (
-        "atex", "h2s", "bosiet", "caces", "nebosh", "api 510", "api 570",
-        "iso 17025", "iso 45001 lead auditor", "pmp",
-    )
-    for certificate in named_certifications:
+    # Only explicitly mandatory missing professional licences/certifications
+    # are hard gates. A driving licence elsewhere cannot imply ATEX is required.
+    for certificate in ("atex", "h2s", "bosiet", "caces", "nebosh", "api 510", "api 570", "aml", "easa part 66", "faa"):
         if certificate not in ad:
             continue
-        # Bind the mandatory language to the named credential, not to an
-        # unrelated experience clause elsewhere in the same position section.
         escaped = re.escape(certificate)
-        certificate_window_match = re.search(
-            rf"(?:{escaped}).{{0,50}}(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري)"
-            rf"|(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري).{{0,50}}(?:{escaped})",
+        match = re.search(
+            rf"(?:{escaped}).{{0,45}}(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري)"
+            rf"|(?:required|mandatory|obligatoire|requis|requise|exige|يشترط|إجباري|اجباري).{{0,45}}(?:{escaped})",
             ad,
         )
-        if certificate_window_match:
-            certificate_window = ad[
-                max(0, certificate_window_match.start() - 30):
-                min(len(ad), certificate_window_match.end() + 30)
-            ]
-            optional_certificate = re.search(
+        if match:
+            optional = re.search(
                 r"(preferred|desirable|optional|a plus|souhaite|souhaitee|apprecie|"
-                r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة إضافية|"
-                r"ليس إلزاميا|غير إجباري)",
-                certificate_window,
+                r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة اضافية)",
+                ad[max(0, match.start() - 20):min(len(ad), match.end() + 20)],
             )
-            if not optional_certificate:
+            if not optional:
                 return True
-    if "solidworks" in ad and candidate_has_solidworks_training:
-        return False
 
-    # Age, driving licence, gender, or residency facts absent from the CV are
-    # unknown, not mismatches. Let REVIEW handle these unless a dedicated,
-    # evidence-backed policy can compare the fact.
     return False
-
 
 def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=None):
     """
-    Apply conservative, CV-aware screening.
-
-    Explicit hard requirements can reject; related roles with >=30 overlap or
-    unresolved qualification evidence go to REVIEW. REVIEW never auto-sends.
+    Apply the candidate's agreed rules before any Telegram review/send action.
+    A keyword score never overrides a wrong discipline, wrong degree level,
+    or an explicit mandatory requirement the candidate does not meet.
     """
     decision = str(decision or "REJECT").upper().strip()
     if decision not in {"APPLY", "REVIEW", "REJECT"}:
@@ -687,13 +666,19 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     normalized_title = normalize_text(title)
 
     if not normalized_title:
-        return "REJECT", "الحاجز الآمن رفض الوظيفة لأن المسمى الوظيفي غير واضح."
+        return "REJECT", "رُفضت الوظيفة لأن المسمى الوظيفي غير واضح."
+
+    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
+        return (
+            "REJECT",
+            "رُفضت الوظيفة لأن المسمى Ingénieur/Engineer يتطلب مسار مهندس، بينما مؤهل المرشح Licence/Bac+3 وليس شهادة مهندس. لا تتغلب الكلمات الميكانيكية داخل المسمى على هذا الشرط.",
+        )
 
     for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
         if re.search(pattern, normalized_title):
             return (
                 "REJECT",
-                "الحاجز الآمن رفض الوظيفة لأنها خارج مسارات الميكانيك والصيانة والصناعة والإنتاج المستهدفة.",
+                "رُفضت الوظيفة لأن تخصصها خارج المسارات المتفق عليها: الميكانيك والصيانة الميكانيكية والمضخات/الموائع والتصميم الميكانيكي.",
             )
 
     if cv_match_score is None:
@@ -703,112 +688,68 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     except (TypeError, ValueError):
         cv_match_score = 0
 
-    strong_relevance = any(
+    potentially_relevant = any(
         re.search(pattern, normalized_title)
-        for pattern in STRONG_RELEVANT_ROLE_PATTERNS
-    )
-    generic_technical = any(
-        re.search(pattern, normalized_title)
-        for pattern in GENERIC_TECHNICAL_ROLE_PATTERNS
-    )
-    potentially_relevant = strong_relevance or generic_technical or cv_match_score >= 30
+        for pattern in (*STRONG_RELEVANT_ROLE_PATTERNS, *GENERIC_TECHNICAL_ROLE_PATTERNS)
+    ) or cv_match_score >= 30
 
     try:
         ai_score = float(job.get("score"))
     except (TypeError, ValueError):
         ai_score = None
-
     if ai_score is not None and (ai_score < 0 or ai_score > 100):
-        return "REJECT", "الحاجز الآمن رفض الوظيفة لأن درجة AI خارج النطاق الصحيح 0–100."
+        return "REJECT", "رُفضت الوظيفة لأن درجة AI خارج النطاق الصحيح 0–100."
 
-    hard_mismatch = _advertisement_explicitly_requires_missing_qualification(job, advertisement)
+    # This check has precedence over APPLY/REVIEW/REJECT. A clear mandatory
+    # missing experience requirement cannot be softened into REVIEW by AI.
+    if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
+        return (
+            "REJECT",
+            "رُفضت الوظيفة لأن إعلان هذا المنصب يثبت شرط خبرة/مؤهل إلزاميًا لا تستوفيه السيرة. لا يُحوَّل الشرط الصريح إلى مراجعة لمجرد أن الوظيفة تقنية.",
+        )
 
     if _is_senior_role_title(normalized_title):
-        if decision == "APPLY":
-            return (
-                "REVIEW",
-                "المنصب يبدو إشرافيًا/قياديًا أعلى من مستوى المرشح الحالي؛ "
-                "تحويل إلى مراجعة بشرية، دون إرسال تلقائي.",
-            )
-        if decision == "REJECT":
-            return "REJECT", ""
-        return decision, ""
+        return "REJECT", "رُفضت الوظيفة لأن المسمى إشرافي/قيادي ولا يناسب مستوى المرشح الحالي دون خبرة مهنية."
 
     if decision == "REJECT":
-        if hard_mismatch:
-            return "REJECT", ""
         if potentially_relevant:
             return (
                 "REVIEW",
-                f"تطابق كلمات السيرة المبدئي {cv_match_score}/100؛ "
-                "لم يثبت الإعلان شرطًا إلزاميًا مفقودًا، لذلك حُوّل الرفض إلى مراجعة بشرية. "
-                "هذا المؤشر ليس احتمال قبول ولا يسمح بإرسال تلقائي.",
+                f"الدور قريب من مسار المرشح (مؤشر CV {cv_match_score}/100) لكن الإعلان ضمن هذا القسم لا يثبت شرطًا إلزاميًا مفقودًا؛ لذلك حُوّل إلى مراجعة بشرية بدل الرفض الآلي. لا إرسال تلقائي.",
             )
-        return "REJECT", ""
+        return "REJECT", "رُفضت الوظيفة لأن المسمى ومهارات المنصب المحددة لا يثبتان ارتباطًا كافيًا بسيرة المرشح."
 
     if decision == "APPLY":
-        if hard_mismatch:
+        if not potentially_relevant:
             return (
                 "REJECT",
-                "الإعلان يذكر شرطًا إلزاميًا لا تثبته السيرة الذاتية؛ مُنع التقديم التلقائي.",
+                f"رُفضت الوظيفة لأن تخصص المنصب لا يطابق المسارات المتفق عليها (مؤشر CV {cv_match_score}/100).",
             )
         if cv_match_score < 30:
-            if not potentially_relevant:
-                return (
-                    "REJECT",
-                    f"مؤشر تطابق كلمات السيرة منخفض جدًا ({cv_match_score}/100) ولا يظهر في المسمى ارتباط تقني مناسب؛ رُفضت الوظيفة.",
-                )
             return (
                 "REVIEW",
-                f"تطابق كلمات السيرة منخفض ({cv_match_score}/100)، لذلك يلزم تحقق بشري قبل أي تقديم.",
+                f"المسمى قريب تقنيًا لكن الأدلة الخاصة بهذا المنصب ضعيفة (مؤشر CV {cv_match_score}/100)؛ يلزم تحقق يدوي قبل أي تقديم.",
             )
         if ai_score is not None and ai_score < 35:
             return (
                 "REVIEW",
-                f"درجة AI منخفضة ({ai_score:g}/100) رغم وجود مؤشرات مهارية؛ يلزم تحقق بشري.",
+                f"درجة AI منخفضة ({ai_score:g}/100) رغم وجود صلة محتملة؛ يلزم تحقق يدوي قبل التقديم.",
             )
-        if not strong_relevance and cv_match_score < 50:
+        if not any(re.search(p, normalized_title) for p in STRONG_RELEVANT_ROLE_PATTERNS) and cv_match_score < 50:
             return (
                 "REVIEW",
-                f"تطابق السيرة {cv_match_score}/100؛ الدور قريب تقنيًا لكن ليس واضحًا بما يكفي للتقديم الآلي.",
+                f"المنصب صناعي/تقني عام وليس تطابقًا مباشرًا واضحًا (مؤشر CV {cv_match_score}/100)؛ لا إرسال آلي.",
             )
 
     if decision == "REVIEW":
+        if not potentially_relevant:
+            return (
+                "REJECT",
+                "رُفضت الوظيفة حتى لو اختار AI المراجعة، لأن تخصص المنصب لا يطابق المسارات المتفق عليها.",
+            )
         return "REVIEW", ""
 
-    if ai_score is not None and ai_score < 35 and potentially_relevant:
-        if hard_mismatch:
-            return "REJECT", ""
-        return (
-            "REVIEW",
-            f"درجة AI منخفضة ({ai_score:g}/100)، لكن مؤشر تطابق السيرة {cv_match_score}/100؛ "
-            "الحالة للمراجعة بدل الرفض الآلي.",
-        )
-
-    if strong_relevance:
-        return decision, ""
-
-    if generic_technical:
-        if decision == "APPLY":
-            return (
-                "REVIEW",
-                "المسمى تقني عام ولا يثبت وحده ملاءمة الوظيفة؛ خُفّض القرار إلى المراجعة ومنع الإرسال التلقائي.",
-            )
-        return decision, ""
-
-    if cv_match_score >= 30:
-        return (
-            "REVIEW",
-            f"مؤشر تطابق كلمات السيرة {cv_match_score}/100 يبرر مراجعة بشرية قبل الرفض.",
-        )
-
-    return (
-        "REJECT",
-        "الحاجز الآمن رفض الوظيفة لأن المسمى ومؤشرات المهارات لا يثبتان ارتباطًا كافيًا بخلفية المرشح.",
-    )
-
-
-
+    return decision, ""
 
 def contains_arabic(text):
 
@@ -1033,6 +974,84 @@ def resolve_job_section(
 
     return best_section, True, f"section {best_index + 1} of {len(sections)}"
 
+
+def resolve_job_position_scope(
+    job: dict,
+    section_text: str,
+    all_jobs: list[dict],
+) -> tuple[str, bool, str]:
+    """
+    Split a single company post containing several positions into title-bounded
+    blocks. Prevent another role's experience, skills, degree, or housing from
+    leaking into this position's decision.
+    """
+    section_text = str(section_text or "")
+    if not section_text:
+        return "", False, "no verified advertisement section"
+
+    valid_jobs = [item for item in (all_jobs or []) if isinstance(item, dict)]
+    if len(valid_jobs) <= 1:
+        return section_text, True, "single position"
+
+    lines = section_text.splitlines()
+    if not lines:
+        return section_text, True, "single position"
+
+    def title_variants(item: dict) -> list[str]:
+        values = []
+        for key in ("job_title", "application_title_fr", "application_title_en"):
+            value = normalize_text(item.get(key) or "")
+            if value and value not in values and len(value) >= 4:
+                values.append(value)
+        return values
+
+    def match_line(item: dict) -> tuple[int | None, float]:
+        best_idx, best_score = None, 0.0
+        variants = title_variants(item)
+        if not variants:
+            return None, 0.0
+        for idx, line in enumerate(lines):
+            normalized_line = normalize_text(line)
+            if not normalized_line or "http" in normalized_line:
+                continue
+            line_tokens = set(_scope_title_tokens(normalized_line))
+            for candidate in variants:
+                if candidate in normalized_line:
+                    score = 1.0
+                else:
+                    tokens = _scope_title_tokens(candidate)
+                    if not tokens:
+                        continue
+                    coverage = sum(token in line_tokens for token in tokens) / len(tokens)
+                    score = coverage
+                if score > best_score:
+                    best_idx, best_score = idx, score
+        return best_idx, best_score
+
+    matches = []
+    target_idx = None
+    for item in valid_jobs:
+        idx, score = match_line(item)
+        if idx is None or score < 0.75:
+            continue
+        matches.append((idx, item, score))
+        if item is job:
+            target_idx = idx
+
+    if target_idx is None:
+        return "", False, "could not identify this position's own title block"
+
+    same_line = [item for idx, item, _ in matches if idx == target_idx and item is not job]
+    if same_line:
+        return "", False, "multiple positions match the same title line"
+
+    later_starts = sorted({idx for idx, item, score in matches if idx > target_idx and score >= 0.75})
+    end_idx = later_starts[0] if later_starts else len(lines)
+    block = "\n".join(lines[target_idx:end_idx]).strip()
+    if not block:
+        return "", False, "position title block is empty"
+
+    return block, True, f"position-specific block at line {target_idx + 1}"
 
 def scoped_accommodation_value(
     job: dict,
@@ -2088,6 +2107,32 @@ candidate genuinely matches the stated requirements.
    explicitly states it. For a plausibly relevant junior/technical role, use
    REVIEW if eligibility is uncertain; do not REJECT based on an inferred
    requirement. REVIEW is safe because it cannot send an automatic email.
+
+14. Preserve the OWNER-DEFINED candidate boundaries below; they outrank broad
+    keyword overlap, company industry, or generic words such as "technical",
+    "industrial", "equipment", "energy", "production", or "hydraulic".
+
+    - Highest qualification: Licence / Bac+3 in Mechanical and Energy Engineering.
+      Treat as technician / Bac+3 level, NOT as an Ingénieur / Engineer diploma.
+      Any advertised position titled "Ingénieur", "Engineer", "مهندس" is REJECT.
+    - Target lanes: mechanical maintenance technician; mechanical equipment;
+      centrifugal pumps and fluid systems; junior mechanical/CAD/SolidWorks
+      design and technical drawings; closely adjacent industrial operator roles
+      only when the actual position duties fit and its entry requirements fit.
+    - Exclude electrical/electrician, electromechanical, automation,
+      instrumentation, civil engineering, HSE engineering, laboratory chemistry/
+      biology, aircraft maintenance/aviation, stock/inventory/logistics/supply
+      chain, sales, and other unrelated roles even if the full advertisement
+      mentions maintenance, pumps, fluids, or production elsewhere.
+    - The candidate has no professional engineering experience. Explicit
+      minimum experience requirements not met by the candidate are REJECT,
+      including "at least 6 months", "6 months minimum", "2–5 years",
+      "2 ans minimum", and "6 أشهر على الأقل". These are not REVIEW.
+    - "Débutant accepté", "no experience required", or equivalent means do NOT
+      invent an experience requirement; assess the other actual requirements.
+    - For a message containing several jobs, evaluate each position's own title
+      and text block. Never use keywords or experience requirements belonging
+      to another position to decide this one.
 
 ============================================================
 VERY IMPORTANT — COMMON / GLOBAL REQUIREMENTS
@@ -5640,6 +5685,16 @@ def process_post(
             "matched" if scope_matched else "ambiguous; automatic send disabled",
         )
 
+        position_scope_text, position_scope_matched, position_scope_reason = resolve_job_position_scope(
+            job,
+            job_section_text if scope_matched else "",
+            jobs,
+        )
+        print(
+            "JOB POSITION SCOPE:",
+            "matched" if position_scope_matched else "ambiguous; no cross-position inference",
+        )
+
         language_context = job_section_text if scope_matched else ""
         application_language, language_reason = determine_application_language(
             language_context,
@@ -5671,14 +5726,16 @@ def process_post(
         # cannot authorize an automatic application by itself.
         cv_match_score, cv_matched_skill_groups = calculate_candidate_cv_match(
             job,
-            job_section_text if scope_matched else "",
+            position_scope_text if position_scope_matched else "",
         )
+        decision_before_fit = decision
         decision, role_fit_reason = enforce_candidate_fit_rule(
             job,
             decision,
-            job_section_text if scope_matched else "",
+            position_scope_text if position_scope_matched else "",
             cv_match_score=cv_match_score,
         )
+        role_fit_overrode_ai = decision != decision_before_fit
 
         # ====================================================
         # LOCATION SAFETY LAYER
@@ -5687,7 +5744,7 @@ def process_post(
         scoped_job = dict(job)
         scoped_job["accommodation_provided"] = scoped_accommodation_value(
             job,
-            job_section_text if scope_matched else "",
+            position_scope_text if position_scope_matched else "",
             has_multiple_sections,
         )
 
@@ -5698,8 +5755,8 @@ def process_post(
         ) = enforce_location_rule(
             scoped_job,
             decision,
-            job_section_text if scope_matched else "",
-            section_verified=scope_matched,
+            position_scope_text if position_scope_matched else "",
+            section_verified=(scope_matched and position_scope_matched),
         )
 
         # ====================================================
@@ -5741,12 +5798,16 @@ def process_post(
                     "the intended recipient is ambiguous, so nothing was sent."
                 )
 
-        final_reason = str(job.get("reason") or "").strip()
+        final_reason = (
+            str(role_fit_reason or "").strip()
+            if role_fit_overrode_ai and role_fit_reason
+            else str(job.get("reason") or "").strip()
+        )
         if contact_review_reason:
             final_reason = (
                 (final_reason + " ") if final_reason else ""
             ) + contact_review_reason
-        if role_fit_reason:
+        if role_fit_reason and not role_fit_overrode_ai:
             final_reason = (
                 (final_reason + " ") if final_reason else ""
             ) + role_fit_reason
