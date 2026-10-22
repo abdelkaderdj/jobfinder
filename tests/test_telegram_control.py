@@ -1117,6 +1117,33 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(bot.state["review_history"][pending_id]["status"], "rejected")
         self.assertEqual(len(bot.state["rejected_job_history"]), 1)
 
+    def test_manual_review_message_reports_extracted_email_without_claiming_it_was_missing(self):
+        processor = FakeProcessor()
+        bot, _sent = self.build_bot(processor)
+        event = sample_event("REVIEW")
+        event["can_auto_send"] = False
+
+        rendered = bot._review_text(event)
+        self.assertIn("البريد المستخرج: jobs@example.org", rendered)
+        self.assertNotIn("بيانات الاتصال أو طريقة التقديم غير مؤكدة", rendered)
+
+        edits = []
+        bot._edit_message = lambda _query, text: edits.append(text)
+        bot.on_job_event(event)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        bot._handle_callback({
+            "id": "manual-accept-with-email",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:manual:{pending_id}",
+        })
+
+        self.assertEqual(processor.calls, [])
+        self.assertEqual(bot.state["review_history"][pending_id]["status"], "accepted_manual")
+        self.assertIn("البريد الذي استخرجه البوت: jobs@example.org", edits[0])
+        self.assertIn("زر «قبول يدوي»", edits[0])
+        self.assertNotIn("بيانات الاتصال أو طريقة التقديم غير مؤكدة", edits[0])
+
     def test_previously_rejected_job_is_blocked_across_reposts(self):
         bot, sent = self.build_bot()
         first = sample_event("REVIEW")
