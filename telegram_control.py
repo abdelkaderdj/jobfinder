@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -474,9 +475,16 @@ class TelegramJobBot:
         score = record.get("score")
         score_text = f"{score}/100" if score is not None else "غير متوفر"
         emails = record.get("emails") or []
-        email_text = ", ".join(str(email) for email in emails) if emails else "لا يوجد بريد واضح"
         reason = safe_text(record.get("reason"), 600)
         section = str(item.get("advertisement") or "").strip()
+        advertised_emails = _extract_ad_emails(section)
+        application_urls = _extract_application_urls(section)
+        if emails:
+            email_text = ", ".join(str(email) for email in emails)
+        elif advertised_emails:
+            email_text = "عناوين ظاهرة في الإعلان لكن تعذّر ربطها بأمان بهذا المنصب: " + ", ".join(advertised_emails)
+        else:
+            email_text = "لا يوجد بريد واضح"
         excerpt = section[:1700]
         source = str(item.get("post", {}).get("source") or "")
         message_id = item.get("post", {}).get("message_id")
@@ -501,11 +509,26 @@ class TelegramJobBot:
                 "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لن يُرسل بريد تلقائي لأن الإعلان "
                 "يحتوي على عدة عناوين، ويجب التحقق من العنوان الصحيح."
             )
+        elif advertised_emails:
+            action_note = (
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ يحتوي نص الإعلان على عناوين بريد، "
+                "لكن تعذّر ربط أيٍّ منها بشكل موثوق بهذا المنصب. لن يُرسل البريد تلقائيًا؛ "
+                "تحقّق من القسم الصحيح في الإعلان."
+            )
+        elif application_urls:
+            action_note = (
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُذكر بريد واضح لهذا المنصب. "
+                "يوجد رابط تقديم ظاهر أدناه، ولن يُرسل أي بريد تلقائيًا."
+            )
         else:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُعثر على بريد واضح مرتبط بهذه "
-                "الوظيفة. راجع الإعلان الأصلي لتحديد طريقة التقديم."
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُعثر على بريد أو رابط تقديم "
+                "واضح مرتبط بهذه الوظيفة. راجع الإعلان الأصلي لتحديد طريقة التقديم."
             )
+        application_note = (
+            "\n📨 رابط التقديم الظاهر في الإعلان: " + " | ".join(application_urls)
+            if application_urls else ""
+        )
         heading = (
             "🟠 تعذّر تحليل إعلان توظيف"
             if record.get("analysis_fallback")
@@ -519,7 +542,7 @@ class TelegramJobBot:
             f"📊 التقييم: {score_text}\n"
             f"📧 جهة التقديم: {email_text}\n"
             f"🧠 السبب: {reason}\n\n"
-            f"{action_note}\n\n"
+            f"{action_note}{application_note}\n\n"
             f"📄 مقتطف الإعلان:\n{excerpt}{source_link}"
         )[:3900]
 
@@ -648,10 +671,16 @@ class TelegramJobBot:
             )
             same_company = bool(current_company and old_company and current_company == old_company)
 
+            companies_conflict = bool(
+                current_company and old_company and current_company != old_company
+            )
             if similarity >= 0.82 and (
                 same_post
-                or (same_email and location_compatible)
                 or (same_company and location_compatible)
+                or (
+                    same_email and location_compatible and not companies_conflict
+                    and not current_company and not old_company
+                )
             ):
                 return "تم منع تكرار وظيفة سبق رفضها يدويًا."
 
@@ -1095,12 +1124,22 @@ class TelegramJobBot:
         if action == "manual":
             record = item.get("record") or {}
             emails = record.get("emails") or []
+            advertisement = str(item.get("advertisement") or "")
+            advertised_emails = _extract_ad_emails(advertisement)
+            application_urls = _extract_application_urls(advertisement)
             if len(emails) == 1:
                 contact_note = f"📧 البريد الذي استخرجه البوت: {safe_text(emails[0], 200)}.\n"
             elif len(emails) > 1:
-                contact_note = f"📧 استخرج البوت {len(emails)} عناوين بريد؛ يلزم التحقق يدويًا.\n"
+                contact_note = f"📧 استخرج البوت {len(emails)} عناوين مرتبطة بالوظيفة؛ يلزم التحقق يدويًا.\n"
+            elif advertised_emails:
+                contact_note = (
+                    "📧 عناوين موجودة في نص الإعلان لكن لم يستطع البوت ربطها بأمان بهذا المنصب: "
+                    + ", ".join(advertised_emails) + ".\n"
+                )
             else:
-                contact_note = "📧 لم يُعثر على بريد واضح مرتبط بهذه الوظيفة.\n"
+                contact_note = "📧 لم يُعثر على بريد توظيف واضح مرتبط بهذه الوظيفة.\n"
+            if application_urls:
+                contact_note += "📨 رابط التقديم الظاهر في الإعلان: " + " | ".join(application_urls) + "\n"
             self._resolve_review(pending_id, "accepted_manual")
             self._answer_callback(query_id, "تم القبول للمراجعة اليدوية.")
             self._edit_message(
@@ -1283,6 +1322,53 @@ class TelegramJobBot:
             for old_id in list(history.keys())[:-400]:
                 history.pop(old_id, None)
         self._save(f"Review resolved: {status}")
+
+
+def _extract_ad_emails(text: Any) -> list[str]:
+    """Extract addresses visible in the original ad for owner review only.
+
+    This list must never be used as permission to auto-send: record['emails']
+    contains only addresses safely associated with the specific position.
+    """
+    matches = re.findall(
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        str(text or ""),
+    )
+    return list(dict.fromkeys(
+        match.strip(".,;:!?()[]<>")
+        for match in matches if match.strip(".,;:!?()[]<>")
+    ))
+
+
+def _extract_application_urls(text: Any) -> list[str]:
+    """Find explicit application/form URLs, not every informational link in an ad."""
+    body = str(text or "")
+    found = []
+    direct_application_context = re.compile(
+        r"(?:uniquement\s+via.{0,45}(?:formulaire|form|site|lien)|"
+        r"(?:candidatures?|applications?).{0,100}(?:via|sur|through|submit|depose|"
+        r"formulaire|form|link|lien|site)|"
+        r"(?:postuler|apply|submit).{0,70}(?:via|sur|at|through|here|lien|link)|"
+        r"(?:formulaire.{0,60}(?:recrutement|candidature|application))|"
+        r"(?:mode de candidature|application method|how to apply|"
+        r"طريقة التقديم|رابط التقديم|التقديم عبر|إرسال الطلب عبر)",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    application_path = re.compile(
+        r"(?:/postuler(?:[/?#.]|$)|/apply(?:[/?#.]|$)|"
+        r"/candidature(?:[/?#.]|$)|application[-_/ ]?form|"
+        r"submit[-_/ ]?application|formulaire[-_/ ]?(?:recrutement|candidature))",
+        flags=re.IGNORECASE,
+    )
+    for match in re.finditer(r"https?://[^\s<>\]\)]+", body, flags=re.IGNORECASE):
+        url = match.group(0).rstrip(".,;:!?")
+        context = body[max(0, match.start() - 220):match.start()]
+        if application_path.search(url) or direct_application_context.search(context):
+            if url not in found:
+                found.append(url)
+        if len(found) >= 3:
+            break
+    return found
 
 
 def re_safe_channel(value: str) -> bool:
