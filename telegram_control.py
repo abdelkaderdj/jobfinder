@@ -704,6 +704,8 @@ class TelegramJobBot:
                     "record": record,
                     "job": job if isinstance(job, dict) else {},
                     "advertisement": str(event.get("advertisement") or "")[:8000],
+                    "position_scope_text": str(event.get("position_scope_text") or "")[:8000],
+                    "position_scope_matched": event.get("position_scope_matched") is True,
                     "post": event.get("post") or {},
                 }
                 pending[pending_id] = item
@@ -1100,7 +1102,30 @@ class TelegramJobBot:
         try:
             result = self.processor.send_approved_review(item)
         except Exception as exc:
-            # Keep the review pending and its button active for a deliberate retry.
+            safety_error_type = getattr(self.processor, "ManualReviewSafetyError", None)
+            if isinstance(safety_error_type, type) and isinstance(exc, safety_error_type):
+                # Old pending cards remain in encrypted state after deployments.
+                # Disable their send button on first interaction and make the reason visible.
+                item["can_auto_send"] = False
+                self._save("Stale/unsafe review auto-send disabled")
+                title = safe_text((item.get("record") or {}).get("application_job_title"), 200)
+                self._edit_message(
+                    query,
+                    "🛑 تم تعطيل الإرسال التلقائي لهذه البطاقة.\n\n"
+                    f"الوظيفة: {title}\n"
+                    "هذه البطاقة قديمة أو لم يمكن التحقق من شروط المنصب نفسه بعد تحديث القواعد. "
+                    "لن يُرسل بريد منها. أعد معالجة الإعلان الأصلي للحصول على قرار جديد."
+                )
+                self._send_owner(
+                    "🛑 منع JobFinder إرسال طلب من بطاقة مراجعة قديمة/غير آمنة.\n"
+                    f"الوظيفة: {title}\n"
+                    f"السبب: {safe_text(str(exc), 500)}\n"
+                    "تم تعطيل زر الإرسال لهذه البطاقة؛ أعد معالجة الإعلان الأصلي."
+                )
+                self._save("Unsafe review blocked and button removed")
+                return
+
+            # Other send failures keep the review pending for an intentional retry.
             self._send_owner(
                 "⚠️ تعذّر إرسال الطلب بعد موافقتك.\n"
                 f"الوظيفة: {safe_text((item.get('record') or {}).get('application_job_title'), 200)}\n"
