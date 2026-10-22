@@ -535,6 +535,33 @@ Kaader5881@gmail.com
                     (3, "waive_experience"),
                 )
 
+        # The relevant mechanical-maintenance role must no longer be rejected
+        # solely because the shared three-year condition sat in the post footer.
+        maintenance = jobs[3]
+        maintenance_text, matched, _reason = processor.resolve_job_position_scope(
+            maintenance, advertisement, jobs
+        )
+        self.assertTrue(matched)
+        maintenance_job = {
+            **maintenance,
+            "score": 45,
+            "reason": (
+                "The role requires experience in industrial maintenance, "
+                "which the candidate lacks."
+            ),
+        }
+        cv_match_score, _matched_groups = processor.calculate_candidate_cv_match(
+            maintenance_job, maintenance_text
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            maintenance_job,
+            "REJECT",
+            maintenance_text,
+            cv_match_score=cv_match_score,
+        )
+        self.assertEqual(final, "APPLY")
+        self.assertIn("تجاوز شرط الخبرة", reason)
+
     def test_arabic_batelec_maintenance_title_does_not_borrow_stock_manager_experience(self):
         advertisement = """SARL BATELEC – plusieurs postes
 1️⃣ Opérateur de Ligne
