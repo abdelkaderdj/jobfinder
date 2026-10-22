@@ -503,6 +503,38 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "APPLY")
         self.assertIn("بقية حواجز", reason)
 
+    def test_shared_global_three_year_experience_footer_applies_to_each_position(self):
+        advertisement = """🔴فرص توظيف مميزة – شركة Dsolution (وهران)
+✅ الأتمتة والضبط (Automatisme et régulation)
+✅ الهندسة الكهربائية (Électrotechnique)
+✅ القياس والأجهزة (Mesure et instrumentation)
+✅ الصيانة الصناعية (Maintenance industrielle)
+✅ الكهروميكانيك (Électromécanique)
+📍 مكان العمل: ولاية وهران
+📌 شرط أساسي: خبرة 3 سنوات او اقل
+📧 إرسال السيرة الذاتية إلى:
+Kaader5881@gmail.com
+"""
+        jobs = [
+            {"job_title": "Automatisme et régulation"},
+            {"job_title": "Électrotechnique"},
+            {"job_title": "Mesure et instrumentation"},
+            {"job_title": "Maintenance industrielle"},
+            {"job_title": "Électromécanique"},
+        ]
+
+        for job in jobs:
+            with self.subTest(role=job["job_title"]):
+                scoped_text, matched, _reason = processor.resolve_job_position_scope(
+                    job, advertisement, jobs
+                )
+                self.assertTrue(matched)
+                self.assertIn("خبرة 3 سنوات او اقل", scoped_text)
+                self.assertEqual(
+                    processor._experience_requirement_policy(scoped_text),
+                    (3, "waive_experience"),
+                )
+
     def test_arabic_batelec_maintenance_title_does_not_borrow_stock_manager_experience(self):
         advertisement = """SARL BATELEC – plusieurs postes
 1️⃣ Opérateur de Ligne
