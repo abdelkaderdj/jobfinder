@@ -815,7 +815,7 @@ Expérience pratique de 2 à 5 ans en logistique.
             job, "REJECT", advertisement, cv_match_score=60
         )
         self.assertEqual(final, "APPLY")
-        self.assertIn("n’a pas", reason.lower() if "n’a pas" in reason.lower() else " ".join(reason.lower().split()) if False else "بقية حواجز" if "بقية حواجز" in reason else "does-not-apply")
+        self.assertIn("بقية حواجز", reason)
     
     def test_four_year_requirement_not_sent_automatically(self):
         job = {
@@ -1054,6 +1054,32 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertIn("hiring-b@example.org", rendered)
         self.assertIn("تعذّر ربط", rendered)
         self.assertNotIn("لم يُعثر على بريد واضح مرتبط بهذه الوظيفة", rendered)
+
+    def test_manual_accept_reports_unscoped_emails_and_does_not_send(self):
+        processor = FakeProcessor()
+        bot, _sent = self.build_bot(processor)
+        event = sample_event("REVIEW")
+        event["record"]["emails"] = []
+        event["record"]["contact_scope_matched"] = False
+        event["advertisement"] = (
+            "Technicien de Maintenance Mécanique. "
+            "Contacts: hiring-a@example.org and hiring-b@example.org."
+        )
+        bot.on_job_event(event)
+        pending_id = next(iter(bot.state["pending_reviews"]))
+        edits = []
+        bot._edit_message = lambda _query, text: edits.append(text)
+        bot._handle_callback({
+            "id": "manual-unscoped-emails",
+            "from": {"id": 12345},
+            "message": {"chat": {"id": 12345}, "message_id": 42},
+            "data": f"jf:manual:{pending_id}",
+        })
+        self.assertEqual(processor.calls, [])
+        self.assertIn("hiring-a@example.org", edits[0])
+        self.assertIn("hiring-b@example.org", edits[0])
+        self.assertIn("لم يستطع البوت ربطها بأمان", edits[0])
+        self.assertIn("لم يُرسل بريد", edits[0])
 
     def test_review_shows_explicit_application_form_url_when_no_email_is_available(self):
         bot, _sent = self.build_bot()
