@@ -665,6 +665,21 @@ def _reason_is_experience_only(reason: str) -> bool:
     return not any(marker in text for marker in unrelated_reasons)
 
 
+def _reason_explicitly_says_candidate_lacks_experience(reason: str) -> bool:
+    """Separate an actual lack of experience from uncertain/unconfirmed experience."""
+    text = normalize_text(str(reason or ""))
+    lack_markers = (
+        "lacks experience", "lacks professional experience", "lack of experience",
+        "no experience", "no professional experience", "without experience",
+        "without professional experience", "has no experience", "has no professional experience",
+        "does not have experience", "does not have professional experience",
+        "candidate is inexperienced", "candidate has little experience",
+        "لا يملك خبرة", "لا يمتلك خبرة", "ليس لديه خبرة", "ليست لديه خبرة",
+        "عدم امتلاك خبرة", "بدون خبرة", "دون خبرة",
+    )
+    return any(marker in text for marker in lack_markers)
+
+
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
     """
     Verify a missing qualification only against this position's own ad block.
@@ -826,11 +841,17 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
+    reason = str(job.get("reason", ""))
+    no_requirement_lack_override = (
+        experience_policy is None
+        and decision in {"REJECT", "REVIEW"}
+        and _reason_explicitly_says_candidate_lacks_experience(reason)
+    )
     experience_only_override = (
-        experience_policy in {"waive_experience", None}
+        (experience_policy == "waive_experience" or no_requirement_lack_override)
         and potentially_relevant
         and cv_match_score >= 30
-        and _reason_is_experience_only(job.get("reason", ""))
+        and _reason_is_experience_only(reason)
     )
     if experience_only_override:
         if decision in {"REJECT", "REVIEW"}:
