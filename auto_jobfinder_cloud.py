@@ -19,6 +19,11 @@ from groq import Groq
 # SETTINGS
 # ============================================================
 
+# Bump this whenever candidate-fit policy changes. Old pending Telegram review
+# cards must be revalidated rather than being grandfathered into email sending.
+DECISION_RULES_VERSION = "cv-role-fit-v2"
+
+
 # Portable:
 # Works on Windows now and later on Linux/cloud
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -5956,6 +5961,9 @@ def process_post(
             "decision":
                 decision,
 
+            "decision_rules_version":
+                DECISION_RULES_VERSION,
+
             "original_ai_decision":
                 original_ai_decision,
 
@@ -6173,6 +6181,8 @@ def process_post(
             "record": record,
             "job": job,
             "advertisement": job_section_text if scope_matched else text,
+            "position_scope_text": position_scope_text if position_scope_matched else "",
+            "position_scope_matched": bool(position_scope_matched),
         }
         if JOB_EVENT_CALLBACK is not None:
             try:
@@ -6200,6 +6210,48 @@ def process_post(
 # MANUALLY APPROVED REVIEW APPLICATION
 # ============================================================
 
+class ManualReviewSafetyError(RuntimeError):
+    """Raised when a persisted review is stale or fails current candidate-fit policy."""
+
+
+def validate_manual_review_candidate_fit(item):
+    """
+    Fail closed before email sending if the review predates current policy,
+    lacks a verified position-specific ad block, or fails a current fit rule.
+    """
+    if not isinstance(item, dict):
+        raise RuntimeError("Review item is invalid")
+    record = item.get("record")
+    job = item.get("job")
+    if not isinstance(record, dict) or not isinstance(job, dict):
+        raise RuntimeError("Review data is incomplete")
+
+    if record.get("decision_rules_version") != DECISION_RULES_VERSION:
+        raise ManualReviewSafetyError(
+            "This review predates the current candidate-fit rules; automatic sending is blocked. "
+            "Reprocess the original vacancy to create a current review."
+        )
+
+    if item.get("position_scope_matched") is not True or not str(
+        item.get("position_scope_text") or ""
+    ).strip():
+        raise ManualReviewSafetyError(
+            "The position-specific advertisement block was not verified; automatic sending is blocked."
+        )
+
+    fit_decision, reason = enforce_candidate_fit_rule(
+        job,
+        "REVIEW",
+        str(item.get("position_scope_text") or ""),
+        cv_match_score=record.get("cv_match_score"),
+    )
+    if fit_decision == "REJECT":
+        raise ManualReviewSafetyError(
+            "Current candidate-fit rules blocked manual sending: " + str(reason or "role/qualification mismatch")
+        )
+    return True
+
+
 def send_approved_review(item):
     """Send only a validated, explicitly approved real job review."""
     if not isinstance(item, dict):
@@ -6213,6 +6265,7 @@ def send_approved_review(item):
     # Keep this invariant in the sending layer, even if persisted review fields change.
     if record.get("analysis_fallback") is True:
         raise RuntimeError("An extraction-fallback card cannot be submitted as a job application")
+    validate_manual_review_candidate_fit(item)
     emails = record.get("emails") or []
     title = str(record.get("application_job_title") or "").strip()
     cv_path = str(record.get("cv") or "").strip()
