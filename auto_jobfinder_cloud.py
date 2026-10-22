@@ -365,6 +365,8 @@ STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bhydraulic systems\b", r"\bsystemes fluidiques\b",
     r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
     r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
+    r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+    r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
 )
 
 GENERIC_TECHNICAL_ROLE_PATTERNS = (
@@ -381,6 +383,8 @@ CV_MATCH_SKILL_GROUPS = (
         (
             r"\bmaintenance\b", r"\bmainten\w*\b", r"\bpreventive maintenance\b",
             r"\bcorrective maintenance\b", r"\bصيانة\b", r"\bالصيانة\b",
+            r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+            r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
             r"\bdiagnostic\b", r"\bdepannage\b",
         ),
     ),
@@ -498,6 +502,8 @@ def calculate_candidate_cv_match(job, advertisement=""):
         r"\btechnicien hydraulique\b", r"\btechnicien des pompes\b",
         r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
         r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
+        r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+        r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
     )
     title_adjacent = (
         r"\btechnicien\w*\b", r"\btechnician\w*\b",
@@ -657,6 +663,21 @@ def _reason_is_experience_only(reason: str) -> bool:
         "هندسة مدنية", "مخبر", "مخازن",
     )
     return not any(marker in text for marker in unrelated_reasons)
+
+
+def _reason_explicitly_says_candidate_lacks_experience(reason: str) -> bool:
+    """Separate an actual lack of experience from uncertain/unconfirmed experience."""
+    text = normalize_text(str(reason or ""))
+    lack_markers = (
+        "lacks experience", "lacks professional experience", "lack of experience",
+        "no experience", "no professional experience", "without experience",
+        "without professional experience", "has no experience", "has no professional experience",
+        "does not have experience", "does not have professional experience",
+        "candidate is inexperienced", "candidate has little experience",
+        "لا يملك خبرة", "لا يمتلك خبرة", "ليس لديه خبرة", "ليست لديه خبرة",
+        "عدم امتلاك خبرة", "بدون خبرة", "دون خبرة",
+    )
+    return any(marker in text for marker in lack_markers)
 
 
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
@@ -820,19 +841,31 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
+    reason = str(job.get("reason", ""))
+    no_requirement_lack_override = (
+        experience_policy is None
+        and decision in {"REJECT", "REVIEW"}
+        and _reason_explicitly_says_candidate_lacks_experience(reason)
+    )
     experience_only_override = (
-        experience_policy == "waive_experience"
+        (experience_policy == "waive_experience" or no_requirement_lack_override)
         and potentially_relevant
         and cv_match_score >= 30
-        and _reason_is_experience_only(job.get("reason", ""))
+        and _reason_is_experience_only(reason)
     )
     if experience_only_override:
         if decision in {"REJECT", "REVIEW"}:
             decision = "APPLY"
-        experience_waiver_reason = (
-            f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
-            "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
-        )
+        if experience_policy == "waive_experience":
+            experience_waiver_reason = (
+                f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
+                "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
+            )
+        else:
+            experience_waiver_reason = (
+                "لا يذكر الإعلان شرط خبرة إلزاميًا، لذلك لم يُستخدم نقص الخبرة سببًا للرفض؛ "
+                "بقية حواجز التخصص والمؤهل والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
+            )
     else:
         experience_waiver_reason = ""
 

@@ -401,6 +401,33 @@ class TelegramControlTests(unittest.TestCase):
                 )
                 self.assertEqual(final, "REJECT")
 
+    def test_arabic_industrial_maintenance_is_relevant_when_experience_is_not_required_or_is_at_most_three_years(self):
+        job = {
+            "job_title": "الصيانة الصناعية",
+            "score": 10,
+            "reason": "The candidate lacks professional experience.",
+        }
+        cv_score, groups = processor.calculate_candidate_cv_match(
+            job, "الصيانة الصناعية (Maintenance industrielle)"
+        )
+        self.assertGreaterEqual(cv_score, 30)
+        self.assertIn("industrial_maintenance", groups)
+
+        advertisements = (
+            "الصيانة الصناعية (Maintenance industrielle)",
+            "الصيانة الصناعية (Maintenance industrielle)\\nشرط أساسي: خبرة 3 سنوات أو أقل",
+        )
+        for advertisement in advertisements:
+            with self.subTest(advertisement=advertisement):
+                final, reason = processor.enforce_candidate_fit_rule(
+                    job,
+                    "REJECT",
+                    advertisement,
+                    cv_match_score=cv_score,
+                )
+                self.assertEqual(final, "APPLY")
+                self.assertIn("بقية حواجز", reason)
+
     def test_six_months_experience_requirement_is_waived_if_experience_is_the_only_issue(self):
         title = "Service Operator I – Surface Solutions / Baroid"
         advertisement = (
