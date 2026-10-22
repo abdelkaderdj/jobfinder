@@ -490,10 +490,21 @@ class TelegramJobBot:
             )
         elif item.get("can_auto_send"):
             action_note = "✅ القبول سيرسل طلبًا بالبريد بعد إعادة فحص التكرار."
+        elif len(emails) == 1:
+            action_note = (
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ هذا الزر لا يرسل بريدًا. "
+                f"البريد المستخرج: {safe_text(emails[0], 200)}. "
+                "الإرسال التلقائي غير متاح لهذه البطاقة؛ راجع السبب أعلاه."
+            )
+        elif len(emails) > 1:
+            action_note = (
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لن يُرسل بريد تلقائي لأن الإعلان "
+                "يحتوي على عدة عناوين، ويجب التحقق من العنوان الصحيح."
+            )
         else:
             action_note = (
-                "⚠️ القبول هنا يعني قبولًا للمراجعة اليدوية فقط؛ لن يُرسل بريد تلقائيًا "
-                "لأن وسيلة التقديم أو بيانات الاتصال غير مؤكدة."
+                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُعثر على بريد واضح مرتبط بهذه "
+                "الوظيفة. راجع الإعلان الأصلي لتحديد طريقة التقديم."
             )
         heading = (
             "🟠 تعذّر تحليل إعلان توظيف"
@@ -1082,13 +1093,22 @@ class TelegramJobBot:
             return
 
         if action == "manual":
+            record = item.get("record") or {}
+            emails = record.get("emails") or []
+            if len(emails) == 1:
+                contact_note = f"📧 البريد الذي استخرجه البوت: {safe_text(emails[0], 200)}.\n"
+            elif len(emails) > 1:
+                contact_note = f"📧 استخرج البوت {len(emails)} عناوين بريد؛ يلزم التحقق يدويًا.\n"
+            else:
+                contact_note = "📧 لم يُعثر على بريد واضح مرتبط بهذه الوظيفة.\n"
             self._resolve_review(pending_id, "accepted_manual")
             self._answer_callback(query_id, "تم القبول للمراجعة اليدوية.")
             self._edit_message(
                 query,
                 "✅ تم قبول الوظيفة للمراجعة اليدوية.\n"
-                "لم يتم إرسال بريد تلقائي لأن بيانات الاتصال أو طريقة التقديم غير مؤكدة.\n\n"
-                + safe_text((item.get("record") or {}).get("application_job_title"), 200),
+                + contact_note
+                + "لم يُرسل بريد لأن زر «قبول يدوي» يسجل المراجعة فقط ولا يرسل طلبًا تلقائيًا.\n\n"
+                + safe_text(record.get("application_job_title") or record.get("job_title"), 200),
             )
             return
 
