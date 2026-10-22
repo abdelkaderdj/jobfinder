@@ -551,6 +551,114 @@ def _is_senior_role_title(normalized_title: str) -> bool:
 
 
 
+def _experience_requirement_years(advertisement: str):
+    """
+    Extract the stated minimum experience threshold for this position.
+    For "2 to 5 years", use 2 as the stated lower/minimum endpoint.
+    Convert months to a fraction of a year; return None if not tied to experience.
+    """
+    raw = str(advertisement or "").lower()
+    digit_map = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    raw = raw.translate(digit_map)
+    raw = unicodedata.normalize("NFKD", raw)
+    raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    raw = raw.replace("’", "'").replace("–", "-").replace("—", "-")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    if not raw:
+        return None
+
+    experience = (
+        r"(?:experience|experiences|experience professionnelle|professional experience|"
+        r"work experience|years of experience|experience in the field|"
+        r"exp[eé]rience|خبرة|الخبرة|سنوات الخبرة)"
+    )
+    unit = r"(?:years?|yrs?|ans?|annees|months?|mois|سنوات|سنة|اشهر|شهر)"
+    number = r"\d+(?:[.,]\d+)?"
+    candidates = []
+
+    range_pattern = re.compile(
+        rf"(?P<low>{number})\s*(?:to|a|à|-)\s*(?P<high>{number})\s*(?P<unit>{unit})",
+        flags=re.IGNORECASE,
+    )
+    for match in range_pattern.finditer(raw):
+        before = raw[max(0, match.start() - 65):match.start()]
+        after = raw[match.end():min(len(raw), match.end() + 55)]
+        if re.search(experience, before, re.IGNORECASE) or re.search(experience, after, re.IGNORECASE):
+            try:
+                value = float(match.group("low").replace(",", "."))
+            except (TypeError, ValueError):
+                continue
+            if match.group("unit").lower() in {"month", "months", "mois", "شهر", "اشهر"}:
+                value /= 12.0
+            candidates.append((match.start(), match.end(), value))
+
+    single_pattern = re.compile(
+        rf"(?P<n>{number})\s*(?P<unit>{unit})",
+        flags=re.IGNORECASE,
+    )
+    for match in single_pattern.finditer(raw):
+        if any(start <= match.start() < end for start, end, _value in candidates):
+            continue
+        before = raw[max(0, match.start() - 65):match.start()]
+        after = raw[match.end():min(len(raw), match.end() + 55)]
+        if not (
+            re.search(experience, before, re.IGNORECASE)
+            or re.search(experience, after, re.IGNORECASE)
+        ):
+            continue
+        try:
+            value = float(match.group("n").replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if match.group("unit").lower() in {"month", "months", "mois", "شهر", "اشهر"}:
+            value /= 12.0
+        candidates.append((match.start(), match.end(), value))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return max(0.0, candidates[0][2])
+
+
+def _experience_requirement_policy(advertisement: str):
+    """
+    <=3 years: experience is not a rejection reason; 3..4 years: REVIEW;
+    >4 years: REJECT. This affects only experience, not other eligibility rules.
+    """
+    years = _experience_requirement_years(advertisement)
+    if years is None:
+        return None, None
+    if years <= 3:
+        return years, "waive_experience"
+    if years <= 4:
+        return years, "manual_review"
+    return years, "reject"
+
+
+def _reason_is_experience_only(reason: str) -> bool:
+    """Return true only if the AI's explanation contains no independent mismatch."""
+    text = normalize_text(str(reason or ""))
+    if not text or not re.search(
+        r"(experience|experienced|years?|yrs?|ans?|annees|months?|mois|"
+        r"experience professionnelle|work experience|خبرة|سنوات|سنة|اشهر|شهر)",
+        text,
+    ):
+        return False
+    unrelated_reasons = (
+        "degree", "diploma", "diplome", "master", "bachelor", "licence",
+        "ingenieur", "engineer", "certification", "certificate", "license",
+        "training", "trained", "formation", "internship", "stage professionnel",
+        "skill gap", "missing skills", "competency", "specialization", "speciality",
+        "discipline", "electrical", "electricity",
+        "electromechanical", "civil engineering", "hse", "aviation", "aircraft",
+        "laboratory", "logistics", "inventory", "location", "residency", "residence",
+        "housing", "driving licence", "wrong field", "not related", "unrelated",
+        "does not match", "تخصص مختلف", "شهادة مهندس", "كهرباء", "كهروميكانيك",
+        "هندسة مدنية", "مخبر", "مخازن",
+    )
+    return not any(marker in text for marker in unrelated_reasons)
+
+
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
     """
     Verify a missing qualification only against this position's own ad block.
@@ -559,16 +667,9 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     if not ad:
         return False
 
-    time_unit = r"(?:years?|ans|annees|an|months?|mois|سنوات|سنة|اشهر|شهر)"
-    # Covers "at least 6 months", "2 years minimum", "2 to 5 years",
-    # "6 أشهر على الأقل", and "2 à 5 ans".
-    explicit_time_requirement = re.search(
-        rf"(?:minimum|min\.?|at least|no less than|au moins|minimum de)\s*\d+\s*{time_unit}"
-        rf"|\d+\s*{time_unit}\s*(?:minimum|min\.?|at least|au moins|sur au moins|على الاقل|كحد أدنى)"
-        rf"|\d+\s*(?:to|à|a|[-–])\s*\d+\s*{time_unit}"
-        rf"|(?:experience|experience professionnelle|خبرة).{0,25}\d+\s*{time_unit}\s*(?:minimum|min\.?|au moins|على الأقل)",
-        ad,
-    )
+    required_years, experience_policy = _experience_requirement_policy(ad)
+    if required_years is not None and experience_policy == "reject":
+        return True
 
     no_experience_required = re.search(
         r"(no experience (?:is )?required|no prior experience|no previous experience|"
@@ -583,27 +684,28 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         r"بدون خبرة|دون خبرة|للمبتدئين)",
         ad,
     )
-    if explicit_time_requirement and not no_experience_required:
-        return True
 
-    experience_language = re.search(
-        r"(experience professionnelle|professional experience|work experience|"
-        r"experience in the field|experience|خبرة مهنية|خبرة في المجال|خبرة)",
-        ad,
-    )
-    mandatory_experience_nearby = re.search(
-        r"(?:professional experience|experience professionnelle|work experience|"
-        r"experience|خبرة مهنية|خبرة).{0,40}"
-        r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-        r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية)"
-        r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-        r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية).{0,40}"
-        r"(?:professional experience|experience professionnelle|work experience|"
-        r"experience|خبرة مهنية|خبرة)",
-        ad,
-    )
-    if experience_language and mandatory_experience_nearby and not no_experience_required:
-        return True
+    # Preserve the prior rule for an unquantified mandatory-experience condition.
+    # Numeric requirements up to 4 years are governed by the explicit threshold rule.
+    if required_years is None and not no_experience_required:
+        experience_language = re.search(
+            r"(experience professionnelle|professional experience|work experience|"
+            r"experience in the field|experience|خبرة مهنية|خبرة في المجال|خبرة)",
+            ad,
+        )
+        mandatory_experience_nearby = re.search(
+            r"(?:professional experience|experience professionnelle|work experience|"
+            r"experience|خبرة مهنية|خبرة).{0,40}"
+            r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+            r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية)"
+            r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+            r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية).{0,40}"
+            r"(?:professional experience|experience professionnelle|work experience|"
+            r"experience|خبرة مهنية|خبرة)",
+            ad,
+        )
+        if experience_language and mandatory_experience_nearby:
+            return True
 
     # A Licence/Bac+3 is not an Ingénieur d'État/Master/Bac+5 qualification.
     # Explicit Engineer title mismatches are handled in the title gate below.
@@ -700,16 +802,39 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if ai_score is not None and (ai_score < 0 or ai_score > 100):
         return "REJECT", "رُفضت الوظيفة لأن درجة AI خارج النطاق الصحيح 0–100."
 
-    # This check has precedence over APPLY/REVIEW/REJECT. A clear mandatory
-    # missing experience requirement cannot be softened into REVIEW by AI.
+    # Hard mismatches (degree, excluded discipline, named credentials, or >4
+    # years of experience) still reject before any experience exception.
     if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
         return (
             "REJECT",
-            "رُفضت الوظيفة لأن إعلان هذا المنصب يثبت شرط خبرة/مؤهل إلزاميًا لا تستوفيه السيرة. لا يُحوَّل الشرط الصريح إلى مراجعة لمجرد أن الوظيفة تقنية.",
+            "رُفضت الوظيفة لأن الإعلان يثبت شرطًا إلزاميًا خارج استثناء سنوات الخبرة. لا تتغلب قاعدة الخبرة على التخصص أو المؤهل أو الاعتماد المطلوب.",
         )
 
     if _is_senior_role_title(normalized_title):
         return "REJECT", "رُفضت الوظيفة لأن المسمى إشرافي/قيادي ولا يناسب مستوى المرشح الحالي دون خبرة مهنية."
+
+    required_years, experience_policy = _experience_requirement_policy(advertisement)
+    if experience_policy == "manual_review":
+        return (
+            "REVIEW",
+            f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
+        )
+
+    experience_only_override = (
+        experience_policy == "waive_experience"
+        and potentially_relevant
+        and cv_match_score >= 30
+        and _reason_is_experience_only(job.get("reason", ""))
+    )
+    if experience_only_override:
+        if decision in {"REJECT", "REVIEW"}:
+            decision = "APPLY"
+        experience_waiver_reason = (
+            f"تم تجاوز شرط الخبرة ({required_years:g} سنة/سنوات أو أقل) وفق القاعدة المتفق عليها؛ "
+            "لم يظهر في سبب الرفض نقص تخصص/مؤهل مستقل. بقية حواجز التخصص والموقع ووسيلة التقديم والتكرار ما زالت فعالة."
+        )
+    else:
+        experience_waiver_reason = ""
 
     if decision == "REJECT":
         if potentially_relevant:
@@ -730,12 +855,16 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
                 "REVIEW",
                 f"المسمى قريب تقنيًا لكن الأدلة الخاصة بهذا المنصب ضعيفة (مؤشر CV {cv_match_score}/100)؛ يلزم تحقق يدوي قبل أي تقديم.",
             )
-        if ai_score is not None and ai_score < 35:
+        if ai_score is not None and ai_score < 35 and not experience_only_override:
             return (
                 "REVIEW",
                 f"درجة AI منخفضة ({ai_score:g}/100) رغم وجود صلة محتملة؛ يلزم تحقق يدوي قبل التقديم.",
             )
-        if not any(re.search(p, normalized_title) for p in STRONG_RELEVANT_ROLE_PATTERNS) and cv_match_score < 50:
+        if (
+            not any(re.search(p, normalized_title) for p in STRONG_RELEVANT_ROLE_PATTERNS)
+            and cv_match_score < 50
+            and not experience_only_override
+        ):
             return (
                 "REVIEW",
                 f"المنصب صناعي/تقني عام وليس تطابقًا مباشرًا واضحًا (مؤشر CV {cv_match_score}/100)؛ لا إرسال آلي.",
@@ -749,7 +878,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             )
         return "REVIEW", ""
 
-    return decision, ""
+    return decision, experience_waiver_reason if experience_only_override else ""
 
 def contains_arabic(text):
 

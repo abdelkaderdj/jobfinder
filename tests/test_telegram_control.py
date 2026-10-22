@@ -268,7 +268,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعة بشرية", reason)
         self.assertIn("مراجعة بشرية", reason)
 
-    def test_explicit_mandatory_experience_can_keep_relevant_role_rejected(self):
+    def test_two_year_experience_requirement_does_not_block_experience_only_application(self):
         job = {
             "job_title": "Opérateur de Machine CNC",
             "score": 30,
@@ -282,11 +282,16 @@ class TelegramControlTests(unittest.TestCase):
             "Expérience professionnelle obligatoire, minimum 2 ans en usinage CNC."
         )
 
-        final, _reason = processor.enforce_candidate_fit_rule(
-            job, "REJECT", advertisement
+        self.assertEqual(processor._experience_requirement_years(advertisement), 2)
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(job, advertisement)
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement, cv_match_score=40
         )
 
-        self.assertEqual(final, "REJECT")
+        self.assertEqual(final, "APPLY")
+        self.assertIn("تجاوز شرط الخبرة", reason)
 
     def test_relevant_role_with_low_score_is_manual_review_not_auto_rejection(self):
         job = {
@@ -396,7 +401,7 @@ class TelegramControlTests(unittest.TestCase):
                 )
                 self.assertEqual(final, "REJECT")
 
-    def test_six_months_at_least_arabic_is_hard_rejection_even_if_ai_says_review(self):
+    def test_six_months_experience_requirement_is_waived_if_experience_is_the_only_issue(self):
         title = "Service Operator I – Surface Solutions / Baroid"
         advertisement = (
             "Service Operator I – Surface Solutions / Baroid\\n"
@@ -404,18 +409,23 @@ class TelegramControlTests(unittest.TestCase):
             "الخبرة: 6 أشهر على الأقل في المجال.\\n"
             "تشغيل ومتابعة معدات معالجة سوائل الحفر."
         )
-        self.assertTrue(
-            processor._advertisement_explicitly_requires_missing_qualification(
-                {"job_title": title}, advertisement
-            )
+        job = {
+            "job_title": title,
+            "score": 30,
+            "reason": (
+                "The position requires at least 6 months of experience in the field, "
+                "whereas the candidate has no professional experience."
+            ),
+        }
+        self.assertAlmostEqual(processor._experience_requirement_years(advertisement), 0.5)
+        self.assertFalse(
+            processor._advertisement_explicitly_requires_missing_qualification(job, advertisement)
         )
         final, reason = processor.enforce_candidate_fit_rule(
-            {"job_title": title, "score": 30},
-            "REVIEW",
-            advertisement,
+            job, "REVIEW", advertisement, cv_match_score=45
         )
-        self.assertEqual(final, "REJECT")
-        self.assertIn("شرط خبرة", reason)
+        self.assertEqual(final, "APPLY")
+        self.assertIn("بقية حواجز", reason)
 
     def test_halliburton_arabic_role_headings_bind_experience_to_the_correct_position(self):
         advertisement = """إعلان توظيف | Halliburton
@@ -471,19 +481,27 @@ class TelegramControlTests(unittest.TestCase):
         self.assertNotIn("6 اشهر", processor.normalize_text(laboratory_text))
         self.assertIn("6 اشهر على الاقل", processor.normalize_text(operator_text))
         self.assertNotIn("4 سنوات", processor.normalize_text(operator_text))
-        self.assertTrue(
+        operator_job = {
+            **operator,
+            "score": 30,
+            "reason": (
+                "The position requires at least 6 months of experience in the field, "
+                "whereas the candidate has no professional experience."
+            ),
+        }
+        self.assertFalse(
             processor._advertisement_explicitly_requires_missing_qualification(
-                operator, operator_text
+                operator_job, operator_text
             )
         )
         final, reason = processor.enforce_candidate_fit_rule(
-            {**operator, "score": 30},
+            operator_job,
             "REVIEW",
             operator_text,
-            cv_match_score=30,
+            cv_match_score=45,
         )
-        self.assertEqual(final, "REJECT")
-        self.assertIn("شرط خبرة", reason)
+        self.assertEqual(final, "APPLY")
+        self.assertIn("بقية حواجز", reason)
 
     def test_arabic_batelec_maintenance_title_does_not_borrow_stock_manager_experience(self):
         advertisement = """SARL BATELEC – plusieurs postes
@@ -521,12 +539,17 @@ Expérience pratique de 2 à 5 ans en logistique.
             )
         )
 
-    def test_french_two_to_five_year_requirement_is_hard_rejection(self):
+    def test_range_two_to_five_uses_lower_minimum_two_years_for_policy(self):
         advertisement = (
             "Technicien Maintenance\\n"
             "Expérience pratique de 2 à 5 ans dans un environnement industriel."
         )
-        self.assertTrue(
+        self.assertEqual(processor._experience_requirement_years(advertisement), 2)
+        self.assertEqual(
+            processor._experience_requirement_policy(advertisement),
+            (2, "waive_experience"),
+        )
+        self.assertFalse(
             processor._advertisement_explicitly_requires_missing_qualification(
                 {"job_title": "Technicien Maintenance"}, advertisement
             )
@@ -572,6 +595,81 @@ Expérience pratique de 2 à 5 ans en logistique.
                 maintenance, maint_text
             )
         )
+
+    def test_three_years_is_experience_waiver_and_four_years_requires_review(self):
+        cases = [
+            ("Minimum 3 years of professional experience in mechanical maintenance.", 3, "waive_experience"),
+            ("Expérience professionnelle obligatoire de 4 ans en maintenance mécanique.", 4, "manual_review"),
+            ("At least 5 years of experience in mechanical maintenance.", 5, "reject"),
+            ("الخبرة: 3 سنوات على الأقل في الصيانة الميكانيكية.", 3, "waive_experience"),
+            ("الخبرة المطلوبة: 4 سنوات في الصيانة الميكانيكية.", 4, "manual_review"),
+        ]
+        for advertisement, expected_years, expected_policy in cases:
+            with self.subTest(advertisement=advertisement):
+                years, policy = processor._experience_requirement_policy(advertisement)
+                self.assertEqual(years, expected_years)
+                self.assertEqual(policy, expected_policy)
+
+    def test_four_year_requirement_not_sent_automatically(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 85,
+            "reason": "Strong technical match, but the role requires 4 years of experience.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "APPLY",
+            "Technicien de maintenance. Minimum 4 years of professional experience.",
+            cv_match_score=60,
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertIn("4", reason)
+        self.assertIn("مراجعة اليدوية", reason)
+
+    def test_three_year_experience_waiver_does_not_override_degree_mismatch(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 85,
+            "reason": "The candidate lacks an engineering degree and the required 3 years of experience.",
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REJECT",
+            "Technicien de maintenance. Master degree required. Minimum 3 years of experience.",
+            cv_match_score=60,
+        )
+        self.assertEqual(final, "REJECT")
+
+    def test_experience_waiver_does_not_override_missing_training(self):
+        job = {
+            "job_title": "Opérateur de Machine CNC",
+            "score": 30,
+            "reason": (
+                "The role requires professional experience or training in CNC machining, "
+                "which the candidate lacks."
+            ),
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REJECT",
+            "Opérateur de Machine CNC. Minimum 2 years of professional experience.",
+            cv_match_score=40,
+        )
+        self.assertEqual(final, "REVIEW")
+
+    def test_experience_waiver_does_not_override_unrelated_reason(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 25,
+            "reason": "The candidate has no experience and the required electrical certification is missing.",
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REJECT",
+            "Technicien de maintenance. Minimum 2 years of professional experience.",
+            cv_match_score=60,
+        )
+        self.assertEqual(final, "REVIEW")
 
     def test_no_experience_required_must_not_be_treated_as_a_hard_mismatch(self):
         self.assertFalse(
