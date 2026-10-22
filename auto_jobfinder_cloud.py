@@ -560,27 +560,79 @@ def _is_senior_role_title(normalized_title: str) -> bool:
 
 
 
+def _is_explicitly_not_required(text: str) -> bool:
+    """Detect negated/optional qualification language after text normalization."""
+    normalized = normalize_text(str(text or ""))
+    return bool(re.search(
+        r"(?:\\bnot required\\b|\\bnot mandatory\\b|\\bnot necessary\\b|"
+        r"\\bnot needed\\b|\\bnot a requirement\\b|\\bis not required\\b|"
+        r"\\bis not mandatory\\b|\\bpas requis(?:e)?\\b|\\bnon requis(?:e)?\\b|"
+        r"\\bpas exige(?:e)?\\b|\\bnon exige(?:e)?\\b|"
+        r"\\bpas obligatoire\\b|\\bnon obligatoire\\b|"
+        r"\\bpas necessaire\\b|\\bnon necessaire\\b|"
+        r"\\bn est pas requis(?:e)?\\b|\\bn est pas exige(?:e)?\\b|"
+        r"\\bغير مطلوب(?:ة)?\\b|\\bليس مطلوب(?:ا|ة)?\\b|"
+        r"\\bلا يشترط\\b|\\bغير إجباري\\b|\\bليس إلزامي(?:ا|ة)?\\b|"
+        r"\\bلا يلزم\\b)",
+        normalized,
+        flags=re.IGNORECASE,
+    ))
+
+
 def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
-    """True only when the ad itself explicitly accepts Licence/Bac+3-level applicants."""
+    """True only when the position-specific ad explicitly accepts/requires Licence/Bac+3."""
     text = normalize_text(str(advertisement or ""))
-    acceptance_patterns = (
-        r"\bholders? of (?:a )?(?:licence|bachelor)",
-        r"\b(?:licence|bachelor)(?: degree)?\b.{0,65}\b(?:required|accepted|eligible|in one of)\b",
-        r"\btitulaires? d une licence\b",
-        r"\blicence en\b",
-        r"\bbac ?\+? ?3\b.{0,45}\b(?:required|accepted|eligible|license|licence|degree|diploma)\b",
-        r"\bحاملو شهادة ليسانس\b",
-        r"\bحاملي شهادة ليسانس\b",
-        r"\bحامل شهادة ليسانس\b",
-        r"\bشهادة ليسانس في\b",
-        r"\bليسانس في احد التخصصات\b",
-        r"\bشهادة البكالوريوس\b",
+    degree_pattern = re.compile(
+        r"(?:\\blicence\\b|\\bbachelor(?: degree)?\\b|"
+        r"\\bbac ?\\+? ?3\\b|\\bbac3\\b|"
+        r"شهادة ليسانس|ليسانس|شهادة البكالوريوس|بكالوريوس)",
+        flags=re.IGNORECASE,
     )
-    if not any(re.search(pattern, text) for pattern in acceptance_patterns):
+    acceptance_pattern = re.compile(
+        r"(?:\\baccepted\\b|\\baccept(?:ed|able)\\b|\\baccepte(?:e|es|s)?\\b|"
+        r"\\badmissible\\b|\\beligible\\b|\\brequired\\b|\\brequis(?:e)?\\b|"
+        r"\\bexige(?:e)?\\b|\\bobligatoire\\b|\\badmis(?:e)?\\b|"
+        r"\\bequivalent\\b|\\bminimum\\b|\\bsuffisant(?:e)?\\b|"
+        r"مقبول(?:ة)?|مطلوب(?:ة)?|مؤهل|معادل|لازم)",
+        flags=re.IGNORECASE,
+    )
+
+    # A generic mention such as "Diplôme Licence/Bac+3 en mécanique" is not
+    # proof that an Ingénieur-grade role accepts this qualification. Require
+    # an explicit positive requirement/acceptance statement near the degree.
+    explicitly_accepted = False
+    for degree in degree_pattern.finditer(text):
+        window_start = max(0, degree.start() - 45)
+        window_end = min(len(text), degree.end() + 55)
+        window = text[window_start:window_end]
+        for marker in acceptance_pattern.finditer(window):
+            marker_prefix = window[max(0, marker.start() - 25):marker.start()]
+            if re.search(
+                r"(?:\\bnot|\\bpas|\\bnon|\\bn est pas|\\bis not|"
+                r"\\bisnt|\\bne pas|\\bغير|\\bليس|\\bلا)\\s*$",
+                marker_prefix,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            explicitly_accepted = True
+            break
+        if explicitly_accepted:
+            break
+
+    holder_patterns = (
+        r"\\bholders? of (?:a )?(?:licence|bachelor)(?: degree)?\\b",
+        r"\\btitulaires? d une licence\\b",
+        r"حاملو شهادة ليسانس|حاملي شهادة ليسانس|حامل شهادة ليسانس",
+    )
+    explicitly_accepted = explicitly_accepted or any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in holder_patterns
+    )
+    if not explicitly_accepted:
         return False
 
-    # An explicitly mandatory engineering diploma / Bac+5 still wins over a
-    # generic mention of Licence elsewhere in the advertisement.
+    # A mandatory engineering diploma / Bac+5 still wins over Licence/Bac+3.
+    # Negated requirements such as "Bac+5 not required" are not mandatory.
     mandatory_higher_degree = re.search(
         r"(diplome d ingenieur|diplome ingenieur|ingenieur d etat|"
         r"master(?:s)? degree|master 2|bac ?5|doctorat|phd|"
@@ -594,8 +646,13 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
         r"master(?:s)? degree|master 2|bac ?5|doctorat|phd|"
         r"شهادة مهندس|مهندس دولة|ماستر|باك ?5)",
         text,
+        flags=re.IGNORECASE,
     )
-    return mandatory_higher_degree is None
+    if mandatory_higher_degree is None:
+        return True
+    window = text[max(0, mandatory_higher_degree.start() - 35):
+                  min(len(text), mandatory_higher_degree.end() + 45)]
+    return _is_explicitly_not_required(window)
 
 
 def _experience_requirement_years(advertisement: str):
@@ -643,6 +700,14 @@ def _experience_requirement_years(advertisement: str):
         rf"(?P<n>{number})\s*(?P<unit>{unit})",
         flags=re.IGNORECASE,
     )
+    max_only_markers = re.compile(
+        r"(?:\\bup to\\b|\\bat most\\b|\\bno more than\\b|\\bnot more than\\b|"
+        r"\\bmaximum(?: of)?\\b|\\bmax\\.?\\b|\\bau maximum\\b|\\bau plus\\b|"
+        r"\\bmaximal(?:e)?(?: de)?\\b|\\bor less\\b|\\bor fewer\\b|"
+        r"كحد اقصى|بحد اقصى|على الاكثر|لا يزيد عن|لا تتجاوز|اقصى حد)",
+        flags=re.IGNORECASE,
+    )
+
     for match in single_pattern.finditer(raw):
         if any(start <= match.start() < end for start, end, _value in candidates):
             continue
@@ -652,6 +717,9 @@ def _experience_requirement_years(advertisement: str):
             re.search(experience, before, re.IGNORECASE)
             or re.search(experience, after, re.IGNORECASE)
         ):
+            continue
+        # Upper-bound phrasing is not a minimum experience threshold.
+        if max_only_markers.search(before[-45:]) or max_only_markers.match(after.lstrip()[:45]):
             continue
         try:
             value = float(match.group("n").replace(",", "."))
@@ -782,7 +850,9 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
         optional = re.search(
             r"(preferred|desirable|optional|a plus|souhaite|souhaitee|apprecie|"
             r"atout|facultatif|non obligatoire|pas obligatoire|يفضل|مفضل|ميزة اضافية|"
-            r"ليس إلزاميا|غير إجباري)",
+            r"ليس إلزاميا|غير إجباري|not required|not mandatory|not necessary|not needed|not a requirement|" +
+            r"pas requis|non requis|pas exige|non exige|pas necessaire|non necessaire|" +
+            r"n est pas requis|n est pas exige|غير مطلوب|ليس مطلوب|لا يشترط|غير اجباري|ليس الزامي|لا يلزم)",
             window,
         )
         mandatory = r"(required|mandatory|must have|must hold|obligatoire|requis|requise|exige|indispensable|يشترط|إجباري|اجباري|ضروري)"
@@ -2525,7 +2595,7 @@ candidate genuinely matches the stated requirements.
 
     - Highest qualification: Licence / Bac+3 in Mechanical and Energy Engineering.
       Treat as technician / Bac+3 level, NOT as an Ingénieur / Engineer diploma.
-      Any advertised position titled "Ingénieur", "Engineer", "مهندس" is REJECT.
+      Any advertised position titled "Ingénieur", "Engineer", or "مهندس" is REJECT unless the position-specific ad explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering diploma mandatory. When that exception is explicit, evaluate the actual duties and discipline; do not reject solely because of the title.
     - Target lanes: mechanical maintenance technician; mechanical equipment;
       centrifugal pumps and fluid systems; junior mechanical/CAD/SolidWorks
       design and technical drawings; closely adjacent industrial operator roles
@@ -4948,11 +5018,19 @@ def same_job_identity(
         return True
 
     # --------------------------------------------------------
-    # Same exact email + strong title similarity
+    # Same email + strong title similarity, provided the known employer
+    # and location do not identify a different vacancy.
+    # Public/recruitment inboxes are often reused across employers.
     # --------------------------------------------------------
+
+    companies_conflict = bool(
+        current_company and old_company and current_company != old_company
+    )
 
     if (
         same_email
+        and not companies_conflict
+        and location_compatible
         and similarity >= 0.82
     ):
 
@@ -4978,6 +5056,8 @@ def same_job_identity(
 
     if (
         (same_email or same_domain)
+        and not companies_conflict
+        and location_compatible
         and similarity >= 0.82
     ):
 
