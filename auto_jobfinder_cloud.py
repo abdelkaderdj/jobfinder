@@ -647,7 +647,9 @@ def _reason_is_experience_only(reason: str) -> bool:
     unrelated_reasons = (
         "degree", "diploma", "diplome", "master", "bachelor", "licence",
         "ingenieur", "engineer", "certification", "certificate", "license",
-        "specialization", "speciality", "discipline", "electrical", "electricity",
+        "training", "trained", "formation", "internship", "stage professionnel",
+        "skill gap", "missing skills", "competency", "specialization", "speciality",
+        "discipline", "electrical", "electricity",
         "electromechanical", "civil engineering", "hse", "aviation", "aircraft",
         "laboratory", "logistics", "inventory", "location", "residency", "residence",
         "housing", "driving licence", "wrong field", "not related", "unrelated",
