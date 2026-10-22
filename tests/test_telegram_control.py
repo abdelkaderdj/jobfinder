@@ -640,6 +640,23 @@ Expérience pratique de 2 à 5 ans en logistique.
         )
         self.assertEqual(final, "REJECT")
 
+    def test_experience_waiver_does_not_override_missing_training(self):
+        job = {
+            "job_title": "Opérateur de Machine CNC",
+            "score": 30,
+            "reason": (
+                "The role requires professional experience or training in CNC machining, "
+                "which the candidate lacks."
+            ),
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REJECT",
+            "Opérateur de Machine CNC. Minimum 2 years of professional experience.",
+            cv_match_score=40,
+        )
+        self.assertEqual(final, "REVIEW")
+
     def test_experience_waiver_does_not_override_unrelated_reason(self):
         job = {
             "job_title": "Technicien de maintenance",
