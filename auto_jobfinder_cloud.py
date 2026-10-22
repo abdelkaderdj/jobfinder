@@ -892,19 +892,109 @@ def _scope_title_tokens(value: str) -> set[str]:
     }
 
 
+def _position_title_variants(job: dict) -> list[str]:
+    """
+    Return literal titles plus a small, explicit set of bilingual aliases for
+    title variants observed in Algerian Telegram notices. These aliases are
+    used only to locate a position block; they never make a role relevant.
+    """
+    values = []
+    for field in ("job_title", "application_title_fr", "application_title_en"):
+        value = str(job.get(field) or "").strip()
+        if value and value not in values:
+            values.append(value)
+
+    blob = normalize_text(" ".join(values))
+
+    alias_groups = (
+        (
+            (
+                ("service operator" in blob and any(
+                    term in blob for term in ("surface solutions", "baroid", " ss ")
+                ))
+                or ("مشغل خدمات" in blob and "سوائل الحفر" in blob)
+            ),
+            (
+                "مشغل خدمات معالجة سوائل الحفر",
+                "مشغل خدمات سوائل الحفر",
+                "Service Operator I SS",
+            ),
+        ),
+        (
+            (
+                ("technologist" in blob and "laboratory" in blob)
+                or ("مساعد تقني مخبر" in blob)
+                or ("تقني مخبر" in blob)
+            ),
+            (
+                "مساعد تقني مخبر",
+                "تقني مخبر",
+                "Technologist Laboratory Assoc",
+            ),
+        ),
+        (
+            (
+                ("service supervisor" in blob and "cementing" in blob)
+                or ("مشرف خدمات" in blob and "السمنتة" in blob)
+            ),
+            (
+                "مشرف خدمات السمنتة",
+                "مشرف السمنتة",
+                "Service Supervisor III Cementing",
+            ),
+        ),
+        (
+            (
+                (("technicien" in blob or "technician" in blob) and "maintenance" in blob)
+                or "تقني صيانة" in blob
+                or "تقني الصيانة" in blob
+            ),
+            (
+                "تقني صيانة",
+                "تقني الصيانة",
+                "Technicien Maintenance",
+                "Maintenance Technician",
+            ),
+        ),
+        (
+            (
+                (("operateur" in blob or "operator" in blob) and "ligne" in blob)
+                or "مشغل خط" in blob
+            ),
+            (
+                "مشغل خط الإنتاج",
+                "مشغل خط انتاج",
+                "Opérateur de Ligne",
+            ),
+        ),
+        (
+            (
+                any(term in blob for term in ("gestionnaire des stocks", "stock manager", "inventory", "storekeeper"))
+                or "مسير مخزون" in blob
+                or "مسير المخزون" in blob
+            ),
+            (
+                "مسير مخزون",
+                "مسير المخزون",
+                "Gestionnaire des Stocks",
+            ),
+        ),
+    )
+
+    for enabled, aliases in alias_groups:
+        if enabled:
+            for alias in aliases:
+                if alias not in values:
+                    values.append(alias)
+
+    return values
+
+
 def _job_section_score(job: dict, section: str) -> tuple[float, float]:
     """Return (total score, title score); title relevance is mandatory."""
     normalized_section = normalize_text(section)
     section_tokens = set(normalized_section.split())
-    title_candidates = []
-    for field in (
-        "job_title",
-        "application_title_fr",
-        "application_title_en",
-    ):
-        value = str(job.get(field) or "").strip()
-        if value and value not in title_candidates:
-            title_candidates.append(value)
+    title_candidates = _position_title_variants(job)
 
     best_title_score = 0.0
     for candidate in title_candidates:
@@ -999,8 +1089,8 @@ def resolve_job_position_scope(
 
     def title_variants(item: dict) -> list[str]:
         values = []
-        for key in ("job_title", "application_title_fr", "application_title_en"):
-            value = normalize_text(item.get(key) or "")
+        for raw in _position_title_variants(item):
+            value = normalize_text(raw)
             if value and value not in values and len(value) >= 4:
                 values.append(value)
         return values
@@ -1016,7 +1106,8 @@ def resolve_job_position_scope(
                 continue
             line_tokens = set(_scope_title_tokens(normalized_line))
             for candidate in variants:
-                if candidate in normalized_line:
+                normalized_candidate = normalize_text(candidate)
+                if normalized_candidate and normalized_candidate in normalized_line:
                     score = 1.0
                 else:
                     tokens = _scope_title_tokens(candidate)
