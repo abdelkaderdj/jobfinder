@@ -655,6 +655,40 @@ def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
     return _is_explicitly_not_required(window)
 
 
+def _advertisement_has_experience_upper_bound(advertisement: str) -> bool:
+    """True when a quantified experience value is phrased as a maximum, not a minimum."""
+    raw = str(advertisement or "").lower()
+    digit_map = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    raw = raw.translate(digit_map)
+    raw = unicodedata.normalize("NFKD", raw)
+    raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    raw = raw.replace("’", "'").replace("–", "-").replace("—", "-")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    experience = re.compile(
+        r"(?:experience|experiences|experience professionnelle|professional experience|"
+        r"work experience|years of experience|experience in the field|exp[eé]rience|"
+        r"خبرة|الخبرة|سنوات الخبرة)",
+        flags=re.IGNORECASE,
+    )
+    quantified = re.compile(
+        r"\d+(?:[.,]\d+)?\s*(?:years?|yrs?|ans?|annees|months?|mois|سنوات|سنة|اشهر|شهر)",
+        flags=re.IGNORECASE,
+    )
+    cap = re.compile(
+        r"(?:\bup to\b|\bat most\b|\bno more than\b|\bnot more than\b|"
+        r"\bmaximum(?: of)?\b|\bmax\.?\b|\bau maximum\b|\bau plus\b|"
+        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|"
+        r"كحد اقصى|كحد أقصى|بحد اقصى|بحد أقصى|على الاكثر|على الأكثر|"
+        r"لا يزيد عن|لا تتجاوز|اقصى حد|أقصى حد)",
+        flags=re.IGNORECASE,
+    )
+    for marker in cap.finditer(raw):
+        context = raw[max(0, marker.start() - 90):min(len(raw), marker.end() + 90)]
+        if experience.search(context) and quantified.search(context):
+            return True
+    return False
+
+
 def _experience_requirement_years(advertisement: str):
     """
     Extract the stated minimum experience threshold for this position.
@@ -834,7 +868,11 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
             r"experience|خبرة مهنية|خبرة)",
             ad,
         )
-        if experience_language and mandatory_experience_nearby:
+        if (
+            experience_language
+            and mandatory_experience_nearby
+            and not _advertisement_has_experience_upper_bound(ad)
+        ):
             return True
 
     # A Licence/Bac+3 is not an Ingénieur d'État/Master/Bac+5 qualification.
