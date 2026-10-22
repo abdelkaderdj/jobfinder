@@ -291,7 +291,7 @@ class TelegramControlTests(unittest.TestCase):
         )
 
         self.assertEqual(final, "APPLY")
-        self.assertIn("condition d'expérience", processor.normalize_text(reason))
+        self.assertIn("تجاوز شرط الخبرة", reason)
 
     def test_relevant_role_with_low_score_is_manual_review_not_auto_rejection(self):
         job = {
