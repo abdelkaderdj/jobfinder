@@ -704,7 +704,7 @@ def _experience_requirement_years(advertisement: str):
         r"(?:\bup to\b|\bat most\b|\bno more than\b|\bnot more than\b|"
         r"\bmaximum(?: of)?\b|\bmax\.?\b|\bau maximum\b|\bau plus\b|"
         r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|"
-        r"كحد اقصى|بحد اقصى|على الاكثر|لا يزيد عن|لا تتجاوز|اقصى حد)",
+        r"كحد اقصى|كحد أقصى|بحد اقصى|بحد أقصى|على الاكثر|على الأكثر|لا يزيد عن|لا تتجاوز|اقصى حد|أقصى حد)",
         flags=re.IGNORECASE,
     )
 
