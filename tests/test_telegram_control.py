@@ -465,7 +465,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertTrue(laboratory_ok)
         self.assertTrue(operator_ok)
         self.assertIn("سنتان على الاقل", processor.normalize_text(supervisor_text))
-        self.assertNotIn("4 سنوات", laboratory_text)
+        self.assertNotIn("4 سنوات", processor.normalize_text(supervisor_text))
         self.assertNotIn("6 اشهر", processor.normalize_text(supervisor_text))
         self.assertIn("4 سنوات", laboratory_text)
         self.assertNotIn("6 اشهر", processor.normalize_text(laboratory_text))
