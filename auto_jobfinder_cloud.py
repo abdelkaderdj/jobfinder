@@ -2711,6 +2711,13 @@ Therefore:
 "Mechanical Engineer" or "Ingénieur en Mécanique" requiring an
 engineering degree must NOT be treated as equivalent to the candidate's
 Licence/Bachelor.
+""
+"However, do NOT infer a mandatory engineering diploma from the title alone."
+"If the advertisement explicitly says Licence/Bachelor/Bac+3 holders are eligible"
+"for the listed position, do NOT score the position as 0 or reject it solely"
+"because the heading uses Ingénieur/Engineer. Evaluate the exact discipline and"
+"stated qualification; use REVIEW if the title or qualification remains ambiguous."
+""
 
 Do not call the candidate "Ingénieur diplômé".
 
