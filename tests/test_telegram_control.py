@@ -811,10 +811,12 @@ Expérience pratique de 2 à 5 ans en logistique.
             "Expérience exigée: 4 ans maximum. "
             "Maintenance préventive des pompes et moteurs."
         )
+        self.assertTrue(processor._advertisement_has_experience_upper_bound(advertisement))
+        self.assertFalse(processor._advertisement_explicitly_requires_missing_qualification(job, advertisement))
         final, reason = processor.enforce_candidate_fit_rule(
             job, "REJECT", advertisement, cv_match_score=60
         )
-        self.assertEqual(final, "APPLY")
+        self.assertEqual(final, "APPLY", reason)
         self.assertIn("بقية حواجز", reason)
     
     def test_four_year_requirement_not_sent_automatically(self):
