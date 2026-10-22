@@ -486,7 +486,10 @@ def calculate_candidate_cv_match(job, advertisement=""):
     if any(re.search(pattern, normalized_title) for pattern in UNRELATED_ROLE_TITLE_PATTERNS):
         return 0, []
 
-    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
+    if (
+        any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS)
+        and not _advertisement_explicitly_accepts_licence_bac3(advertisement)
+    ):
         return 0, []
 
     # A purely industrial word is not enough: title alignment must begin with
@@ -555,6 +558,44 @@ def _is_senior_role_title(normalized_title: str) -> bool:
     normalized = normalize_text(normalized_title)
     return any(marker in normalized for marker in senior_markers)
 
+
+
+def _advertisement_explicitly_accepts_licence_bac3(advertisement: str) -> bool:
+    """True only when the ad itself explicitly accepts Licence/Bac+3-level applicants."""
+    text = normalize_text(str(advertisement or ""))
+    acceptance_patterns = (
+        r"\bholders? of (?:a )?(?:licence|bachelor)",
+        r"\b(?:licence|bachelor)(?: degree)?\b.{0,65}\b(?:required|accepted|eligible|in one of)\b",
+        r"\btitulaires? d une licence\b",
+        r"\blicence en\b",
+        r"\bbac ?\+? ?3\b.{0,45}\b(?:required|accepted|eligible|license|licence|degree|diploma)\b",
+        r"\bحاملو شهادة ليسانس\b",
+        r"\bحاملي شهادة ليسانس\b",
+        r"\bحامل شهادة ليسانس\b",
+        r"\bشهادة ليسانس في\b",
+        r"\bليسانس في احد التخصصات\b",
+        r"\bشهادة البكالوريوس\b",
+    )
+    if not any(re.search(pattern, text) for pattern in acceptance_patterns):
+        return False
+
+    # An explicitly mandatory engineering diploma / Bac+5 still wins over a
+    # generic mention of Licence elsewhere in the advertisement.
+    mandatory_higher_degree = re.search(
+        r"(diplome d ingenieur|diplome ingenieur|ingenieur d etat|"
+        r"master(?:s)? degree|master 2|bac ?5|doctorat|phd|"
+        r"شهادة مهندس|مهندس دولة|ماستر|باك ?5).{0,45}"
+        r"(required|mandatory|must have|must hold|obligatoire|requis|requise|"
+        r"exige|indispensable|يشترط|إجباري|اجباري|ضروري)"
+        r"|"
+        r"(required|mandatory|must have|must hold|obligatoire|requis|requise|"
+        r"exige|indispensable|يشترط|إجباري|اجباري|ضروري).{0,45}"
+        r"(diplome d ingenieur|diplome ingenieur|ingenieur d etat|"
+        r"master(?:s)? degree|master 2|bac ?5|doctorat|phd|"
+        r"شهادة مهندس|مهندس دولة|ماستر|باك ?5)",
+        text,
+    )
+    return mandatory_higher_degree is None
 
 
 def _experience_requirement_years(advertisement: str):
@@ -791,10 +832,13 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if not normalized_title:
         return "REJECT", "رُفضت الوظيفة لأن المسمى الوظيفي غير واضح."
 
-    if any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS):
+    if (
+        any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS)
+        and not _advertisement_explicitly_accepts_licence_bac3(advertisement)
+    ):
         return (
             "REJECT",
-            "رُفضت الوظيفة لأن المسمى Ingénieur/Engineer يتطلب مسار مهندس، بينما مؤهل المرشح Licence/Bac+3 وليس شهادة مهندس. لا تتغلب الكلمات الميكانيكية داخل المسمى على هذا الشرط.",
+            "رُفضت الوظيفة لأن المسمى Ingénieur/Engineer يشير إلى مسار مهندس، ولم يثبت الإعلان قبول Licence/Bac+3 كبديل للمؤهل الهندسي.",
         )
 
     for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
@@ -1141,6 +1185,40 @@ def _position_title_variants(job: dict) -> list[str]:
                 "Gestionnaire des Stocks",
             ),
         ),
+        (
+            (
+                any(term in blob for term in ("maintenance", "maintenancier", "maintenace", "صيانة"))
+                and any(term in blob for term in ("ingenieur", "engineer", "هندسة", "مهندس"))
+            ),
+            (
+                "Maintenance",
+                "Maintenance industrielle",
+                "Ingénieur Maintenance",
+                "Maintenance Engineer",
+                "هندسة صيانة",
+                "صيانة",
+            ),
+        ),
+        (
+            any(term in blob for term in ("electronique", "electronic", "electronics", "الكترون", "إلكترون")),
+            (
+                "Électronique",
+                "Electronic Engineering",
+                "Engineering Electronics",
+                "هندسة إلكترونية",
+                "هندسة الكترونية",
+                "إلكترونيك",
+            ),
+        ),
+        (
+            any(term in blob for term in ("controle qualite", "quality control", "مراقبة الجودة", "مراقبة النوعية")),
+            (
+                "Contrôle Qualité",
+                "Quality Control",
+                "مراقبة الجودة",
+                "مراقبة النوعية",
+            ),
+        ),
     )
 
     for enabled, aliases in alias_groups:
@@ -1243,6 +1321,16 @@ def _is_shared_global_experience_footer_line(line: str) -> bool:
     return any(marker in normalized for marker in global_markers)
 
 
+def _is_global_requirements_heading(line: str) -> bool:
+    normalized = normalize_text(line)
+    markers = (
+        "شروط التوظيف", "شروط العمل", "الشروط المطلوبة", "متطلبات التوظيف",
+        "recruitment conditions", "job requirements", "employment requirements",
+        "conditions de recrutement", "conditions de travail",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def resolve_job_position_scope(
     job: dict,
     section_text: str,
@@ -1273,6 +1361,29 @@ def resolve_job_position_scope(
                 values.append(value)
         return values
 
+    def line_matches_multiple_roles(normalized_line: str) -> bool:
+        """A shared headline listing several roles is not a position-specific title block."""
+        line_tokens = set(_scope_title_tokens(normalized_line))
+        matched_roles = 0
+        for candidate_job in valid_jobs:
+            role_matched = False
+            for candidate in title_variants(candidate_job):
+                normalized_candidate = normalize_text(candidate)
+                if normalized_candidate and normalized_candidate in normalized_line:
+                    role_matched = True
+                    break
+                tokens = _scope_title_tokens(candidate)
+                if tokens:
+                    coverage = sum(token in line_tokens for token in tokens) / len(tokens)
+                    if coverage >= 0.75:
+                        role_matched = True
+                        break
+            if role_matched:
+                matched_roles += 1
+                if matched_roles > 1:
+                    return True
+        return False
+
     def match_line(item: dict) -> tuple[int | None, float]:
         best_idx, best_score = None, 0.0
         variants = title_variants(item)
@@ -1281,6 +1392,8 @@ def resolve_job_position_scope(
         for idx, line in enumerate(lines):
             normalized_line = normalize_text(line)
             if not normalized_line or "http" in normalized_line:
+                continue
+            if line_matches_multiple_roles(normalized_line):
                 continue
             line_tokens = set(_scope_title_tokens(normalized_line))
             for candidate in variants:
@@ -1322,15 +1435,24 @@ def resolve_job_position_scope(
     # experience-condition lines so requirements for one role are never copied
     # into sibling positions.
     last_title_idx = max(idx for idx, _item, score in matches if score >= 0.75)
-    shared_experience_footer = [
-        line
-        for idx, line in enumerate(lines)
-        if idx > last_title_idx and _is_shared_global_experience_footer_line(line)
+    requirements_headings = [
+        idx for idx, line in enumerate(lines)
+        if idx > last_title_idx and _is_global_requirements_heading(line)
     ]
+    if requirements_headings:
+        # An explicit shared "job requirements" heading after all listed roles
+        # applies to each role, including shared Licence and no-experience rules.
+        shared_footer_lines = lines[requirements_headings[0]:]
+    else:
+        shared_footer_lines = [
+            line
+            for idx, line in enumerate(lines)
+            if idx > last_title_idx and _is_shared_global_experience_footer_line(line)
+        ]
 
     block_lines = list(lines[target_idx:end_idx])
     block_normalized = {normalize_text(line) for line in block_lines if normalize_text(line)}
-    for footer_line in shared_experience_footer:
+    for footer_line in shared_footer_lines:
         normalized_footer = normalize_text(footer_line)
         if normalized_footer and normalized_footer not in block_normalized:
             block_lines.append(footer_line)
@@ -2614,6 +2736,13 @@ Therefore:
 "Mechanical Engineer" or "Ingénieur en Mécanique" requiring an
 engineering degree must NOT be treated as equivalent to the candidate's
 Licence/Bachelor.
+""
+"However, do NOT infer a mandatory engineering diploma from the title alone."
+"If the advertisement explicitly says Licence/Bachelor/Bac+3 holders are eligible"
+"for the listed position, do NOT score the position as 0 or reject it solely"
+"because the heading uses Ingénieur/Engineer. Evaluate the exact discipline and"
+"stated qualification; use REVIEW if the title or qualification remains ambiguous."
+""
 
 Do not call the candidate "Ingénieur diplômé".
 
