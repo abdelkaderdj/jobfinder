@@ -460,6 +460,76 @@ Kaader5881@gmail.com
         )
         self.assertEqual(final, "REVIEW")
 
+    def test_refrigeration_and_thermal_roles_match_mechanical_energy_studies(self):
+        titles = (
+            "Technicien supérieur en froid",
+            "Frigoriste débutant",
+            "Technicien thermique",
+            "Refrigeration Technician",
+        )
+        ad = (
+            "Licence en Génie Mécanique et Énergétique. "
+            "Connaissances académiques en thermodynamique et transfert de chaleur. "
+            "Débutant accepté; stage pratique, formation ou test technique acceptés. "
+            "Missions: maintenance des installations frigorifiques."
+        )
+        for title in titles:
+            with self.subTest(title=title):
+                job = {
+                    "job_title": title,
+                    "score": 15,
+                    "reason": "The candidate lacks professional experience.",
+                }
+                cv_score, groups = processor.calculate_candidate_cv_match(job, ad)
+                self.assertGreaterEqual(cv_score, 30)
+                final, _reason = processor.enforce_candidate_fit_rule(
+                    job, "REJECT", ad, cv_match_score=cv_score
+                )
+                self.assertEqual(final, "APPLY")
+
+    def test_refrigeration_roles_with_explicit_unmet_minimum_experience_still_follow_experience_gate(self):
+        ad = (
+            "Technicien supérieur en froid. Expérience professionnelle minimum: 5 ans. "
+            "Missions: maintenance des installations frigorifiques."
+        )
+        job = {
+            "job_title": "Technicien supérieur en froid",
+            "score": 85,
+            "reason": "Candidate matches thermal and mechanical duties.",
+        }
+        cv_score, _groups = processor.calculate_candidate_cv_match(job, ad)
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "APPLY", ad, cv_match_score=cv_score
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("شرطًا إلزاميًا", reason)
+
+    def test_compact_cvdzjobs_role_list_recovers_all_twelve_titles(self):
+        ad = (
+            "الصيانة والتقنية : (Maintenance & Technique)\n"
+            "Chef d'équipe technique.\n"
+            "Chef d'équipe maintenance.\n"
+            "Gestionnaire de matériel.\n"
+            "Gestionnaire de patrimoine.\n"
+            "Acheteur technique.\n"
+            "Responsable de fabrication de cabines sahariennes.\n"
+            "Électromécanicien.\n"
+            "Électricien.\n"
+            "Plombier.\n"
+            "Soudeur.\n"
+            "Peintre.\n"
+            "Technicien supérieur en froid."
+        )
+        titles = processor.extract_compact_listed_role_titles(ad)
+        self.assertEqual(len(titles), 12)
+        self.assertIn("Technicien supérieur en froid", titles)
+        ai_jobs = [{"job_title": "Technicien supérieur en froid", "decision": "APPLY"}]
+        full_jobs, recovered_count = processor._recover_missing_compact_list_roles(titles, ai_jobs)
+        self.assertEqual(len(full_jobs), 12)
+        self.assertEqual(recovered_count, 11)
+        self.assertTrue(all(job["decision"] == "REVIEW" for job in full_jobs[1:]))
+        self.assertEqual(full_jobs[0]["decision"], "APPLY")
+
     def test_electrical_and_electromechanical_trades_are_excluded(self):
         titles = [
             "Électricien Industriel",
