@@ -6256,6 +6256,8 @@ def process_post(
     if not isinstance(jobs, list):
         jobs = []
     jobs = [job for job in jobs if isinstance(job, dict)]
+    listed_role_titles = extract_compact_listed_role_titles(text)
+    vacancy_rescue_attempted = False
 
     # Split independently headed notices before assigning contact details.
     job_sections = split_advertisement_sections(text)
@@ -6263,9 +6265,11 @@ def process_post(
     print(f"Detected {len(job_sections)} recruitment section(s)")
 
     # Schema-valid empty output can silently drop a real job ad. Retry once
-    # with an explicit extraction prompt; if still empty, queue no-send review.
+    # with an explicit extraction prompt; retain short title lists for review if
+    # the model still omits their positions.
     if not jobs and looks_like_vacancy_ad(text):
         print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+        vacancy_rescue_attempted = True
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
             retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
@@ -6284,10 +6288,53 @@ def process_post(
             result = retry_result
             jobs = retry_jobs
             print(f"AI VACANCY RESCUE: extracted {len(jobs)} position(s)")
-        else:
+        elif not listed_role_titles:
             # Do not discard the post silently, and never automatically apply
             # using a synthetic/uncertain job record.
             return emit_unparsed_vacancy_review(post, text)
+        else:
+            print(
+                f"COMPACT ROLE LIST RECOVERY: found {len(listed_role_titles)} separate title lines; "
+                "will preserve omitted titles as review-only records"
+            )
+
+    if listed_role_titles:
+        def _coverage(candidates):
+            return sum(
+                1 for title in listed_role_titles
+                if any(_compact_list_title_matches(title, candidate) for candidate in candidates)
+            )
+
+        covered_before = _coverage(jobs)
+        if covered_before < len(listed_role_titles) and not vacancy_rescue_attempted:
+            print(
+                f"AI UNDER-EXTRACTION: matched {covered_before}/{len(listed_role_titles)} listed titles; "
+                "retrying multi-position extraction once"
+            )
+            vacancy_rescue_attempted = True
+            try:
+                retry_result = analyze_offer(text, vacancy_rescue=True)
+                retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
+                if not isinstance(retry_jobs, list):
+                    retry_jobs = []
+                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
+                retry_coverage = _coverage(retry_jobs)
+                if retry_coverage > covered_before:
+                    result = retry_result
+                    jobs = retry_jobs
+                    covered_before = retry_coverage
+                    print(f"AI MULTI-POSITION RESCUE: matched {covered_before}/{len(listed_role_titles)} titles")
+            except Exception as exc:
+                print("AI MULTI-POSITION RESCUE ERROR:", type(exc).__name__)
+                # Retain the original decision set; missing listed titles are
+                # added below for manual review only.
+
+        jobs, recovered_count = _recover_missing_compact_list_roles(listed_role_titles, jobs)
+        if recovered_count:
+            print(
+                f"COMPACT ROLE LIST RECOVERY: added {recovered_count} omitted title(s) "
+                "as REVIEW-only records; automatic send was not inferred"
+            )
 
     print(f"Found {len(jobs)} job position(s)")
 
