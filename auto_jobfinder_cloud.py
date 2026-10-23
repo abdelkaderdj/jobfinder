@@ -330,7 +330,6 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\b(electrician|electricien\w*|electricite|electrical|electrique)\b",
     r"\b(electromechanical|electromec\w*)\b",
     r"\b(instrumentation|instrumentiste|automation|automatisation|automatisme)\b",
-    r"\b(climatisation|hvac|air conditioning)\b",
     r"\bgestionnaire des stocks\b", r"\bstock manager\b",
     r"\binventory\b", r"\bwarehouse\b", r"\bstorekeeper\b",
     r"\blogistics\b", r"\blogistique\b", r"\bsupply chain\b",
@@ -357,6 +356,9 @@ ENGINEERING_GRADE_ROLE_TITLE_PATTERNS = (
 STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
     r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
+    r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+    r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+    r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
     r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
     r"\bturbine\b", r"\brotating equipment\b", r"\bequipment maintenance\b",
     r"\bequipement mecanique\b", r"\bequipements mecaniques\b",
@@ -393,6 +395,9 @@ CV_MATCH_SKILL_GROUPS = (
         12,
         (
             r"\bmechanical system\w*\b", r"\bsystemes mecaniques\b",
+            r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+            r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+            r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
             r"\bequipement\w*\b", r"\bmechanical equipment\b",
             r"\brotating equipment\b", r"\bequipements mecaniques\b",
             r"\bمعدات ميكانيكية\b", r"\bأنظمة ميكانيكية\b",
@@ -496,6 +501,9 @@ def calculate_candidate_cv_match(job, advertisement=""):
     # mechanics, maintenance, pumps/fluids, or mechanical design.
     title_direct = (
         r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
+        r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+        r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+        r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
         r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
         r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b",
         r"\bcompresseur\w*\b", r"\bsolidworks\b", r"\bcad\b",
@@ -1196,6 +1204,89 @@ def split_advertisement_sections(advertisement: str) -> list[str]:
             sections.append(section)
 
     return sections or [text]
+
+
+_COMPACT_ROLE_PREFIXES = (
+    "chef d equipe", "gestionnaire", "acheteur", "responsable",
+    "electromecanicien", "electricien", "plombier", "soudeur", "peintre",
+    "technicien", "technologue", "ingenieur", "operateur", "agent",
+    "coordinateur", "conducteur", "assistant", "charge", "mecanicien",
+    "dessinateur", "projeteur", "controleur", "magasinier", "comptable",
+    "superviseur", "chauffeur", "tourneur", "fraiseur", "programmeur",
+    "regleur", "monteur", "manoeuvre", "مهندس", "تقني", "فني", "مشغل",
+    "عامل", "مسؤول", "رئيس", "مدير", "مسير", "مشتري", "كهربائي",
+    "سباك", "لحام", "دهان", "ميكانيكي", "عون", "مكلف", "مراقب", "منسق",
+)
+
+
+def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
+    """Extract job titles written as separate short lines in compact role lists."""
+    found = []
+    seen = set()
+    for raw_line in str(advertisement or "").splitlines():
+        line = re.sub(r"^\s*(?:[-*•▪●]|\d{1,2}[.)\-])\s*", "", raw_line).strip()
+        line = line.strip(" .;,-–—")
+        if not line or len(line) > 120 or len(line.split()) > 14:
+            continue
+        if ":" in line or "http://" in line.lower() or "https://" in line.lower():
+            continue
+        normalized = normalize_text(line)
+        if not normalized or not any(
+            normalized == prefix or normalized.startswith(prefix + " ")
+            for prefix in _COMPACT_ROLE_PREFIXES
+        ):
+            continue
+        if normalized not in seen:
+            seen.add(normalized)
+            found.append(line)
+    # Avoid treating an ordinary paragraph that starts with a title word as a
+    # multi-position list. This is designed for short one-title-per-line posts.
+    return found if len(found) >= 3 else []
+
+
+def _compact_list_title_matches(title: str, job: dict) -> bool:
+    normalized_title = normalize_text(title)
+    if not normalized_title or not isinstance(job, dict):
+        return False
+    variants = [
+        normalize_text(job.get(field) or "")
+        for field in ("job_title", "application_title_fr", "application_title_en")
+    ]
+    for candidate in variants:
+        if not candidate:
+            continue
+        if normalized_title == candidate or normalized_title in candidate or candidate in normalized_title:
+            return True
+        left = set(normalized_title.split()) - _SCOPE_STOP_WORDS
+        right = set(candidate.split()) - _SCOPE_STOP_WORDS
+        if left and right and len(left & right) / max(len(left), len(right)) >= 0.78:
+            return True
+    return False
+
+
+def _recover_missing_compact_list_roles(titles: list[str], jobs: list[dict]) -> tuple[list[dict], int]:
+    """Keep every detected title visible, routing omitted/underspecified roles to review only."""
+    recovered = list(jobs)
+    count = 0
+    for title in titles:
+        if any(_compact_list_title_matches(title, job) for job in recovered):
+            continue
+        recovered.append({
+            "job_title": title,
+            "application_title_fr": title,
+            "application_title_en": title,
+            "company": "",
+            "location": "",
+            "decision": "REVIEW",
+            "score": 0,
+            "reason": (
+                "استُرجع هذا المسمى من قائمة وظائف منفصلة لأن التحليل الأول لم يستخرج كل المناصب. "
+                "تفاصيل شروط هذا المنصب غير كافية في بيانات الاستخراج؛ يلزم التحقق اليدوي، "
+                "ولا يسمح هذا الاسترجاع وحده بالإرسال التلقائي."
+            ),
+        })
+        count += 1
+    return recovered, count
 
 
 def _scope_title_tokens(value: str) -> set[str]:
@@ -2634,11 +2725,17 @@ candidate genuinely matches the stated requirements.
     - Highest qualification: Licence / Bac+3 in Mechanical and Energy Engineering.
       Treat as technician / Bac+3 level, NOT as an Ingénieur / Engineer diploma.
       Any advertised position titled "Ingénieur", "Engineer", or "مهندس" is REJECT unless the position-specific ad explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering diploma mandatory. When that exception is explicit, evaluate the actual duties and discipline; do not reject solely because of the title.
-    - Target lanes: mechanical maintenance technician; mechanical equipment;
-      centrifugal pumps and fluid systems; junior mechanical/CAD/SolidWorks
-      design and technical drawings; closely adjacent industrial operator roles
-      only when the actual position duties fit and its entry requirements fit.
-    - Exclude electrical/electrician, electromechanical, automation,
+     - Target lanes: mechanical maintenance technician; mechanical equipment;
+       refrigeration/froid/frigoriste, HVAC and thermal technician roles; heat
+       transfer and thermodynamics-related technical work; centrifugal pumps and
+       fluid systems; junior mechanical/CAD/SolidWorks design and technical
+       drawings; closely adjacent industrial operator roles only when actual
+       duties and entry requirements fit. A Licence in Mechanical and Energy
+       Engineering includes relevant academic grounding in energy and heat
+       transfer, but does not prove professional refrigeration experience.
+       Do not exclude a cooling role solely because it says "froid" or "HVAC".
+       When the ad accepts beginners, a stage, practical test or training, assess
+       the remaining explicit requirements; keep unclear cases in REVIEW.
       instrumentation, civil engineering, HSE engineering, laboratory chemistry/
       biology, aircraft maintenance/aviation, stock/inventory/logistics/supply
       chain, sales, and other unrelated roles even if the full advertisement
@@ -3163,14 +3260,16 @@ JOB ADVERTISEMENT
     if vacancy_rescue:
         prompt += """
 
-VACANCY EXTRACTION RETRY:
-The previous pass returned an empty jobs array. Re-read the COMPLETE
-advertisement carefully. If it advertises one or more positions, return
-each distinct position in the JSON "jobs" array even if the candidate
-does not qualify; use REJECT for an unsuitable position instead of
-omitting it. Return an empty array only when the text truly has no job
-vacancy. Never invent titles, employers, locations, contacts, or
-requirements.
+VACANCY / MULTI-POSITION EXTRACTION RETRY:
+Re-read the COMPLETE advertisement and return EVERY distinct position in
+the JSON "jobs" array. Do not omit titles shown as separate short lines or
+bullets in a compact list, even when details are sparse or the candidate
+may not qualify. Give each title its own position record. If details for
+a listed role are missing, use REVIEW and state that uncertainty. Clearly
+unsuitable roles may be REJECT; relevant roles with uncertain entry criteria
+must be REVIEW, not silently omitted. Return an empty array only when the
+text truly has no job vacancy. Never invent titles, employers, locations,
+contacts, or requirements.
 """
 
     messages = [
@@ -6159,6 +6258,8 @@ def process_post(
     if not isinstance(jobs, list):
         jobs = []
     jobs = [job for job in jobs if isinstance(job, dict)]
+    listed_role_titles = extract_compact_listed_role_titles(text)
+    vacancy_rescue_attempted = False
 
     # Split independently headed notices before assigning contact details.
     job_sections = split_advertisement_sections(text)
@@ -6166,9 +6267,11 @@ def process_post(
     print(f"Detected {len(job_sections)} recruitment section(s)")
 
     # Schema-valid empty output can silently drop a real job ad. Retry once
-    # with an explicit extraction prompt; if still empty, queue no-send review.
+    # with an explicit extraction prompt; retain short title lists for review if
+    # the model still omits their positions.
     if not jobs and looks_like_vacancy_ad(text):
         print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+        vacancy_rescue_attempted = True
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
             retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
@@ -6187,10 +6290,53 @@ def process_post(
             result = retry_result
             jobs = retry_jobs
             print(f"AI VACANCY RESCUE: extracted {len(jobs)} position(s)")
-        else:
+        elif not listed_role_titles:
             # Do not discard the post silently, and never automatically apply
             # using a synthetic/uncertain job record.
             return emit_unparsed_vacancy_review(post, text)
+        else:
+            print(
+                f"COMPACT ROLE LIST RECOVERY: found {len(listed_role_titles)} separate title lines; "
+                "will preserve omitted titles as review-only records"
+            )
+
+    if listed_role_titles:
+        def _coverage(candidates):
+            return sum(
+                1 for title in listed_role_titles
+                if any(_compact_list_title_matches(title, candidate) for candidate in candidates)
+            )
+
+        covered_before = _coverage(jobs)
+        if covered_before < len(listed_role_titles) and not vacancy_rescue_attempted:
+            print(
+                f"AI UNDER-EXTRACTION: matched {covered_before}/{len(listed_role_titles)} listed titles; "
+                "retrying multi-position extraction once"
+            )
+            vacancy_rescue_attempted = True
+            try:
+                retry_result = analyze_offer(text, vacancy_rescue=True)
+                retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
+                if not isinstance(retry_jobs, list):
+                    retry_jobs = []
+                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
+                retry_coverage = _coverage(retry_jobs)
+                if retry_coverage > covered_before:
+                    result = retry_result
+                    jobs = retry_jobs
+                    covered_before = retry_coverage
+                    print(f"AI MULTI-POSITION RESCUE: matched {covered_before}/{len(listed_role_titles)} titles")
+            except Exception as exc:
+                print("AI MULTI-POSITION RESCUE ERROR:", type(exc).__name__)
+                # Retain the original decision set; missing listed titles are
+                # added below for manual review only.
+
+        jobs, recovered_count = _recover_missing_compact_list_roles(listed_role_titles, jobs)
+        if recovered_count:
+            print(
+                f"COMPACT ROLE LIST RECOVERY: added {recovered_count} omitted title(s) "
+                "as REVIEW-only records; automatic send was not inferred"
+            )
 
     print(f"Found {len(jobs)} job position(s)")
 
