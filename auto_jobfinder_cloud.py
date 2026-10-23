@@ -1288,15 +1288,17 @@ def _compact_list_title_matches(title: str, job: dict) -> bool:
             return True
         # Conservative cross-language alias for the maintenance-technician
         # group frequently written in Arabic in Algerian job posts.
-        is_maintenance_technician = (
-            any(term in normalized_title for term in ("technicien", "technician"))
-            and "maintenance" in normalized_title
+        french_side_matches_maintenance = any(
+            any(term in value for term in ("technicien", "technician"))
+            and "maintenance" in value
+            for value in (normalized_title, candidate)
         )
-        is_arabic_maintenance_technician = (
-            "صيانة" in candidate
-            and any(term in candidate for term in ("تقني", "فني", "مهندس"))
+        arabic_side_matches_maintenance = any(
+            "صيانة" in value
+            and any(term in value for term in ("تقني", "فني", "مهندس"))
+            for value in (normalized_title, candidate)
         )
-        if is_maintenance_technician and is_arabic_maintenance_technician:
+        if french_side_matches_maintenance and arabic_side_matches_maintenance:
             return True
         left = set(normalized_title.split()) - _SCOPE_STOP_WORDS
         right = set(candidate.split()) - _SCOPE_STOP_WORDS
