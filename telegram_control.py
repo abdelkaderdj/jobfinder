@@ -498,6 +498,13 @@ class TelegramJobBot:
             )
         elif item.get("can_auto_send"):
             action_note = "✅ القبول سيرسل طلبًا بالبريد بعد إعادة فحص التكرار."
+        elif record.get("global_application_email") and len(emails) == 1:
+            action_note = (
+                "📧 هذا هو بريد التقديم العام المعلن صراحةً في الإعلان: "
+                f"{safe_text(emails[0], 200)}. "
+                "لكن ربط المسمى بقسم وظيفي محدد ما زال غير مؤكد؛ هذه مراجعة يدوية فقط "
+                "ولا يؤدي قبول البطاقة إلى إرسال تلقائي."
+            )
         elif len(emails) == 1:
             action_note = (
                 "⚠️ القبول هنا للمراجعة اليدوية فقط؛ هذا الزر لا يرسل بريدًا. "
@@ -539,7 +546,7 @@ class TelegramJobBot:
             f"💼 الوظيفة: {title}\n"
             f"🏢 الشركة: {company}\n"
             f"📍 الموقع: {location}\n"
-            f"📊 التقييم: {score_text}\n"
+            f"📊 درجة تقييم AI للعرض: {score_text}\n"
             f"📧 جهة التقديم: {email_text}\n"
             f"🧠 السبب: {reason}\n\n"
             f"{action_note}{application_note}\n\n"
@@ -731,6 +738,7 @@ class TelegramJobBot:
                 location_status = str(record.get("location_status") or "")
                 can_auto_send = bool(
                     not record.get("analysis_fallback")
+                    and not record.get("global_application_email")
                     and record.get("contact_scope_matched") is True
                     and len(emails) == 1
                     and str(record.get("cv") or "").strip()
@@ -1127,7 +1135,13 @@ class TelegramJobBot:
             advertisement = str(item.get("advertisement") or "")
             advertised_emails = _extract_ad_emails(advertisement)
             application_urls = _extract_application_urls(advertisement)
-            if len(emails) == 1:
+            if len(emails) == 1 and record.get("global_application_email"):
+                contact_note = (
+                    "📧 بريد التقديم العام المعلن في الإعلان: "
+                    f"{safe_text(emails[0], 200)}. "
+                    "ربط المنصب بالقسم المحدد ما زال غير مؤكد؛ هذا قبول للمراجعة فقط.\n"
+                )
+            elif len(emails) == 1:
                 contact_note = f"📧 البريد الذي استخرجه البوت: {safe_text(emails[0], 200)}.\n"
             elif len(emails) > 1:
                 contact_note = f"📧 استخرج البوت {len(emails)} عناوين مرتبطة بالوظيفة؛ يلزم التحقق يدويًا.\n"

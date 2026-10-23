@@ -1117,6 +1117,27 @@ def extract_emails(text):
     return result
 
 
+def extract_explicit_global_application_emails(advertisement):
+    """Return the sole recipient only when the post explicitly declares it as the global application address."""
+    emails = extract_emails(advertisement)
+    if len(emails) != 1:
+        return []
+
+    normalized = normalize_text(advertisement)
+    explicit_global_markers = (
+        r"ارسال السيرة الذاتية حصريا عبر البريد الالكتروني التالي",
+        r"ارسال السيرة الذاتية حصريا على البريد الالكتروني التالي",
+        r"جميع طلبات الترشح.{0,100}البريد الالكتروني",
+        r"toutes les candidatures.{0,120}(?:exclusivement|uniquement|a l adresse suivante|par email|par courriel)",
+        r"candidatures pour tous les postes.{0,120}(?:email|courriel|adresse)",
+        r"all applications.{0,120}(?:exclusively|only|following email|email address below)",
+        r"applications for all positions.{0,120}(?:email|following address)",
+    )
+    if not any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in explicit_global_markers):
+        return []
+    return emails
+
+
 def email_domain(email):
 
     return str(
@@ -1213,9 +1234,14 @@ _COMPACT_ROLE_PREFIXES = (
     "coordinateur", "conducteur", "assistant", "charge", "mecanicien",
     "dessinateur", "projeteur", "controleur", "magasinier", "comptable",
     "superviseur", "chauffeur", "tourneur", "fraiseur", "programmeur",
-    "regleur", "monteur", "manoeuvre", "مهندس", "تقني", "فني", "مشغل",
-    "عامل", "مسؤول", "رئيس", "مدير", "مسير", "مشتري", "كهربائي",
-    "سباك", "لحام", "دهان", "ميكانيكي", "عون", "مكلف", "مراقب", "منسق",
+    "regleur", "monteur", "manoeuvre", "مهندس", "مهندسين", "مهندسي",
+    "تقني", "تقنيين", "فني", "فنيين", "مشغل", "عامل", "مسؤول",
+    "رئيس", "مدير", "مسير", "مسيري", "مشتري", "كهربائي", "سباك",
+    "لحام", "دهان", "ميكانيكي", "عون", "اعوان", "مكلف", "مراقب",
+    "منسق", "مشرف", "مشرفين", "موظف", "موظفي", "سائق", "سائقا",
+)
+_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
+    normalize_text(prefix) for prefix in _COMPACT_ROLE_PREFIXES
 )
 
 
@@ -1224,7 +1250,10 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
     found = []
     seen = set()
     for raw_line in str(advertisement or "").splitlines():
-        line = re.sub(r"^\s*(?:[-*•▪●]|\d{1,2}[.)\-])\s*", "", raw_line).strip()
+        line = re.sub(r"^\s*(?:[-*•▪●]\s*)", "", raw_line).strip()
+        # Recruitment posts often prefix Arabic titles with a headcount:
+        # "08 مهندسين وتقنيين في الصيانة" or "02 مشرفين HSE".
+        line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
         line = line.strip(" .;,-–—")
         if not line or len(line) > 120 or len(line.split()) > 14:
             continue
@@ -1233,7 +1262,7 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
         normalized = normalize_text(line)
         if not normalized or not any(
             normalized == prefix or normalized.startswith(prefix + " ")
-            for prefix in _COMPACT_ROLE_PREFIXES
+            for prefix in _COMPACT_ROLE_PREFIXES_NORMALIZED
         ):
             continue
         if normalized not in seen:
@@ -1256,6 +1285,20 @@ def _compact_list_title_matches(title: str, job: dict) -> bool:
         if not candidate:
             continue
         if normalized_title == candidate or normalized_title in candidate or candidate in normalized_title:
+            return True
+        # Conservative cross-language alias for the maintenance-technician
+        # group frequently written in Arabic in Algerian job posts.
+        french_side_matches_maintenance = any(
+            any(term in value for term in ("technicien", "technician"))
+            and "maintenance" in value
+            for value in (normalized_title, candidate)
+        )
+        arabic_side_matches_maintenance = any(
+            "صيانة" in value
+            and any(term in value for term in ("تقني", "فني", "مهندس"))
+            for value in (normalized_title, candidate)
+        )
+        if french_side_matches_maintenance and arabic_side_matches_maintenance:
             return True
         left = set(normalized_title.split()) - _SCOPE_STOP_WORDS
         right = set(candidate.split()) - _SCOPE_STOP_WORDS
@@ -6449,6 +6492,7 @@ def process_post(
         scoped_emails = extract_emails(job_section_text) if scope_matched else []
         emails = []
         seen_emails = set()
+        global_application_email = False
 
         for email in scoped_emails:
             clean = str(email).strip()
@@ -6457,11 +6501,26 @@ def process_post(
                 seen_emails.add(key)
                 emails.append(clean)
 
+        # A single address explicitly declared as the exclusive/global
+        # application route can be surfaced even when title-to-section mapping
+        # is ambiguous. This does NOT make the position scope verified and does
+        # NOT enable auto-send; contact_scope_matched remains false below.
+        global_emails = extract_explicit_global_application_emails(text)
+        if not emails and len(global_emails) == 1:
+            emails = list(global_emails)
+            global_application_email = True
+
         # Automatic emailing is only permitted when both the job section
         # and exactly one email recipient are unambiguous.
         contact_review_reason = ""
         if decision == "APPLY":
-            if not scope_matched:
+            if global_application_email:
+                decision = "REVIEW"
+                contact_review_reason = (
+                    "A global application email was recovered from the complete post, "
+                    "but the position-specific section is not verified; automatic sending is disabled."
+                )
+            elif not scope_matched:
                 decision = "REVIEW"
                 contact_review_reason = (
                     "Could not safely identify this position's own advertisement "
@@ -6657,6 +6716,9 @@ def process_post(
 
             "emails":
                 emails,
+
+            "global_application_email":
+                global_application_email,
 
             "cv":
                 cv,
