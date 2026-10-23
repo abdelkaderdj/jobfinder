@@ -945,6 +945,16 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     ).strip()
     normalized_title = normalize_text(title)
 
+    # The title shown to the candidate can come from a localized application
+    # title even when the model's primary job_title is broader or incomplete.
+    # Evaluate every position-specific title variant for hard exclusions so a
+    # leadership title cannot fall through to the generic technical REVIEW path.
+    normalized_title_variants = [
+        normalize_text(job.get(field))
+        for field in ("job_title", "application_title_fr", "application_title_en")
+        if str(job.get(field) or "").strip()
+    ]
+
     if not normalized_title:
         return "REJECT", "رُفضت الوظيفة لأن المسمى الوظيفي غير واضح."
 
@@ -991,8 +1001,8 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             "رُفضت الوظيفة لأن الإعلان يثبت شرطًا إلزاميًا خارج استثناء سنوات الخبرة. لا تتغلب قاعدة الخبرة على التخصص أو المؤهل أو الاعتماد المطلوب.",
         )
 
-    if _is_senior_role_title(normalized_title):
-        return "REJECT", "رُفضت الوظيفة لأن المسمى إشرافي/قيادي ولا يناسب مستوى المرشح الحالي دون خبرة مهنية."
+    if any(_is_senior_role_title(candidate) for candidate in normalized_title_variants):
+        return "REJECT", "رُفضت الوظيفة لأن أحد مسميات المنصب إشرافي/قيادي ولا يناسب مستوى المرشح الحالي دون خبرة مهنية."
 
     required_years, experience_policy = _experience_requirement_policy(advertisement)
     if experience_policy == "manual_review":

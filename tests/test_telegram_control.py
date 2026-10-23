@@ -1160,6 +1160,29 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(final, "APPLY")
         self.assertEqual(reason, "")
 
+    def test_senior_application_title_variant_is_hard_rejected_even_if_primary_title_is_generic(self):
+        job = {
+            # The parser's primary title may be a broad section label, while
+            # the localized title shown in the review card names the real role.
+            "job_title": "Maintenance & Technique",
+            "application_title_fr": "Chef d'équipe technique",
+            "application_title_en": "Technical Team Leader",
+            "score": 10,
+            "reason": "The role is close to the candidate's path.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            advertisement=(
+                "Bayat Catering — Hassi Messaoud. "
+                "Maintenance & Technique: Chef d'équipe technique."
+            ),
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("قيادي", reason)
+        self.assertIn("دون خبرة", reason)
+
     def test_generic_technician_title_cannot_auto_send(self):
         final, reason = processor.enforce_candidate_fit_rule(
             {"job_title": "Technicien", "score": 75},
