@@ -1240,6 +1240,9 @@ _COMPACT_ROLE_PREFIXES = (
     "لحام", "دهان", "ميكانيكي", "عون", "اعوان", "مكلف", "مراقب",
     "منسق", "مشرف", "مشرفين", "موظف", "موظفي", "سائق", "سائقا",
 )
+_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
+    normalize_text(prefix) for prefix in _COMPACT_ROLE_PREFIXES
+)
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
@@ -1259,7 +1262,7 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
         normalized = normalize_text(line)
         if not normalized or not any(
             normalized == prefix or normalized.startswith(prefix + " ")
-            for prefix in _COMPACT_ROLE_PREFIXES
+            for prefix in _COMPACT_ROLE_PREFIXES_NORMALIZED
         ):
             continue
         if normalized not in seen:
@@ -1282,6 +1285,18 @@ def _compact_list_title_matches(title: str, job: dict) -> bool:
         if not candidate:
             continue
         if normalized_title == candidate or normalized_title in candidate or candidate in normalized_title:
+            return True
+        # Conservative cross-language alias for the maintenance-technician
+        # group frequently written in Arabic in Algerian job posts.
+        is_maintenance_technician = (
+            any(term in normalized_title for term in ("technicien", "technician"))
+            and "maintenance" in normalized_title
+        )
+        is_arabic_maintenance_technician = (
+            "صيانة" in candidate
+            and any(term in candidate for term in ("تقني", "فني", "مهندس"))
+        )
+        if is_maintenance_technician and is_arabic_maintenance_technician:
             return True
         left = set(normalized_title.split()) - _SCOPE_STOP_WORDS
         right = set(candidate.split()) - _SCOPE_STOP_WORDS
