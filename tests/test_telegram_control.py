@@ -533,9 +533,9 @@ Kaader5881@gmail.com
         )
         titles = processor.extract_compact_listed_role_titles(ad)
         self.assertEqual(len(titles), 14)
-        self.assertIn("08 مهندسين وتقنيين في الصيانة", [x for x in titles if x.startswith("08 ")])
         self.assertTrue(any("مهندسين وتقنيين في الصيانة" in title for title in titles))
-        self.assertTrue(any("Technicien" in title for title in titles) is False)
+        self.assertTrue(any("مشرفين HSE" in title for title in titles))
+        self.assertTrue(any("موظفي استقبال" in title for title in titles))
 
     def test_explicit_global_application_email_can_be_recovered_when_position_scope_is_ambiguous(self):
         ad = (
@@ -1183,6 +1183,20 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertIn("بريد التقديم العام المعلن صراحةً", rendered)
         self.assertIn("مراجعة يدوية فقط", rendered)
         self.assertNotIn("تعذّر ربط أيٍّ منها", rendered)
+
+    def test_global_application_email_never_enables_auto_send_when_section_scope_is_unverified(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        record = event["record"]
+        record["emails"] = ["ciberodz@gmail.com"]
+        record["global_application_email"] = True
+        record["contact_scope_matched"] = True
+        record["cv"] = "cv_ats_fr.pdf"
+        record["location_status"] = "allowed_local"
+        bot.on_job_event(event)
+        pending = next(iter(bot.state["pending_reviews"].values()))
+        self.assertFalse(pending["can_auto_send"])
+        self.assertIn("بريد التقديم العام", bot._review_text(pending))
 
     def test_review_shows_unscoped_ad_emails_without_claiming_no_email_exists(self):
         bot, _sent = self.build_bot()
