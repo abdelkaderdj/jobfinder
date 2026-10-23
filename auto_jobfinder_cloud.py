@@ -330,7 +330,6 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\b(electrician|electricien\w*|electricite|electrical|electrique)\b",
     r"\b(electromechanical|electromec\w*)\b",
     r"\b(instrumentation|instrumentiste|automation|automatisation|automatisme)\b",
-    r"\b(climatisation|hvac|air conditioning)\b",
     r"\bgestionnaire des stocks\b", r"\bstock manager\b",
     r"\binventory\b", r"\bwarehouse\b", r"\bstorekeeper\b",
     r"\blogistics\b", r"\blogistique\b", r"\bsupply chain\b",
@@ -357,6 +356,9 @@ ENGINEERING_GRADE_ROLE_TITLE_PATTERNS = (
 STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
     r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
+    r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+    r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+    r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
     r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
     r"\bturbine\b", r"\brotating equipment\b", r"\bequipment maintenance\b",
     r"\bequipement mecanique\b", r"\bequipements mecaniques\b",
@@ -393,6 +395,9 @@ CV_MATCH_SKILL_GROUPS = (
         12,
         (
             r"\bmechanical system\w*\b", r"\bsystemes mecaniques\b",
+            r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+            r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+            r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
             r"\bequipement\w*\b", r"\bmechanical equipment\b",
             r"\brotating equipment\b", r"\bequipements mecaniques\b",
             r"\bمعدات ميكانيكية\b", r"\bأنظمة ميكانيكية\b",
@@ -496,6 +501,9 @@ def calculate_candidate_cv_match(job, advertisement=""):
     # mechanics, maintenance, pumps/fluids, or mechanical design.
     title_direct = (
         r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
+        r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+        r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+        r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
         r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
         r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b",
         r"\bcompresseur\w*\b", r"\bsolidworks\b", r"\bcad\b",
@@ -2634,11 +2642,17 @@ candidate genuinely matches the stated requirements.
     - Highest qualification: Licence / Bac+3 in Mechanical and Energy Engineering.
       Treat as technician / Bac+3 level, NOT as an Ingénieur / Engineer diploma.
       Any advertised position titled "Ingénieur", "Engineer", or "مهندس" is REJECT unless the position-specific ad explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering diploma mandatory. When that exception is explicit, evaluate the actual duties and discipline; do not reject solely because of the title.
-    - Target lanes: mechanical maintenance technician; mechanical equipment;
-      centrifugal pumps and fluid systems; junior mechanical/CAD/SolidWorks
-      design and technical drawings; closely adjacent industrial operator roles
-      only when the actual position duties fit and its entry requirements fit.
-    - Exclude electrical/electrician, electromechanical, automation,
+     - Target lanes: mechanical maintenance technician; mechanical equipment;
+       refrigeration/froid/frigoriste, HVAC and thermal technician roles; heat
+       transfer and thermodynamics-related technical work; centrifugal pumps and
+       fluid systems; junior mechanical/CAD/SolidWorks design and technical
+       drawings; closely adjacent industrial operator roles only when actual
+       duties and entry requirements fit. A Licence in Mechanical and Energy
+       Engineering includes relevant academic grounding in energy and heat
+       transfer, but does not prove professional refrigeration experience.
+       Do not exclude a cooling role solely because it says "froid" or "HVAC".
+       When the ad accepts beginners, a stage, practical test or training, assess
+       the remaining explicit requirements; keep unclear cases in REVIEW.
       instrumentation, civil engineering, HSE engineering, laboratory chemistry/
       biology, aircraft maintenance/aviation, stock/inventory/logistics/supply
       chain, sales, and other unrelated roles even if the full advertisement
