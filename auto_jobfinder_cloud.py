@@ -1206,6 +1206,89 @@ def split_advertisement_sections(advertisement: str) -> list[str]:
     return sections or [text]
 
 
+_COMPACT_ROLE_PREFIXES = (
+    "chef d equipe", "gestionnaire", "acheteur", "responsable",
+    "electromecanicien", "electricien", "plombier", "soudeur", "peintre",
+    "technicien", "technologue", "ingenieur", "operateur", "agent",
+    "coordinateur", "conducteur", "assistant", "charge", "mecanicien",
+    "dessinateur", "projeteur", "controleur", "magasinier", "comptable",
+    "superviseur", "chauffeur", "tourneur", "fraiseur", "programmeur",
+    "regleur", "monteur", "manoeuvre", "مهندس", "تقني", "فني", "مشغل",
+    "عامل", "مسؤول", "رئيس", "مدير", "مسير", "مشتري", "كهربائي",
+    "سباك", "لحام", "دهان", "ميكانيكي", "عون", "مكلف", "مراقب", "منسق",
+)
+
+
+def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
+    """Extract job titles written as separate short lines in compact role lists."""
+    found = []
+    seen = set()
+    for raw_line in str(advertisement or "").splitlines():
+        line = re.sub(r"^\s*(?:[-*•▪●]|\d{1,2}[.)\-])\s*", "", raw_line).strip()
+        line = line.strip(" .;,-–—")
+        if not line or len(line) > 120 or len(line.split()) > 14:
+            continue
+        if ":" in line or "http://" in line.lower() or "https://" in line.lower():
+            continue
+        normalized = normalize_text(line)
+        if not normalized or not any(
+            normalized == prefix or normalized.startswith(prefix + " ")
+            for prefix in _COMPACT_ROLE_PREFIXES
+        ):
+            continue
+        if normalized not in seen:
+            seen.add(normalized)
+            found.append(line)
+    # Avoid treating an ordinary paragraph that starts with a title word as a
+    # multi-position list. This is designed for short one-title-per-line posts.
+    return found if len(found) >= 3 else []
+
+
+def _compact_list_title_matches(title: str, job: dict) -> bool:
+    normalized_title = normalize_text(title)
+    if not normalized_title or not isinstance(job, dict):
+        return False
+    variants = [
+        normalize_text(job.get(field) or "")
+        for field in ("job_title", "application_title_fr", "application_title_en")
+    ]
+    for candidate in variants:
+        if not candidate:
+            continue
+        if normalized_title == candidate or normalized_title in candidate or candidate in normalized_title:
+            return True
+        left = set(normalized_title.split()) - _SCOPE_STOP_WORDS
+        right = set(candidate.split()) - _SCOPE_STOP_WORDS
+        if left and right and len(left & right) / max(len(left), len(right)) >= 0.78:
+            return True
+    return False
+
+
+def _recover_missing_compact_list_roles(titles: list[str], jobs: list[dict]) -> tuple[list[dict], int]:
+    """Keep every detected title visible, routing omitted/underspecified roles to review only."""
+    recovered = list(jobs)
+    count = 0
+    for title in titles:
+        if any(_compact_list_title_matches(title, job) for job in recovered):
+            continue
+        recovered.append({
+            "job_title": title,
+            "application_title_fr": title,
+            "application_title_en": title,
+            "company": "",
+            "location": "",
+            "decision": "REVIEW",
+            "score": 0,
+            "reason": (
+                "استُرجع هذا المسمى من قائمة وظائف منفصلة لأن التحليل الأول لم يستخرج كل المناصب. "
+                "تفاصيل شروط هذا المنصب غير كافية في بيانات الاستخراج؛ يلزم التحقق اليدوي، "
+                "ولا يسمح هذا الاسترجاع وحده بالإرسال التلقائي."
+            ),
+        })
+        count += 1
+    return recovered, count
+
+
 def _scope_title_tokens(value: str) -> set[str]:
     tokens = normalize_text(value).split()
     return {
