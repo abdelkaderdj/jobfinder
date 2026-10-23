@@ -504,6 +504,63 @@ Kaader5881@gmail.com
         self.assertEqual(final, "REJECT")
         self.assertIn("شرطًا إلزاميًا", reason)
 
+    def test_arabic_numbered_maintenance_notice_recovers_all_fourteen_role_groups(self):
+        ad = (
+            "🚨 عرض توظيف | 30 منصبًا في قطاع الصناعات الغذائية – تيبازة\n"
+            "📌 المناصب المطلوبة:\n"
+            "🔹 الأمن والصحة والبيئة (HSE):\n"
+            "• 02 مشرفين HSE\n"
+            "• 01 عون HSE\n"
+            "• 01 عون مراقبة بالفيديو\n"
+            "🔹 الصيانة (Maintenance):\n"
+            "• 01 مسؤول صيانة\n"
+            "• 08 مهندسين وتقنيين في الصيانة\n"
+            "🔹 الطرق والعمليات (Méthodes & Process):\n"
+            "• 03 مهندسي عمليات (Process)\n"
+            "• 02 مهندسين في الطرق (Méthodes)\n"
+            "🔹 الموارد البشرية (RH):\n"
+            "• 01 مسؤول موارد بشرية\n"
+            "🔹 المخزون واللوجستيك (Stock & Logistique):\n"
+            "• 02 مسيّري مخزون\n"
+            "• سائقا رافعة شوكية (Caristes)\n"
+            "🔹 الإنتاج والجودة (Production & Qualité):\n"
+            "• 01 مسؤول إنتاج\n"
+            "• 01 مراقب جودة\n"
+            "🔹 المرافق التقنية (Utilités):\n"
+            "• 03 أعوان تشغيل\n"
+            "🔹 الاستقبال (Accueil):\n"
+            "• 02 موظفي استقبال\n"
+        )
+        titles = processor.extract_compact_listed_role_titles(ad)
+        self.assertEqual(len(titles), 14)
+        self.assertIn("08 مهندسين وتقنيين في الصيانة", [x for x in titles if x.startswith("08 ")])
+        self.assertTrue(any("مهندسين وتقنيين في الصيانة" in title for title in titles))
+        self.assertTrue(any("Technicien" in title for title in titles) is False)
+
+    def test_explicit_global_application_email_can_be_recovered_when_position_scope_is_ambiguous(self):
+        ad = (
+            "عرض توظيف: 30 منصبًا في الصناعات الغذائية.\n"
+            "الصيانة: 01 مسؤول صيانة و08 مهندسين وتقنيين في الصيانة.\n"
+            "طريقة التقديم:\n"
+            "إرسال السيرة الذاتية حصريًا عبر البريد الإلكتروني التالي:\n"
+            "ciberodz@gmail.com\n"
+            "خدمات RECRUTEMENT DZ: إعداد السير الذاتية ATS."
+        )
+        self.assertEqual(
+            processor.extract_explicit_global_application_emails(ad),
+            ["ciberodz@gmail.com"],
+        )
+        ambiguous = ad.replace(
+            "ciberodz@gmail.com",
+            "ciberodz@gmail.com and another@example.org",
+        )
+        self.assertEqual(processor.extract_explicit_global_application_emails(ambiguous), [])
+        non_global = ad.replace(
+            "إرسال السيرة الذاتية حصريًا عبر البريد الإلكتروني التالي:",
+            "يمكنكم التواصل عند الحاجة عبر:",
+        )
+        self.assertEqual(processor.extract_explicit_global_application_emails(non_global), [])
+
     def test_compact_cvdzjobs_role_list_recovers_all_twelve_titles(self):
         ad = (
             "الصيانة والتقنية : (Maintenance & Technique)\n"
@@ -1104,6 +1161,28 @@ Expérience pratique de 2 à 5 ans en logistique.
         )
         self.assertEqual(final, "REVIEW")
         self.assertTrue(reason)
+
+    def test_review_explains_a_global_application_email_without_claiming_it_is_missing(self):
+        bot, _sent = TelegramControlTests().build_bot()
+        event = sample_event("REVIEW")
+        event["record"]["emails"] = ["ciberodz@gmail.com"]
+        event["record"]["global_application_email"] = True
+        event["record"]["contact_scope_matched"] = False
+        event["advertisement"] = (
+            "عرض توظيف. طريقة التقديم: إرسال السيرة الذاتية حصريًا عبر البريد الإلكتروني التالي: "
+            "ciberodz@gmail.com"
+        )
+        item = {
+            "record": event["record"],
+            "advertisement": event["advertisement"],
+            "post": event["post"],
+            "can_auto_send": False,
+        }
+        rendered = bot._review_text(item)
+        self.assertIn("ciberodz@gmail.com", rendered)
+        self.assertIn("بريد التقديم العام المعلن صراحةً", rendered)
+        self.assertIn("مراجعة يدوية فقط", rendered)
+        self.assertNotIn("تعذّر ربط أيٍّ منها", rendered)
 
     def test_review_shows_unscoped_ad_emails_without_claiming_no_email_exists(self):
         bot, _sent = self.build_bot()
