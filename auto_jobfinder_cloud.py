@@ -3260,14 +3260,16 @@ JOB ADVERTISEMENT
     if vacancy_rescue:
         prompt += """
 
-VACANCY EXTRACTION RETRY:
-The previous pass returned an empty jobs array. Re-read the COMPLETE
-advertisement carefully. If it advertises one or more positions, return
-each distinct position in the JSON "jobs" array even if the candidate
-does not qualify; use REJECT for an unsuitable position instead of
-omitting it. Return an empty array only when the text truly has no job
-vacancy. Never invent titles, employers, locations, contacts, or
-requirements.
+VACANCY / MULTI-POSITION EXTRACTION RETRY:
+Re-read the COMPLETE advertisement and return EVERY distinct position in
+the JSON "jobs" array. Do not omit titles shown as separate short lines or
+bullets in a compact list, even when details are sparse or the candidate
+may not qualify. Give each title its own position record. If details for
+a listed role are missing, use REVIEW and state that uncertainty. Clearly
+unsuitable roles may be REJECT; relevant roles with uncertain entry criteria
+must be REVIEW, not silently omitted. Return an empty array only when the
+text truly has no job vacancy. Never invent titles, employers, locations,
+contacts, or requirements.
 """
 
     messages = [
