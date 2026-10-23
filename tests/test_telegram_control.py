@@ -1103,20 +1103,26 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(decision, "REVIEW")
         self.assertEqual(status, "allowed_housing")
 
-    def test_unscoped_multi_position_location_routes_apply_to_review(self):
-        decision, status, reason = processor.enforce_location_rule(
-            {
-                "location": "Alger",
-                "accommodation_provided": "unknown",
-            },
-            "APPLY",
-            "",
-            section_verified=False,
-        )
+    def test_unscoped_multi_position_tipaza_without_housing_is_hard_rejected(self):
+        job = {
+            "location": "القليعة، ولاية تيبازة",
+            "accommodation_provided": "unknown",
+        }
+        self.assertEqual(processor.job_location_category(job), "other")
 
-        self.assertEqual(decision, "REVIEW")
-        self.assertEqual(status, "location_section_unverified")
-        self.assertIn("automatic sending is disabled", reason)
+        # This is the regression seen in production: section/title matching can
+        # be ambiguous, but it must not override the hard location requirement.
+        for original_decision in ("APPLY", "REVIEW"):
+            with self.subTest(original_decision=original_decision):
+                decision, status, reason = processor.enforce_location_rule(
+                    job,
+                    original_decision,
+                    "",
+                    section_verified=False,
+                )
+                self.assertEqual(decision, "REJECT")
+                self.assertEqual(status, "rejected_location")
+                self.assertIn("accommodation", reason.lower())
 
     def test_no_housing_provided_in_french_is_not_a_positive_signal(self):
         self.assertFalse(

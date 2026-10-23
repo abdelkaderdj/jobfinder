@@ -3591,32 +3591,35 @@ def enforce_location_rule(
             "Work location is not clearly identified",
         )
 
-    # If a combined advertisement could not be mapped to this exact position,
-    # do not let another section's location/housing facts decide this one.
-    # REVIEW is safe: it blocks auto-send but avoids silently losing a plausible role.
-    if category == "other" and not section_verified:
-        if decision == "APPLY":
-            return (
-                "REVIEW",
-                "location_section_unverified",
-                "Could not verify this position's own location/accommodation section; automatic sending is disabled.",
-            )
-        return (
-            decision,
-            "location_section_unverified",
-            "This position's own location/accommodation section could not be verified; do not infer an accommodation benefit.",
-        )
-
-    # For other Algerian regions, only explicit employer-provided housing
-    # verified against this position's own advertisement section can qualify.
+    # A known out-of-area location is a hard exclusion unless employer-provided
+    # accommodation is positively verified for this position. An ambiguous
+    # title-to-section match is not a reason to route an ineligible location to
+    # REVIEW when no accommodation evidence exists.
     if category == "other" and accommodation is True:
+        # If accommodation evidence exists but its link to this exact position
+        # is uncertain, keep the no-auto-send safeguard and ask for review.
+        if not section_verified:
+            if decision == "APPLY":
+                return (
+                    "REVIEW",
+                    "location_section_unverified",
+                    "Employer-provided accommodation appears in a candidate section, but its association with this exact position could not be verified; automatic sending is disabled.",
+                )
+            return (
+                decision,
+                "location_section_unverified",
+                "Accommodation evidence could not be verified against this position's own section.",
+            )
         return decision, "allowed_housing", "Explicit employer-provided housing verified in this position's ad"
 
+    # No verified employer-provided accommodation means a known out-of-area
+    # location fails the candidate's mandatory location rule, even when the
+    # multi-position advertisement cannot be mapped to a specific title block.
     if category == "other":
         return (
             "REJECT",
             "rejected_location",
-            "Work location is outside the accepted local/Saharan area and the ad does not explicitly provide accommodation",
+            "Work location is outside the accepted local/Saharan area and employer-provided accommodation is not explicitly verified for this position",
         )
 
     return decision, "unknown_location", "Work location could not be classified"
