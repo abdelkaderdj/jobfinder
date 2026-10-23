@@ -6497,7 +6497,13 @@ def process_post(
         # and exactly one email recipient are unambiguous.
         contact_review_reason = ""
         if decision == "APPLY":
-            if not scope_matched:
+            if global_application_email:
+                decision = "REVIEW"
+                contact_review_reason = (
+                    "A global application email was recovered from the complete post, "
+                    "but the position-specific section is not verified; automatic sending is disabled."
+                )
+            elif not scope_matched:
                 decision = "REVIEW"
                 contact_review_reason = (
                     "Could not safely identify this position's own advertisement "
