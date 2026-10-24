@@ -603,6 +603,40 @@ Kaader5881@gmail.com
                 )
                 self.assertEqual(final, "REJECT")
 
+    def test_production_technician_is_rejected_despite_shared_maintenance_keywords(self):
+        titles = (
+            "Technicien de production",
+            "Production Technician",
+            "تقني إنتاج",
+        )
+        shared_post_text = (
+            "Technicien de production. Industrial maintenance, pumps, fluids, "
+            "mechanical equipment and maintenance technician vacancies."
+        )
+        for title in titles:
+            with self.subTest(title=title):
+                job = {
+                    "job_title": title,
+                    "application_title_fr": title,
+                    "application_title_en": (
+                        "Production Technician" if "production" in title.lower() else title
+                    ),
+                    "score": 95,
+                }
+                score, groups = processor.calculate_candidate_cv_match(job, shared_post_text)
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+                # Even an inflated AI/CV score or an APPLY decision cannot
+                # override the role-family exclusion.
+                final, reason = processor.enforce_candidate_fit_rule(
+                    job,
+                    "APPLY",
+                    shared_post_text,
+                    cv_match_score=95,
+                )
+                self.assertEqual(final, "REJECT")
+                self.assertTrue(reason)
+
     def test_stock_and_laboratory_positions_are_excluded_despite_shared_post_keywords(self):
         for title in ("Gestionnaire des Stocks", "Technologist – Laboratory, Assoc"):
             with self.subTest(title=title):

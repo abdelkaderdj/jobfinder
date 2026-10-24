@@ -310,6 +310,14 @@ def normalize_text(text):
 
 
 UNRELATED_ROLE_TITLE_PATTERNS = (
+    # Production-line roles are outside the candidate's agreed target paths
+    # (mechanical maintenance, pumps/fluids and mechanical design). They must
+    # not pass merely because "technicien" or post-wide maintenance keywords match.
+    r"\btechnicien(?:ne)? de production\b", r"\btechnicien production\b",
+    r"\bproduction technician\b", r"\bproduction technologist\b",
+    r"\boperateur de production\b", r"\bproduction operator\b",
+    r"\bagent de production\b", r"\bproduction worker\b",
+    r"\bتقني انتاج\b", r"\bفني انتاج\b", r"\bعامل انتاج\b", r"\bمشغل انتاج\b",
     r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
     r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
     r"\breceptionniste\b", r"\breceptionist\b",
@@ -484,11 +492,20 @@ def calculate_candidate_cv_match(job, advertisement=""):
         or ""
     ).strip()
     normalized_title = normalize_text(title)
+    normalized_title_variants = [
+        normalize_text(job.get(field))
+        for field in ("job_title", "application_title_fr", "application_title_en")
+        if str(job.get(field) or "").strip()
+    ] or [normalized_title]
 
     if not normalized_title:
         return 0, []
 
-    if any(re.search(pattern, normalized_title) for pattern in UNRELATED_ROLE_TITLE_PATTERNS):
+    if any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in UNRELATED_ROLE_TITLE_PATTERNS
+    ):
         return 0, []
 
     if (
@@ -968,7 +985,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         )
 
     for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
-        if re.search(pattern, normalized_title):
+        if any(re.search(pattern, candidate) for candidate in normalized_title_variants):
             return (
                 "REJECT",
                 "رُفضت الوظيفة لأن تخصصها خارج المسارات المتفق عليها: الميكانيك والصيانة الميكانيكية والمضخات/الموائع والتصميم الميكانيكي.",
