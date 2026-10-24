@@ -310,14 +310,6 @@ def normalize_text(text):
 
 
 UNRELATED_ROLE_TITLE_PATTERNS = (
-    # Production-line roles are outside the candidate's agreed target paths
-    # (mechanical maintenance, pumps/fluids and mechanical design). They must
-    # not pass merely because "technicien" or post-wide maintenance keywords match.
-    r"\btechnicien(?:ne)? de production\b", r"\btechnicien production\b",
-    r"\bproduction technician\b", r"\bproduction technologist\b",
-    r"\boperateur de production\b", r"\bproduction operator\b",
-    r"\bagent de production\b", r"\bproduction worker\b",
-    r"\bتقني انتاج\b", r"\bفني انتاج\b", r"\bعامل انتاج\b", r"\bمشغل انتاج\b",
     r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
     r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
     r"\breceptionniste\b", r"\breceptionist\b",
@@ -351,6 +343,26 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bسكرتير\b", r"\bسكرتيرة\b", r"\bكهربائي\b", r"\bكهرباء\b",
     r"\bكهروميكانيك\b", r"\bكهروميكانيكي\b", r"\bمخازن\b",
     r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
+)
+
+# Direct maintenance-technician titles can bypass an experience-only concern
+# when the CV match is strong; engineer/leadership titles remain governed separately.
+DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS = (
+    r"\btechnicien(?:ne)? de maintenance\b",
+    r"\btechnicien(?:ne)? maintenance\b",
+    r"\bmaintenance technician\b",
+    r"\btechnician in maintenance\b",
+    r"\bفني صيانة\b", r"\bتقني صيانة\b",
+)
+
+# Production roles remain eligible for manual review, but are never auto-sent.
+# Keep these patterns separate from hard exclusions such as unrelated disciplines.
+PRODUCTION_ROLE_TITLE_PATTERNS = (
+    r"\btechnicien(?:ne)? de production\b", r"\btechnicien production\b",
+    r"\bproduction technician\b", r"\bproduction technologist\b",
+    r"\boperateur de production\b", r"\bproduction operator\b",
+    r"\bagent de production\b", r"\bproduction worker\b",
+    r"\bتقني انتاج\b", r"\bفني انتاج\b", r"\bعامل انتاج\b", r"\bمشغل انتاج\b",
 )
 
 # The candidate holds a Licence/Bac+3, not an engineering diploma.
@@ -1028,11 +1040,40 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
+    # Production-line titles are not rejected: they must be inspected manually.
+    # This guard runs before experience-only overrides so shared post keywords
+    # or an inflated AI/CV score can never trigger automatic sending.
+    if any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in PRODUCTION_ROLE_TITLE_PATTERNS
+    ):
+        return (
+            "REVIEW",
+            "هذا منصب إنتاج؛ لم يُستبعد آليًا، لكنه يحتاج مراجعة يدوية للتأكد من ملاءمة مهامه الفعلية. لا إرسال تلقائي.",
+        )
+
     reason = str(job.get("reason", ""))
+    direct_maintenance_technician_title = (
+        any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS
+        )
+        and not any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS
+        )
+        and not any(_is_senior_role_title(candidate) for candidate in normalized_title_variants)
+    )
     no_requirement_lack_override = (
         experience_policy is None
         and decision in {"REJECT", "REVIEW"}
-        and _reason_explicitly_says_candidate_lacks_experience(reason)
+        and (
+            _reason_explicitly_says_candidate_lacks_experience(reason)
+            or direct_maintenance_technician_title
+        )
     )
     experience_only_override = (
         (experience_policy == "waive_experience" or no_requirement_lack_override)

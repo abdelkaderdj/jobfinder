@@ -339,9 +339,8 @@ class TelegramControlTests(unittest.TestCase):
             "Poste de technicien de maintenance des équipements.",
             cv_match_score=score,
         )
-        self.assertEqual(final, "REVIEW")
-        self.assertIn("مراجعة بشرية", reason)
-        self.assertNotEqual(final, "APPLY")
+        self.assertEqual(final, "APPLY")
+        self.assertIn("خبرة", reason)
 
     def test_engineer_maintenance_title_can_be_reviewed_when_ad_explicitly_accepts_licence(self):
         advertisement = """🔸 هندسة صيانة (Maintenance)
@@ -603,7 +602,23 @@ Kaader5881@gmail.com
                 )
                 self.assertEqual(final, "REJECT")
 
-    def test_production_technician_is_rejected_despite_shared_maintenance_keywords(self):
+    def test_maintenance_technician_review_for_experience_only_is_applied_directly(self):
+        job = {
+            "job_title": "Technicien de Maintenance",
+            "application_title_fr": "Technicien de Maintenance",
+            "score": 85,
+            "reason": "The candidate lacks previous professional experience.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "Technicien de Maintenance. Previous experience preferred.",
+            cv_match_score=55,
+        )
+        self.assertEqual(final, "APPLY")
+        self.assertIn("خبرة", reason)
+
+    def test_production_technician_is_reviewed_not_rejected_or_auto_sent(self):
         titles = (
             "Technicien de production",
             "Production Technician",
@@ -624,18 +639,17 @@ Kaader5881@gmail.com
                     "score": 95,
                 }
                 score, groups = processor.calculate_candidate_cv_match(job, shared_post_text)
-                self.assertEqual(score, 0)
-                self.assertEqual(groups, [])
-                # Even an inflated AI/CV score or an APPLY decision cannot
-                # override the role-family exclusion.
+                self.assertGreater(score, 0)
+                # Shared keywords may inform the CV score, but production titles
+                # must remain in manual review even with an inflated AI/CV score.
                 final, reason = processor.enforce_candidate_fit_rule(
                     job,
                     "APPLY",
                     shared_post_text,
                     cv_match_score=95,
                 )
-                self.assertEqual(final, "REJECT")
-                self.assertTrue(reason)
+                self.assertEqual(final, "REVIEW")
+                self.assertIn("مراجعة يدوية", reason)
 
     def test_stock_and_laboratory_positions_are_excluded_despite_shared_post_keywords(self):
         for title in ("Gestionnaire des Stocks", "Technologist – Laboratory, Assoc"):
