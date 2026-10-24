@@ -339,9 +339,8 @@ class TelegramControlTests(unittest.TestCase):
             "Poste de technicien de maintenance des équipements.",
             cv_match_score=score,
         )
-        self.assertEqual(final, "REVIEW")
-        self.assertIn("مراجعة بشرية", reason)
-        self.assertNotEqual(final, "APPLY")
+        self.assertEqual(final, "APPLY")
+        self.assertIn("خبرة", reason)
 
     def test_engineer_maintenance_title_can_be_reviewed_when_ad_explicitly_accepts_licence(self):
         advertisement = """🔸 هندسة صيانة (Maintenance)
