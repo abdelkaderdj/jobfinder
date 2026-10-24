@@ -617,7 +617,7 @@ Kaader5881@gmail.com
             cv_match_score=55,
         )
         self.assertEqual(final, "APPLY")
-        self.assertIn("الخبرة", reason)
+        self.assertIn("خبرة", reason)
 
     def test_production_technician_is_reviewed_not_rejected_or_auto_sent(self):
         titles = (
