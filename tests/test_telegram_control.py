@@ -503,6 +503,39 @@ Kaader5881@gmail.com
         self.assertEqual(final, "REJECT")
         self.assertIn("شرطًا إلزاميًا", reason)
 
+    def test_chiali_operator_qualification_lines_are_not_recovered_as_job_titles(self):
+        ad = (
+            "🚨 مجموعة Chiali تعلن عن توظيف مشغلَين اثنين (02 Opérateurs) "
+            "في الكهرباء والسباكة والتدفئة – ولاية سيدي بلعباس\n"
+            "🔹 مشغل تقني (02 Opérateurs)\n"
+            "📍 مكان الإقامة والعمل: ولاية سيدي بلعباس (Sidi Bel Abbès).\n"
+            "📝 البروفايل والشروط المطلوبة (Profil recherché) :\n"
+            "🎓 التكوين والشهادة:\n"
+            "الحيازة على شهادة تقني (Technicien) أو تقني سامٍ "
+            "(TS - Technicien Supérieur) في إحدى التخصصات التالية:\n"
+            "كهربائي (Électricien).\n"
+            "سباك ومصلح أجهزة التدفئة (Plombier chauffagiste).\n"
+            "📩 طريقة التقديم (How to Apply) :\n"
+            "إرسال السيرة الذاتية CV عبر nabil.mrabent@groupe-chiali.com"
+        )
+        titles = processor.extract_compact_listed_role_titles(ad)
+        # Only one actual post title appears before the candidate-profile section.
+        # Electrician and plumber are listed as qualification specialities, not
+        # three independent vacancies and certainly not "Technicien Maintenance".
+        self.assertEqual(titles, [])
+        recovered, count = processor._recover_missing_compact_list_roles(titles, [])
+        self.assertEqual(count, 0)
+        self.assertEqual(recovered, [])
+
+    def test_recovered_compact_titles_have_no_fabricated_ai_score(self):
+        recovered, count = processor._recover_missing_compact_list_roles(
+            ["Technicien supérieur en froid"],
+            [],
+        )
+        self.assertEqual(count, 1)
+        self.assertIsNone(recovered[0]["score"])
+        self.assertEqual(recovered[0]["decision"], "REVIEW")
+
     def test_arabic_numbered_maintenance_notice_recovers_all_fourteen_role_groups(self):
         ad = (
             "🚨 عرض توظيف | 30 منصبًا في قطاع الصناعات الغذائية – تيبازة\n"
