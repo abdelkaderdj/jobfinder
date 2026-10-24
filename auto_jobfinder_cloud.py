@@ -345,6 +345,16 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
 )
 
+# Direct maintenance-technician titles can bypass an experience-only concern
+# when the CV match is strong; engineer/leadership titles remain governed separately.
+DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS = (
+    r"\btechnicien(?:ne)? de maintenance\b",
+    r"\btechnicien(?:ne)? maintenance\b",
+    r"\bmaintenance technician\b",
+    r"\btechnician in maintenance\b",
+    r"\bفني صيانة\b", r"\bتقني صيانة\b",
+)
+
 # Production roles remain eligible for manual review, but are never auto-sent.
 # Keep these patterns separate from hard exclusions such as unrelated disciplines.
 PRODUCTION_ROLE_TITLE_PATTERNS = (
@@ -1044,16 +1054,25 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         )
 
     reason = str(job.get("reason", ""))
-    strong_title_alignment = any(
-        re.search(pattern, normalized_title)
-        for pattern in STRONG_RELEVANT_ROLE_PATTERNS
+    direct_maintenance_technician_title = (
+        any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS
+        )
+        and not any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS
+        )
+        and not any(_is_senior_role_title(candidate) for candidate in normalized_title_variants)
     )
     no_requirement_lack_override = (
         experience_policy is None
         and decision in {"REJECT", "REVIEW"}
         and (
             _reason_explicitly_says_candidate_lacks_experience(reason)
-            or strong_title_alignment
+            or direct_maintenance_technician_title
         )
     )
     experience_only_override = (
