@@ -1314,11 +1314,26 @@ _COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
-    """Extract job titles written as separate short lines in compact role lists."""
+    """Extract explicit title lists, never qualifications or application instructions."""
     found = []
     seen = set()
+    # The compact-list recovery is meant for a list of actual openings, not
+    # specialties listed under the candidate profile. Stop at the first
+    # qualifications/requirements/application section.
+    role_list_end_markers = (
+        "profil recherche", "profile recherche", "profil et conditions",
+        "conditions de recrutement", "conditions requises", "qualifications",
+        "requirements", "education", "diplome", "formation requise",
+        "البروفايل والشروط المطلوبة", "الملف المطلوب", "التكوين والشهادة",
+        "شروط التوظيف", "الشروط المطلوبة", "شروط إضافية", "شروط اضافية",
+        "المؤهلات المطلوبة", "المؤهلات", "طريقة التقديم", "طريقة الترشح",
+        "كيفية التقديم", "للمهتمين", "المهام المطلوبة",
+    )
     for raw_line in str(advertisement or "").splitlines():
-        line = re.sub(r"^\s*(?:[-*•▪●]\s*)", "", raw_line).strip()
+        line = re.sub(r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)", "", raw_line).strip()
+        normalized_line = normalize_text(line)
+        if any(marker in normalized_line for marker in role_list_end_markers):
+            break
         # Recruitment posts often prefix Arabic titles with a headcount:
         # "08 مهندسين وتقنيين في الصيانة" or "02 مشرفين HSE".
         line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
@@ -1389,7 +1404,8 @@ def _recover_missing_compact_list_roles(titles: list[str], jobs: list[dict]) -> 
             "company": "",
             "location": "",
             "decision": "REVIEW",
-            "score": 0,
+            # This title was recovered from text; no AI score was computed.
+            "score": None,
             "reason": (
                 "استُرجع هذا المسمى من قائمة وظائف منفصلة لأن التحليل الأول لم يستخرج كل المناصب. "
                 "تفاصيل شروط هذا المنصب غير كافية في بيانات الاستخراج؛ يلزم التحقق اليدوي، "
