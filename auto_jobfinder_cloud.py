@@ -312,6 +312,13 @@ def normalize_text(text):
 UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
     r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
+    # Packaging/conditioning is not mechanical maintenance.
+    r"\bagent de conditionnement\b", r"\boperateur de conditionnement\b",
+    r"\bpackaging (?:agent|operator|worker)\b", r"\bpacking (?:agent|operator|worker)\b",
+    # Training and administrative-writing roles are outside the candidate's target paths.
+    r"\bformateur\b", r"\bformatrice\b", r"\btrainer\b", r"\btraining instructor\b",
+    r"\binstructor\b", r"\bteacher\b", r"\benseignant(?:e)?\b",
+    r"\bredaction administrative\b", r"\badministrative writing\b",
     r"\breceptionniste\b", r"\breceptionist\b",
     r"\bassistant(e)? de direction\b", r"\bassistant e de direction\b",
     r"\bsecretaire\b", r"\bagent de securite\b", r"\bsecurity guard\b",
@@ -367,10 +374,10 @@ PRODUCTION_ROLE_TITLE_PATTERNS = (
 
 # The candidate holds a Licence/Bac+3, not an engineering diploma.
 ENGINEERING_GRADE_ROLE_TITLE_PATTERNS = (
-    r"\bingenieur\b",
-    r"\bengineer\b",
-    r"\bingenieur d etat\b",
-    r"\bمهندس\b",
+    # Match singular and plural forms after normalize_text removes accents.
+    r"\bingenieur\w*\b",
+    r"\bengineer\w*\b",
+    r"\bمهندس\w*\b",
 )
 
 STRONG_RELEVANT_ROLE_PATTERNS = (
@@ -392,8 +399,9 @@ STRONG_RELEVANT_ROLE_PATTERNS = (
 )
 
 GENERIC_TECHNICAL_ROLE_PATTERNS = (
+    # The noun must indicate a technical role; descriptive words like "techniques"
+    # in administrative-writing courses are not evidence of candidate fit.
     r"\btechnicien\w*\b", r"\btechnician\w*\b",
-    r"\btechnical\b", r"\btechnique\w*\b",
     r"\boperateur\w*\b", r"\boperator\w*\b",
     r"\bتقني\w*\b", r"\bفني\w*\b", r"\bمشغل\b",
 )
@@ -488,6 +496,17 @@ CV_MATCH_SKILL_GROUPS = (
 )
 
 
+def _normalized_job_title_variants(job):
+    """Normalize every model/localized title consistently across decision gates."""
+    if not isinstance(job, dict):
+        return []
+    return [
+        normalize_text(job.get(field))
+        for field in ("job_title", "application_title_fr", "application_title_en")
+        if str(job.get(field) or "").strip()
+    ]
+
+
 def calculate_candidate_cv_match(job, advertisement=""):
     """
     Explainable overlap against this specific position, not the whole Telegram post.
@@ -504,11 +523,7 @@ def calculate_candidate_cv_match(job, advertisement=""):
         or ""
     ).strip()
     normalized_title = normalize_text(title)
-    normalized_title_variants = [
-        normalize_text(job.get(field))
-        for field in ("job_title", "application_title_fr", "application_title_en")
-        if str(job.get(field) or "").strip()
-    ] or [normalized_title]
+    normalized_title_variants = _normalized_job_title_variants(job) or [normalized_title]
 
     if not normalized_title:
         return 0, []
@@ -521,7 +536,11 @@ def calculate_candidate_cv_match(job, advertisement=""):
         return 0, []
 
     if (
-        any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS)
+        any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS
+        )
         and not _advertisement_explicitly_accepts_licence_bac3(advertisement)
     ):
         return 0, []
@@ -978,17 +997,17 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     # title even when the model's primary job_title is broader or incomplete.
     # Evaluate every position-specific title variant for hard exclusions so a
     # leadership title cannot fall through to the generic technical REVIEW path.
-    normalized_title_variants = [
-        normalize_text(job.get(field))
-        for field in ("job_title", "application_title_fr", "application_title_en")
-        if str(job.get(field) or "").strip()
-    ]
+    normalized_title_variants = _normalized_job_title_variants(job)
 
     if not normalized_title:
         return "REJECT", "رُفضت الوظيفة لأن المسمى الوظيفي غير واضح."
 
     if (
-        any(re.search(pattern, normalized_title) for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS)
+        any(
+            re.search(pattern, candidate)
+            for candidate in normalized_title_variants
+            for pattern in ENGINEERING_GRADE_ROLE_TITLE_PATTERNS
+        )
         and not _advertisement_explicitly_accepts_licence_bac3(advertisement)
     ):
         return (
@@ -1033,6 +1052,20 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if any(_is_senior_role_title(candidate) for candidate in normalized_title_variants):
         return "REJECT", "رُفضت الوظيفة لأن أحد مسميات المنصب إشرافي/قيادي ولا يناسب مستوى المرشح الحالي دون خبرة مهنية."
 
+    is_production_role = any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in PRODUCTION_ROLE_TITLE_PATTERNS
+    )
+    # Low confidence is a rejection gate, not something the model can bypass
+    # by choosing REVIEW. Keep the explicitly requested production-technician
+    # exception so those roles remain available for manual inspection.
+    if ai_score is not None and ai_score <= 15 and cv_match_score < 30 and not is_production_role:
+        return (
+            "REJECT",
+            f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر مطابقة السيرة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
+        )
+
     required_years, experience_policy = _experience_requirement_policy(advertisement)
     if experience_policy == "manual_review":
         return (
@@ -1040,14 +1073,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
-    # Production-line titles are not rejected: they must be inspected manually.
-    # This guard runs before experience-only overrides so shared post keywords
-    # or an inflated AI/CV score can never trigger automatic sending.
-    if any(
-        re.search(pattern, candidate)
-        for candidate in normalized_title_variants
-        for pattern in PRODUCTION_ROLE_TITLE_PATTERNS
-    ):
+    if is_production_role:
         return (
             "REVIEW",
             "هذا منصب إنتاج؛ لم يُستبعد آليًا، لكنه يحتاج مراجعة يدوية للتأكد من ملاءمة مهامه الفعلية. لا إرسال تلقائي.",
@@ -3564,6 +3590,47 @@ def location_contains_any(
         normalize_text(marker) in normalized
         for marker in markers
     )
+
+
+def infer_explicit_work_location(advertisement: str) -> str:
+    """Recover only an explicit workplace label or employer hiring-intro location."""
+    text = str(advertisement or "")
+    transport_line = re.compile(
+        r"(?:توفر\s+النقل|النقل\s+متوفر|transport(?:ation)?|navette|ramassage|pickup)",
+        flags=re.IGNORECASE,
+    )
+    label_pattern = re.compile(
+        r"(?:lieu\s+de\s+travail|lieu\s+du\s+poste|site\s+de\s+travail|"
+        r"work\s+location|job\s+location|worksite|"
+        r"مكان\s+العمل|موقع\s+العمل|مقر\s+العمل|مكان\s+الوظيفة|مكان\s+المنصب)"
+        r"\s*[:：\-–]?\s*(.+)$",
+        flags=re.IGNORECASE,
+    )
+    hiring_preamble = re.compile(
+        r"(?:شركة|entreprise|company).{0,80}?"
+        r"(?:\bà\b|\bau\b|\bdans\s+la\s+commune\s+de\b|في|بـ)\s*"
+        r"([^،,\n]+?)\s*(?=تبحث|تعلن|توظف|تطلب|تستقطب|recrute|recherche|cherche)",
+        flags=re.IGNORECASE,
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = label_pattern.search(line)
+        if match:
+            value = re.sub(r"^[📍\s]+", "", match.group(1)).strip(" .؛;,-–—")
+            if value and not transport_line.search(value):
+                return value[:160]
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = hiring_preamble.search(line)
+        if match:
+            value = match.group(1).strip(" .؛;:-–—")
+            if value and len(value) <= 160:
+                return value
+    return ""
 
 
 def job_location_category(job):
@@ -6552,6 +6619,19 @@ def process_post(
         # ====================================================
         # LOCATION SAFETY LAYER
         # ====================================================
+
+        # Recover an omitted location only from this position's scope or the
+        # verified recruitment section. Never mistake transport pickup points
+        # for the actual worksite.
+        if not str(job.get("location") or "").strip():
+            inferred_location = infer_explicit_work_location(
+                position_scope_text if position_scope_matched else ""
+            )
+            if not inferred_location and scope_matched:
+                inferred_location = infer_explicit_work_location(job_section_text)
+            if inferred_location:
+                job["location"] = inferred_location
+                print("LOCATION FALLBACK: extracted from explicit advertisement wording")
 
         scoped_job = dict(job)
         scoped_job["accommodation_provided"] = scoped_accommodation_value(
