@@ -307,6 +307,77 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "REVIEW")
         self.assertTrue(reason)
 
+    def test_agent_de_conditionnement_is_hard_rejected_not_sent_to_production_review(self):
+        job = {
+            "job_title": "Agent de conditionnement",
+            "application_title_fr": "Agent de conditionnement",
+            "application_title_en": "Production Worker",
+            "score": 10,
+            "reason": "This is a production role and needs review.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "Agent de conditionnement; packing and packaging line work.",
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("تخصصها خارج المسارات", reason)
+
+    def test_plural_engineer_title_is_rejected_before_four_year_review_rule(self):
+        job = {
+            "job_title": "Ingénieurs techniques - Bureau technique",
+            "application_title_fr": "Ingénieurs techniques - Bureau technique",
+            "application_title_en": "Technical Office Engineers",
+            "score": 0,
+            "reason": "The role requires 4 years of experience.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "Ingénieurs techniques - Bureau technique. Expérience minimale: 4 ans.",
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("Licence/Bac+3", reason)
+
+    def test_administrative_writing_trainer_with_zero_cv_match_is_rejected(self):
+        job = {
+            "job_title": "Formateur en techniques de rédaction administrative et professionnelle",
+            "application_title_fr": "Formateur en techniques de rédaction administrative et professionnelle",
+            "score": 10,
+            "reason": "The role may be technical; needs review.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "Training, administrative writing, professional French and teaching skills.",
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("تخصصها خارج المسارات", reason)
+
+    def test_low_ai_and_low_cv_match_cannot_survive_as_generic_review(self):
+        final, reason = processor.enforce_candidate_fit_rule(
+            {"job_title": "Technicien", "score": 10, "reason": "Potential technical role."},
+            "REVIEW",
+            "A generic technician role with no position-specific tasks.",
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("درجة AI منخفضة جدًا", reason)
+
+    def test_work_location_fallback_uses_employer_hiring_intro_not_transport_pickups(self):
+        ad = (
+            "شركة في حي الفحص الاربعاء تبحث عن عمال في المناصب التالية\n"
+            "توفر النقل صوالحي مفتاح الكاليتوس براقي بوفاريك سيدي موسى بوعينان"
+        )
+        self.assertEqual(processor.infer_explicit_work_location(ad), "حي الفحص الاربعاء")
+        self.assertEqual(
+            processor.infer_explicit_work_location("توفر النقل من بوفاريك وبوعينان"),
+            "",
+        )
+
     def test_senior_technical_role_remains_rejected(self):
         final, _reason = processor.enforce_candidate_fit_rule(
             {
