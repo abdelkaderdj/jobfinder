@@ -372,11 +372,21 @@ class TelegramControlTests(unittest.TestCase):
             "شركة في حي الفحص الاربعاء تبحث عن عمال في المناصب التالية\n"
             "توفر النقل صوالحي مفتاح الكاليتوس براقي بوفاريك سيدي موسى بوعينان"
         )
-        self.assertEqual(processor.infer_explicit_work_location(ad), "حي الفحص الاربعاء")
+        location = processor.infer_explicit_work_location(ad)
+        self.assertEqual(location, "حي الفحص الاربعاء")
+        # Transport pickup municipalities must not replace the worksite or count as housing.
         self.assertEqual(
             processor.infer_explicit_work_location("توفر النقل من بوفاريك وبوعينان"),
             "",
         )
+        final, status, _reason = processor.enforce_location_rule(
+            {"location": location, "accommodation_provided": "unknown"},
+            "REVIEW",
+            ad,
+            section_verified=True,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertEqual(status, "rejected_location")
 
     def test_senior_technical_role_remains_rejected(self):
         final, _reason = processor.enforce_candidate_fit_rule(
