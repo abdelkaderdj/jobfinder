@@ -307,6 +307,51 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "REVIEW")
         self.assertTrue(reason)
 
+    def test_low_scoring_local_agent_polyvalent_goes_to_manual_review(self):
+        job = {
+            "job_title": "Agents polyvalents",
+            "application_title_fr": "Agents polyvalents",
+            "application_title_en": "Multi-purpose workers",
+            "score": 10,
+            "reason": "Low relevance to the candidate's primary discipline.",
+            "location": "Mostaganem",
+        }
+        ad = (
+            "SARL BMD recrute des agents polyvalents pour son usine de biscuits. "
+            "Lieu de travail: Vallée des Jardins, Dabdaba, Mostaganem. "
+            "Candidatures par email."
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", ad, cv_match_score=0
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertIn("منصب عام متعدد المهام", reason)
+
+        final, location_status, _location_reason = processor.enforce_location_rule(
+            job, final, ad, section_verified=True
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertEqual(location_status, "allowed_local")
+
+    def test_generalist_manual_review_does_not_override_out_of_area_location(self):
+        job = {
+            "job_title": "Agent polyvalent",
+            "application_title_fr": "Agent polyvalent",
+            "score": 10,
+            "location": "Blida",
+            "accommodation_provided": "unknown",
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", "Agent polyvalent.", cv_match_score=0
+        )
+        self.assertEqual(final, "REVIEW")
+        final, status, _location_reason = processor.enforce_location_rule(
+            job, final, "Agent polyvalent. Work location: Blida.",
+            section_verified=True,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertEqual(status, "rejected_location")
+
     def test_agent_de_conditionnement_is_hard_rejected_not_sent_to_production_review(self):
         job = {
             "job_title": "Agent de conditionnement",
