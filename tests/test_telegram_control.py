@@ -235,15 +235,16 @@ class TelegramControlTests(unittest.TestCase):
 
     def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
         cases = [
-            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW"),
-            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW"),
-            ({"job_title": "Commercial(e)", "score": 91}, "APPLY"),
-            ({"job_title": "Agents Polyvalents", "score": 88}, "APPLY"),
+            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW", "REJECT"),
+            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW", "REJECT"),
+            ({"job_title": "Commercial(e)", "score": 91}, "APPLY", "REJECT"),
+            # A broad generalist role is not auto-applied or hard-rejected by title alone.
+            ({"job_title": "Agents Polyvalents", "score": 10}, "REJECT", "REVIEW"),
         ]
-        for job, decision in cases:
+        for job, decision, expected in cases:
             with self.subTest(job=job["job_title"]):
                 final, reason = processor.enforce_candidate_fit_rule(job, decision)
-                self.assertEqual(final, "REJECT")
+                self.assertEqual(final, expected)
                 self.assertTrue(reason)
 
     def test_borderline_cnc_rejection_without_explicit_requirement_becomes_review(self):
