@@ -362,6 +362,19 @@ DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS = (
     r"\bفني صيانة\b", r"\bتقني صيانة\b",
 )
 
+# Broad local generalist roles can be reviewed, but never auto-sent solely by title.
+# These roles are distinct from a direct mechanical-maintenance match.
+GENERALIST_ROLE_TITLE_PATTERNS = (
+    r"\bagents? polyvalents?\b",
+    r"\bpolyvalent agents?\b",
+    r"\bmulti[- ]?purpose (?:agents?|workers?)\b",
+    r"\bmultiskilled workers?\b",
+    r"\bعون متعدد المهام\b",
+    r"\bعامل متعدد المهام\b",
+    r"\bعمال متعددوا المهام\b",
+    r"\bعامل متعدد الاختصاصات\b",
+)
+
 # Production roles remain eligible for manual review, but are never auto-sent.
 # Keep these patterns separate from hard exclusions such as unrelated disciplines.
 PRODUCTION_ROLE_TITLE_PATTERNS = (
@@ -1057,10 +1070,21 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         for candidate in normalized_title_variants
         for pattern in PRODUCTION_ROLE_TITLE_PATTERNS
     )
+    is_generalist_role = any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in GENERALIST_ROLE_TITLE_PATTERNS
+    )
     # Low confidence is a rejection gate, not something the model can bypass
-    # by choosing REVIEW. Keep the explicitly requested production-technician
-    # exception so those roles remain available for manual inspection.
-    if ai_score is not None and ai_score <= 15 and cv_match_score < 30 and not is_production_role:
+    # by choosing REVIEW. Explicit manual-review exceptions are limited to
+    # production technicians and local generalist roles that are not hard-excluded.
+    if (
+        ai_score is not None
+        and ai_score <= 15
+        and cv_match_score < 30
+        and not is_production_role
+        and not is_generalist_role
+    ):
         return (
             "REJECT",
             f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر مطابقة السيرة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
@@ -1077,6 +1101,12 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         return (
             "REVIEW",
             "هذا منصب إنتاج؛ لم يُستبعد آليًا، لكنه يحتاج مراجعة يدوية للتأكد من ملاءمة مهامه الفعلية. لا إرسال تلقائي.",
+        )
+
+    if is_generalist_role:
+        return (
+            "REVIEW",
+            "هذا منصب عام متعدد المهام؛ لم يُرفض اعتمادًا على درجة AI/CV المنخفضة وحدها. أُحيل للمراجعة اليدوية لأن المهام التفصيلية غير واضحة، ولا إرسال تلقائي.",
         )
 
     reason = str(job.get("reason", ""))

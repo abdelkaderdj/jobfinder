@@ -235,15 +235,16 @@ class TelegramControlTests(unittest.TestCase):
 
     def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
         cases = [
-            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW"),
-            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW"),
-            ({"job_title": "Commercial(e)", "score": 91}, "APPLY"),
-            ({"job_title": "Agents Polyvalents", "score": 88}, "APPLY"),
+            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW", "REJECT"),
+            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW", "REJECT"),
+            ({"job_title": "Commercial(e)", "score": 91}, "APPLY", "REJECT"),
+            # A broad generalist role is not auto-applied or hard-rejected by title alone.
+            ({"job_title": "Agents Polyvalents", "score": 10}, "REJECT", "REVIEW"),
         ]
-        for job, decision in cases:
+        for job, decision, expected in cases:
             with self.subTest(job=job["job_title"]):
                 final, reason = processor.enforce_candidate_fit_rule(job, decision)
-                self.assertEqual(final, "REJECT")
+                self.assertEqual(final, expected)
                 self.assertTrue(reason)
 
     def test_borderline_cnc_rejection_without_explicit_requirement_becomes_review(self):
@@ -306,6 +307,51 @@ class TelegramControlTests(unittest.TestCase):
 
         self.assertEqual(final, "REVIEW")
         self.assertTrue(reason)
+
+    def test_low_scoring_local_agent_polyvalent_goes_to_manual_review(self):
+        job = {
+            "job_title": "Agents polyvalents",
+            "application_title_fr": "Agents polyvalents",
+            "application_title_en": "Multi-purpose workers",
+            "score": 10,
+            "reason": "Low relevance to the candidate's primary discipline.",
+            "location": "Mostaganem",
+        }
+        ad = (
+            "SARL BMD recrute des agents polyvalents pour son usine de biscuits. "
+            "Lieu de travail: Vallée des Jardins, Dabdaba, Mostaganem. "
+            "Candidatures par email."
+        )
+        final, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", ad, cv_match_score=0
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertIn("منصب عام متعدد المهام", reason)
+
+        final, location_status, _location_reason = processor.enforce_location_rule(
+            job, final, ad, section_verified=True
+        )
+        self.assertEqual(final, "REVIEW")
+        self.assertEqual(location_status, "allowed_local")
+
+    def test_generalist_manual_review_does_not_override_out_of_area_location(self):
+        job = {
+            "job_title": "Agent polyvalent",
+            "application_title_fr": "Agent polyvalent",
+            "score": 10,
+            "location": "Blida",
+            "accommodation_provided": "unknown",
+        }
+        final, _reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", "Agent polyvalent.", cv_match_score=0
+        )
+        self.assertEqual(final, "REVIEW")
+        final, status, _location_reason = processor.enforce_location_rule(
+            job, final, "Agent polyvalent. Work location: Blida.",
+            section_verified=True,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertEqual(status, "rejected_location")
 
     def test_agent_de_conditionnement_is_hard_rejected_not_sent_to_production_review(self):
         job = {
