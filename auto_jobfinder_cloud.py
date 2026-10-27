@@ -622,7 +622,7 @@ def _is_senior_role_title(normalized_title: str) -> bool:
         "senior", "manager", "management", "team leader", "leader",
         "supervisor", "superviseur", "foreman", "chef d atelier",
         "chef atelier", "chef d equipe", "head of", "director",
-        "directeur", "chief", "responsable", "مدير", "رئيس", "مشرف",
+        "directeur", "chief", "responsable", "مدير", "رئيس", "ريس", "مشرف",
     )
     normalized = normalize_text(normalized_title)
     return any(marker in normalized for marker in senior_markers)
