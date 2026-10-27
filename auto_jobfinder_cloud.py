@@ -4517,11 +4517,15 @@ def get_application_job_title(
             original_title
         )
 
-    return (
-        "Maintenance Technician"
-        if language == "en"
-        else "Technicien Maintenance"
-    )
+    # Never fabricate a maintenance-technician title when translation/cleanup fails.
+    # A literal source title (including Arabic) is safer than silently inventing
+    # a different vacancy; downstream role-fit rules can then classify it.
+    fallback_title = original_title_candidate or original_title or ai_title
+    if fallback_title:
+        preserved_title = remove_arabic_parenthetical(fallback_title).strip()
+        return preserved_title or fallback_title
+
+    return "Job title not confirmed" if language == "en" else "Intitulé du poste non confirmé"
 
 
 # ============================================================
