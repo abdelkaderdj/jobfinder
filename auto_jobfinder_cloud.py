@@ -625,7 +625,9 @@ def _is_senior_role_title(normalized_title: str) -> bool:
         "directeur", "chief", "responsable", "مدير", "رئيس", "ريس", "مشرف",
     )
     normalized = normalize_text(normalized_title)
-    return any(marker in normalized for marker in senior_markers)
+    # Normalize markers too; Arabic characters such as "ئ" decompose under
+    # NFKD, so comparing raw "رئيس" against normalized text can miss leaders.
+    return any(normalize_text(marker) in normalized for marker in senior_markers)
 
 
 
