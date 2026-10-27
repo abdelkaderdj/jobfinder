@@ -622,10 +622,12 @@ def _is_senior_role_title(normalized_title: str) -> bool:
         "senior", "manager", "management", "team leader", "leader",
         "supervisor", "superviseur", "foreman", "chef d atelier",
         "chef atelier", "chef d equipe", "head of", "director",
-        "directeur", "chief", "responsable", "مدير", "رئيس", "مشرف",
+        "directeur", "chief", "responsable", "مدير", "رئيس", "ريس", "مشرف",
     )
     normalized = normalize_text(normalized_title)
-    return any(marker in normalized for marker in senior_markers)
+    # Normalize markers too; Arabic characters such as "ئ" decompose under
+    # NFKD, so comparing raw "رئيس" against normalized text can miss leaders.
+    return any(normalize_text(marker) in normalized for marker in senior_markers)
 
 
 
@@ -4517,11 +4519,15 @@ def get_application_job_title(
             original_title
         )
 
-    return (
-        "Maintenance Technician"
-        if language == "en"
-        else "Technicien Maintenance"
-    )
+    # Never fabricate a maintenance-technician title when translation/cleanup fails.
+    # A literal source title (including Arabic) is safer than silently inventing
+    # a different vacancy; downstream role-fit rules can then classify it.
+    fallback_title = original_title_candidate or original_title or ai_title
+    if fallback_title:
+        preserved_title = remove_arabic_parenthetical(fallback_title).strip()
+        return preserved_title or fallback_title
+
+    return "Job title not confirmed" if language == "en" else "Intitulé du poste non confirmé"
 
 
 # ============================================================
