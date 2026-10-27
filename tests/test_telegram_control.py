@@ -654,6 +654,39 @@ Kaader5881@gmail.com
         self.assertEqual(count, 0)
         self.assertEqual(recovered, [])
 
+    def test_application_title_never_fabricates_technicien_maintenance_from_arabic_role(self):
+        # In the Bayat Catering list, "رئيس فريق صيانة" is a leadership title.
+        # If the French title cannot be cleaned, preserve the source title rather
+        # than silently displaying "Technicien Maintenance".
+        job = {
+            "job_title": "رئيس فريق صيانة",
+            "application_title_fr": "رئيس فريق صيانة",
+            "application_title_en": "رئيس فريق صيانة",
+        }
+        application_title = processor.get_application_job_title(job, "fr")
+        self.assertEqual(application_title, "رئيس فريق صيانة")
+        self.assertNotEqual(application_title, "Technicien Maintenance")
+        self.assertTrue(processor._is_senior_role_title(processor.normalize_text(application_title)))
+
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "رئيس فريق صيانة. Hassi Messaoud.",
+            cv_match_score=0,
+        )
+        self.assertEqual(final, "REJECT")
+        self.assertIn("إشرافي/قيادي", reason)
+
+    def test_application_title_without_any_source_is_marked_unconfirmed(self):
+        self.assertEqual(
+            processor.get_application_job_title({}, "fr"),
+            "Intitulé du poste non confirmé",
+        )
+        self.assertEqual(
+            processor.get_application_job_title({}, "en"),
+            "Job title not confirmed",
+        )
+
     def test_recovered_compact_titles_have_no_fabricated_ai_score(self):
         recovered, count = processor._recover_missing_compact_list_roles(
             ["Technicien supérieur en froid"],
