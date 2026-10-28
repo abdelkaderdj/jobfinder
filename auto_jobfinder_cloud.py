@@ -6569,17 +6569,17 @@ def _job_title_evidence_is_grounded(job, source_text):
     if not _source_quote_is_grounded(quote, source_text):
         return False
     normalized_quote = normalize_text(quote)
-    occupational_noun = re.compile(
-        r"\b(?:agent|agents|technicien\w*|technician\w*|technologist\w*|"
-        r"ingenieur\w*|engineer\w*|operateur\w*|operator\w*|chef|cheffe|"
-        r"responsable|manager|superviseur\w*|supervisor\w*|mecanicien\w*|mechanic\w*|"
-        r"plombier\w*|electricien\w*|electrician\w*|magasinier\w*|chauffeur|"
-        r"cuisinier\w*|boulanger\w*|pattissier\w*|designer|dessinateur\w*|projeteur\w*|"
-        r"conducteur\w*|comptable|acheteur\w*|soudeur\w*|"
-        r"مهندس\w*|تقني\w*|فني\w*|رئيس|ريس|مسؤول|عامل|عون|مشرف|سائق|محاسب|كهربائي|سباك|طباخ)",
-        flags=re.IGNORECASE,
+    occupational_markers = (
+        "agent", "technicien", "technician", "technologist", "ingenieur", "engineer",
+        "operateur", "operator", "chef", "cheffe", "responsable", "manager",
+        "superviseur", "supervisor", "mecanicien", "mechanic", "plombier",
+        "electricien", "magasinier", "chauffeur", "cuisinier", "boulanger",
+        "pattissier", "designer", "dessinateur", "projeteur", "conducteur",
+        "comptable", "acheteur", "soudeur", "مهندس", "تقني", "فني", "رئيس",
+        "مسؤول", "عامل", "عون", "مشرف", "سائق", "محاسب", "كهربائي", "سباك", "طباخ",
     )
-    return bool(occupational_noun.search(normalized_quote))
+    # Normalize each marker too: Arabic hamza may be decomposed by NFKD.
+    return any(normalize_text(marker) in normalized_quote for marker in occupational_markers)
 
 
 def _validated_job_records(result, source_text):
