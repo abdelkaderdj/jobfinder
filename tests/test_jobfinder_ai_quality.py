@@ -1,6 +1,10 @@
 import unittest
 
-from jobfinder_ai_quality import apply_verification_result, normalize_reasoning_level
+from jobfinder_ai_quality import (
+    apply_verification_result,
+    enforce_verification_gate,
+    normalize_reasoning_level,
+)
 
 
 class ReasoningLevelTests(unittest.TestCase):
@@ -92,6 +96,24 @@ class IndependentApplyReviewTests(unittest.TestCase):
             self.grounded,
         )
         self.assertEqual(result[0]["verification_gate"], "forced_review")
+
+
+    def test_later_fit_override_cannot_reenable_apply_without_passed_gate(self):
+        # Simulate a later deterministic rule that tries to promote REVIEW to APPLY.
+        decision, reason = enforce_verification_gate(
+            "APPLY",
+            "forced_review",
+            "Independent evidence check was inconclusive.",
+        )
+        self.assertEqual(decision, "REVIEW")
+        self.assertIn("inconclusive", reason)
+
+    def test_passed_gate_does_not_change_existing_decision(self):
+        self.assertEqual(enforce_verification_gate("APPLY", "passed"), ("APPLY", ""))
+        self.assertEqual(enforce_verification_gate("REVIEW", "passed"), ("REVIEW", ""))
+
+    def test_invalid_decision_fails_closed(self):
+        self.assertEqual(enforce_verification_gate("MAYBE", "passed"), ("REJECT", ""))
 
     def test_reviewer_cannot_promote_review_to_apply(self):
         result = apply_verification_result(
