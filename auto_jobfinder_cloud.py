@@ -6544,8 +6544,11 @@ def _trusted_non_vacancy_classification(result, source_text):
         _source_quote_is_grounded(item, source_text) for item in evidence
     ):
         return False
-    # Do not let a mistaken non-vacancy label suppress a source-grounded role
-    # that has a real application route.
+    # Independent source check: a concrete role plus an actionable route
+    # overrides a mistaken non-vacancy label, even if the model returned jobs=[].
+    if _has_grounded_actual_vacancy_signal(source_text, result=result):
+        return False
+    # Also inspect any per-role evidence supplied by the model.
     jobs = result.get("jobs", [])
     if isinstance(jobs, list):
         for job in jobs:
