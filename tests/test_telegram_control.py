@@ -1883,6 +1883,37 @@ Expérience pratique de 2 à 5 ans en logistique.
         ))
 
 
+    def test_job_title_evidence_rejects_section_heading_and_preserves_real_role(self):
+        source_text = (
+            "Maintenance & Technique\\n"
+            "🔹 رئيس فريق صيانة\\n"
+            "🔹 كهربائي\\n"
+            "إرسال السيرة الذاتية إلى jobs@example.org"
+        )
+        fake_section_heading = {
+            "job_title": "Technicien Maintenance",
+            "title_evidence": "Maintenance & Technique",
+        }
+        actual_leader_title = {
+            "job_title": "رئيس فريق صيانة",
+            "title_evidence": "رئيس فريق صيانة",
+        }
+        self.assertFalse(
+            processor._job_title_evidence_is_grounded(fake_section_heading, source_text)
+        )
+        self.assertTrue(
+            processor._job_title_evidence_is_grounded(actual_leader_title, source_text)
+        )
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["رئيس فريق صيانة"],
+            "jobs": [fake_section_heading, actual_leader_title],
+        }
+        self.assertEqual(
+            processor._validated_job_records(result, source_text),
+            [actual_leader_title],
+        )
+
     def test_grounded_ai_post_classification_ignores_rumour_without_fallback_card(self):
         post_text = (
             "تتداول معلومات حول إمكانية فتح مناصب توظيف جديدة في سوناطراك. "
