@@ -6724,10 +6724,7 @@ def process_post(
         print(f"AI POST CLASSIFICATION: {post_type}; source evidence verified; no review card created")
         return True
 
-    jobs = result.get("jobs", [])
-    if not isinstance(jobs, list):
-        jobs = []
-    jobs = [job for job in jobs if isinstance(job, dict)]
+    jobs = _validated_job_records(result, text)
     listed_role_titles = extract_compact_listed_role_titles(text)
     vacancy_rescue_attempted = False
 
@@ -6747,11 +6744,7 @@ def process_post(
         vacancy_rescue_attempted = True
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
-            retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
-            if isinstance(retry_jobs, list):
-                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
-            else:
-                retry_jobs = []
+            retry_jobs = _validated_job_records(retry_result, text)
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
             if isinstance(exc, AIProviderUnavailable):
@@ -6789,10 +6782,7 @@ def process_post(
             vacancy_rescue_attempted = True
             try:
                 retry_result = analyze_offer(text, vacancy_rescue=True)
-                retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
-                if not isinstance(retry_jobs, list):
-                    retry_jobs = []
-                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
+                retry_jobs = _validated_job_records(retry_result, text)
                 retry_coverage = _coverage(retry_jobs)
                 if retry_coverage > covered_before:
                     result = retry_result
