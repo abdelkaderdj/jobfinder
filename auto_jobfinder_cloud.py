@@ -6359,16 +6359,16 @@ _CONCRETE_JOB_DETAIL_RE = re.compile(
 
 _UNCONFIRMED_RECRUITMENT_NOTICE_RE = re.compile(
     r"(?:"
+    # These Arabic alternatives are normalized forms (normalize_text removes
+    # accents/hamza combining marks before running this matcher).
     r"تتداول\s+(?:معلومات|اخبار)|"
-    r"معلومات\s+غير\s+مؤكدة\s+رسميا|"
-    r"(?:هذه|هذي)\s+المعلومات\s+غير\s+مؤكدة\s+رسميا|"
-    r"غير\s+مؤكد(?:ة)?\s+(?:رسميا|حتى\s+الان)|"
+    r"معلومات\s+غير\s+موكدة\s+رسميا|"
+    r"(?:هذه|هذي)\s+المعلومات\s+غير\s+موكدة\s+رسميا|"
+    r"غير\s+موكد(?:ة)?\s+(?:رسميا|حتى\s+الان)|"
     r"لا\s+(?:يعد|يعتبر)\s+(?:هذا\s+)?(?:المنشور|الاعلان)\s+"
     r"(?:اعلان|اعلانا)\s+توظيف\s+رسميا|"
-    r"لا\s+يعد\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
-    r"لا\s+يعتبر\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
     r"لم\s+يصدر\s+(?:اي\s+)?اعلان\s+توظيف\s+رسمي|"
-    r"لم\s+يتم\s+تأكيد\s+(?:هذه\s+)?المعلومات\s+رسميا|"
+    r"لم\s+يتم\s+تاكيد\s+(?:هذه\s+)?المعلومات\s+رسميا|"
     r"انتظار\s+الاعلانات?\s+(?:الرسمية|الصادرة)|"
     r"unconfirmed\s+(?:job\s+)?(?:reports|information)|"
     r"not\s+an\s+official\s+(?:job|recruitment)\s+(?:post|announcement)|"
