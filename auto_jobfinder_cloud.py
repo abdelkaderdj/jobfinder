@@ -6500,16 +6500,30 @@ _NON_VACANCY_POST_TYPES = {
 }
 
 
-def _has_grounded_actual_vacancy_signal(source_text, listed_titles=None):
+def _has_grounded_actual_vacancy_signal(source_text, listed_titles=None, result=None):
     """
-    Fallback reviews require evidence of an actual role, not a generic word like
-    'recruitment'. A concrete role plus an application route is the default;
-    explicit title lists can also be recovered as review-only records.
+    Fallback reviews require evidence of a real role, not a generic word like
+    'recruitment'. A model-provided title quote must exist in the source.
     """
     if looks_like_unconfirmed_recruitment_rumor(source_text):
         return False
     if listed_titles:
         return True
+
+    # A schema-based AI result may ground the existence of a role with a verbatim
+    # title quote even when no email/application route is present; that is enough
+    # for review-only fallback, never for automatic sending.
+    if isinstance(result, dict) and normalize_text(result.get("post_type", "")) == "actual_vacancy":
+        evidence = result.get("post_type_evidence", [])
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        if isinstance(evidence, list) and any(
+            _source_quote_is_grounded(item, source_text)
+            and _CONCRETE_VACANCY_TITLE_RE.search(str(item))
+            for item in evidence
+        ):
+            return True
+
     return bool(
         _CONCRETE_VACANCY_TITLE_RE.search(str(source_text or ""))
         and _APPLICATION_ROUTE_RE.search(str(source_text or ""))
@@ -6688,7 +6702,10 @@ def process_post(
     # with an explicit extraction prompt; retain short title lists for review if
     # the model still omits their positions.
     if not jobs and looks_like_vacancy_ad(text):
-        print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+        if not _has_grounded_actual_vacancy_signal(text, listed_role_titles, result):
+            print("AI EMPTY EXTRACTION: no source-grounded position found; skipping instead of creating a false review card")
+            return True
+        print("AI EMPTY EXTRACTION: vacancy evidence found; retrying extraction once")
         vacancy_rescue_attempted = True
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
