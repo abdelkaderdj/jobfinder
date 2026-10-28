@@ -6754,12 +6754,28 @@ def verify_apply_decisions(source_text, jobs):
     ]
 
     try:
-        review_result = groq_json_request(
-            messages=review_messages,
-            temperature=0,
-            max_completion_tokens=8192,
-            reasoning_level="high",
-        )
+        dedicated_review_model = os.getenv("GEMINI_REVIEW_MODEL", "").strip()
+        if dedicated_review_model:
+            if not os.getenv("GEMINI_API_KEY", "").strip():
+                raise RuntimeError(
+                    "GEMINI_REVIEW_MODEL is configured but GEMINI_API_KEY is unavailable"
+                )
+            _pace_ai_provider("gemini_independent_review")
+            print(f"AI INDEPENDENT REVIEW ROUTE: dedicated Gemini model ({dedicated_review_model})")
+            review_result = _gemini_json_request(
+                messages=review_messages,
+                temperature=0,
+                max_completion_tokens=8192,
+                model_name=dedicated_review_model,
+                reasoning_level="high",
+            )
+        else:
+            review_result = groq_json_request(
+                messages=review_messages,
+                temperature=0,
+                max_completion_tokens=8192,
+                reasoning_level="high",
+            )
     except Exception as exc:
         print("AI INDEPENDENT APPLY REVIEW ERROR:", type(exc).__name__)
         review_result = None
