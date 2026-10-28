@@ -6322,6 +6322,10 @@ def looks_like_non_job_service_promotion(text):
     body = str(text or "").strip()
     if not body:
         return False
+    # Explicit disclaimers can contain the words "إعلان توظيف" in a NEGATIVE
+    # sentence. They must never count as positive hiring intent.
+    if looks_like_unconfirmed_recruitment_rumor(body):
+        return True
     if _ACTUAL_HIRING_INTENT_RE.search(body):
         return False
     return bool(
@@ -6351,6 +6355,80 @@ _CONCRETE_JOB_DETAIL_RE = re.compile(
     r"\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b)",
     flags=re.IGNORECASE | re.DOTALL,
 )
+
+
+_UNCONFIRMED_RECRUITMENT_NOTICE_RE = re.compile(
+    r"(?:"
+    r"تتداول\s+(?:معلومات|اخبار)|"
+    r"معلومات\s+غير\s+مؤكدة\s+رسميا|"
+    r"(?:هذه|هذي)\s+المعلومات\s+غير\s+مؤكدة\s+رسميا|"
+    r"غير\s+مؤكد(?:ة)?\s+(?:رسميا|حتى\s+الان)|"
+    r"لا\s+(?:يعد|يعتبر)\s+(?:هذا\s+)?(?:المنشور|الاعلان)\s+"
+    r"(?:اعلان|اعلانا)\s+توظيف\s+رسميا|"
+    r"لا\s+يعد\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
+    r"لا\s+يعتبر\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
+    r"لم\s+يصدر\s+(?:اي\s+)?اعلان\s+توظيف\s+رسمي|"
+    r"لم\s+يتم\s+تأكيد\s+(?:هذه\s+)?المعلومات\s+رسميا|"
+    r"انتظار\s+الاعلانات?\s+(?:الرسمية|الصادرة)|"
+    r"unconfirmed\s+(?:job\s+)?(?:reports|information)|"
+    r"not\s+an\s+official\s+(?:job|recruitment)\s+(?:post|announcement)|"
+    r"await\s+(?:the\s+)?official\s+(?:job\s+)?announcements?"
+    r")",
+    flags=re.IGNORECASE,
+)
+
+_CONCRETE_VACANCY_TITLE_RE = re.compile(
+    r"(?:\btechnicien\w*\b|\btechnician\w*\b|\bmaintenance technician\b|"
+    r"m[ée]canicien\w*|\bmechanic\w*\b|\bfrigoriste\w*\b|"
+    r"\bengineer\w*\b|ing[ée]nieur\w*|\boperator\w*\b|op[ée]rateur\w*|"
+    r"\bagent de conditionnement\b|\bcuisinier\w*\b|\bchauffeur\b|"
+    r"\bplombier\w*\b|\bélectricien\w*\b|\belectrician\w*\b|"
+    r"\bmagasinier\w*\b|\bsoudeur\w*\b|"
+    r"مهندس|تقني|فني|ميكانيكي|صيانة|كهربائي|سباك|عامل(?:ة)?|سائق|محاسب|مشرف|مسؤول|ممرض|طباخ)"
+    ,
+    flags=re.IGNORECASE,
+)
+
+_APPLICATION_ROUTE_RE = re.compile(
+    r"(?:\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b|"
+    r"أرسل(?:وا)?|ارسل(?:وا)?|إرسال|ابعث(?:وا)?|يرجى\s+إرسال|"
+    r"envoyez|envoyer|postuler|candidature|apply\s+now|"
+    r"apply\s+(?:by|via|to)|send\s+(?:your\s+)?(?:cv|resume))",
+    flags=re.IGNORECASE,
+)
+
+
+def looks_like_unconfirmed_recruitment_rumor(text: str) -> bool:
+    """Ignore rumor/advice posts that explicitly deny being an official vacancy."""
+    body = str(text or "").strip()
+    if not body:
+        return False
+    normalized_body = normalize_text(body)
+    if not _UNCONFIRMED_RECRUITMENT_NOTICE_RE.search(normalized_body):
+        return False
+
+    # Ignore the channel's trailing CV/service advertisement while inspecting
+    # whether the post itself contained a real vacancy. Service copy must not
+    # rescue a rumor just because it mentions CVs, WhatsApp, or applications.
+    core_lines = []
+    for line in body.splitlines():
+        normalized_line = normalize_text(line)
+        if normalized_line.startswith((
+            "خدمات", "خدماتنا", "nos services", "our services",
+            "services recrutement", "services de cv", "our recruitment services",
+        )):
+            break
+        core_lines.append(line)
+    core = "\n".join(core_lines)
+
+    # A genuine opening with a specific role and an actionable application route
+    # is allowed through for ordinary analysis. General advice such as "prepare
+    # your CV" or "register at ANEM" is not an application route to an employer.
+    has_specific_title = bool(_CONCRETE_VACANCY_TITLE_RE.search(core))
+    has_application_route = bool(_APPLICATION_ROUTE_RE.search(core))
+    if has_specific_title and has_application_route:
+        return False
+    return True
 
 
 def looks_like_non_job_job_teaser(text):
@@ -6451,6 +6529,10 @@ def process_post(
         text
     ).strip():
 
+        return True
+
+    if looks_like_unconfirmed_recruitment_rumor(text):
+        print("NON-JOB UNCONFIRMED RECRUITMENT RUMOR: no official vacancy or actionable role; ignored")
         return True
 
     if looks_like_non_job_service_promotion(text):

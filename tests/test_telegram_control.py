@@ -1883,6 +1883,58 @@ Expérience pratique de 2 à 5 ans en logistique.
         ))
 
 
+    def test_unconfirmed_sonatrach_rumor_with_cv_services_is_ignored_before_ai(self):
+        # Regression for @rcrdz1/23066: the post itself explicitly says the
+        # information is unconfirmed and not an official recruitment notice;
+        # the trailing CV-service advertisement must not create vacancy signals.
+        post_text = (
+            "📢 تنبيه للباحثين عن العمل في ورقلة والجنوب الجزائري\n"
+            "تتداول معلومات حول إمكانية فتح مناصب توظيف جديدة في الشركات الوطنية والبترولية، "
+            "بما فيها سوناطراك، مع بداية العام الجديد بإذن الله.\n"
+            "📌 نصائح للباحثين عن العمل:\n"
+            "✅ تسوية ملف الإقامة عند الحاجة.\n"
+            "✅ التسجيل أو تحيين الملف لدى وكالة التشغيل ANEM بورقلة.\n"
+            "✅ متابعة عروض العمل الرسمية باستمرار.\n"
+            "✅ تحضير سيرة ذاتية احترافية والوثائق المطلوبة مسبقًا.\n"
+            "⚠️ ملاحظة مهمة: هذه المعلومات غير مؤكدة رسميًا حتى الآن، "
+            "ولا يُعدّ هذا المنشور إعلان توظيف رسميًا. يُرجى انتظار الإعلانات "
+            "الصادرة عن الشركات ووكالات التشغيل المعنية.\n"
+            "📲 تابعوا قناة RECRUTEMENT DZ لمتابعة عروض العمل داخل الجزائر وخارجها:\n"
+            "https://t.me/recrdz1\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🚀 خدمات RECRUTEMENT DZ\n"
+            "☑️ إعداد وتحسين السير الذاتية المتوافقة مع أنظمة ATS.\n"
+            "☑️ تصميم السير الذاتية بالفرنسية والإنجليزية.\n"
+            "☑️ إعداد رسائل تحفيزية.\n"
+            "☑️ المساعدة في التقديم على عروض العمل داخل الجزائر وخارجها."
+        )
+        self.assertTrue(processor.looks_like_unconfirmed_recruitment_rumor(post_text))
+        self.assertTrue(processor.looks_like_non_job_service_promotion(post_text))
+
+        post = {"source": "rcrdz1", "channel": "rcrdz1", "message_id": 23066, "text": post_text}
+        events = []
+        with (
+            patch.object(processor, "analyze_offer") as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_not_called()
+        save_result.assert_not_called()
+        send_application.assert_not_called()
+        self.assertEqual(events, [])
+
+    def test_unconfirmed_rumor_filter_does_not_hide_specific_job_with_application_route(self):
+        actual_job = (
+            "معلومات غير مؤكدة رسميا في أول المنشور، لكن إعلان التوظيف التفصيلي "
+            "يطلب تقني صيانة ميكانيكية في وهران. أرسل سيرتك الذاتية إلى jobs@example.org."
+        )
+        self.assertFalse(processor.looks_like_unconfirmed_recruitment_rumor(actual_job))
+        self.assertFalse(processor.looks_like_non_job_service_promotion(actual_job))
+
     def test_upcoming_job_offers_teaser_is_ignored_before_ai_or_review(self):
         # Regression for @rcrdz1/22650: the author promises to post offers later.
         post_text = (
