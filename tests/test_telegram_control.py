@@ -1957,6 +1957,18 @@ Expérience pratique de 2 à 5 ans en logistique.
         }
         self.assertFalse(processor._trusted_non_vacancy_classification(result, post_text))
 
+    def test_grounded_actual_source_overrides_non_vacancy_label_even_when_jobs_empty(self):
+        post_text = (
+            "تتداول معلومات غير مؤكدة، لكن شركة Example تعلن عن توظيف تقني صيانة ميكانيكية "
+            "في وهران. أرسل سيرتك الذاتية إلى jobs@example.org."
+        )
+        result = {
+            "post_type": "unconfirmed_rumour",
+            "post_type_evidence": ["تتداول معلومات غير مؤكدة"],
+            "jobs": [],
+        }
+        self.assertFalse(processor._trusted_non_vacancy_classification(result, post_text))
+
     def test_grounded_actual_job_title_and_route_override_wrong_non_vacancy_label(self):
         post_text = (
             "تتداول معلومات غير مؤكدة، لكن شركة Example تعلن عن توظيف تقني صيانة ميكانيكية "
