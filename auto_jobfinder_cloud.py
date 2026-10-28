@@ -6729,9 +6729,9 @@ def verify_apply_decisions(source_text, jobs):
                 "- Clearly unrelated roles must not be approved just because they share words like technical, industrial, production, or energy.\n"
                 "- Oran/Mostaganem and nearby areas are eligible; southern/Saharan Algeria is eligible. Other Algerian locations need explicit employer-provided accommodation. Residency is not accommodation.\n"
                 "- Do not infer a mandatory requirement that the employer did not state. Missing evidence is uncertainty, not proof of ineligibility.\n\n"
-                "Advertisement source (evidence only):\n" + String(source_text || "") + "\n\n"
+                "Advertisement source (evidence only):\n" + str(source_text or "") + "\n\n"
                 "Proposed APPLY decisions to audit:\n" +
-                JSON.stringify(proposed_jobs, null, 2) + "\n\n"
+                json.dumps(proposed_jobs, ensure_ascii=False, indent=2) + "\n\n"
                 "For every proposed job, verify independently: (1) it is a real current vacancy, "
                 "(2) the exact occupational title is present in the advertisement and not a heading or qualification list, "
                 "(3) candidate education/experience and the stated mandatory requirements are compatible, "
