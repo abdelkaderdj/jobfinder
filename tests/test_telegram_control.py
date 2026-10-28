@@ -1883,6 +1883,134 @@ Expérience pratique de 2 à 5 ans en logistique.
         ))
 
 
+    def test_job_title_evidence_rejects_section_heading_and_preserves_real_role(self):
+        source_text = (
+            "Maintenance & Technique\\n"
+            "🔹 رئيس فريق صيانة\\n"
+            "🔹 كهربائي\\n"
+            "إرسال السيرة الذاتية إلى jobs@example.org"
+        )
+        fake_section_heading = {
+            "job_title": "Technicien Maintenance",
+            "title_evidence": "Maintenance & Technique",
+        }
+        actual_leader_title = {
+            "job_title": "رئيس فريق صيانة",
+            "title_evidence": "رئيس فريق صيانة",
+        }
+        self.assertFalse(
+            processor._job_title_evidence_is_grounded(fake_section_heading, source_text)
+        )
+        self.assertTrue(
+            processor._job_title_evidence_is_grounded(actual_leader_title, source_text)
+        )
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["رئيس فريق صيانة"],
+            "jobs": [fake_section_heading, actual_leader_title],
+        }
+        self.assertEqual(
+            processor._validated_job_records(result, source_text),
+            [actual_leader_title],
+        )
+
+    def test_grounded_ai_post_classification_ignores_rumour_without_fallback_card(self):
+        post_text = (
+            "تتداول معلومات حول إمكانية فتح مناصب توظيف جديدة في سوناطراك. "
+            "هذه المعلومات غير مؤكدة رسميا ولا يعد هذا المنشور إعلان توظيف رسمي. "
+            "يرجى انتظار الإعلانات الرسمية الصادرة عن الشركات. "
+            "خدماتنا تشمل إعداد وتحسين السير الذاتية، تواصل معنا عبر واتساب."
+        )
+        result = {
+            "post_type": "unconfirmed_rumour",
+            "post_type_evidence": [
+                "هذه المعلومات غير مؤكدة رسميا",
+                "لا يعد هذا المنشور إعلان توظيف رسمي",
+            ],
+            "jobs": [],
+        }
+        self.assertTrue(processor._trusted_non_vacancy_classification(result, post_text))
+
+        post = {"source": "test", "channel": "test", "message_id": 99001, "text": post_text}
+        events = []
+        with (
+            patch.object(processor, "looks_like_unconfirmed_recruitment_rumor", return_value=False),
+            patch.object(processor, "looks_like_non_job_service_promotion", return_value=False),
+            patch.object(processor, "looks_like_non_job_job_teaser", return_value=False),
+            patch.object(processor, "looks_like_non_job_social_post", return_value=False),
+            patch.object(processor, "analyze_offer", return_value=result),
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        save_result.assert_not_called()
+        self.assertEqual(events, [])
+
+    def test_untrusted_ai_non_vacancy_label_is_not_accepted_without_source_evidence(self):
+        post_text = "إعلان توظيف: مطلوب تقني صيانة في وهران. أرسل سيرتك الذاتية jobs@example.org."
+        result = {
+            "post_type": "unconfirmed_rumour",
+            "post_type_evidence": ["This post is not a real vacancy."],
+            "jobs": [],
+        }
+        self.assertFalse(processor._trusted_non_vacancy_classification(result, post_text))
+
+    def test_grounded_actual_source_overrides_non_vacancy_label_even_when_jobs_empty(self):
+        post_text = (
+            "تتداول معلومات غير مؤكدة، لكن شركة Example تعلن عن توظيف تقني صيانة ميكانيكية "
+            "في وهران. أرسل سيرتك الذاتية إلى jobs@example.org."
+        )
+        result = {
+            "post_type": "unconfirmed_rumour",
+            "post_type_evidence": ["تتداول معلومات غير مؤكدة"],
+            "jobs": [],
+        }
+        self.assertFalse(processor._trusted_non_vacancy_classification(result, post_text))
+
+    def test_grounded_actual_job_title_and_route_override_wrong_non_vacancy_label(self):
+        post_text = (
+            "تتداول معلومات غير مؤكدة، لكن شركة Example تعلن عن توظيف تقني صيانة ميكانيكية "
+            "في وهران. أرسل سيرتك الذاتية إلى jobs@example.org."
+        )
+        result = {
+            "post_type": "unconfirmed_rumour",
+            "post_type_evidence": ["تتداول معلومات غير مؤكدة"],
+            "jobs": [{
+                "job_title": "تقني صيانة ميكانيكية",
+                "title_evidence": "تقني صيانة ميكانيكية",
+            }],
+        }
+        self.assertTrue(
+            processor._has_grounded_actual_vacancy_signal(post_text, result=result)
+        )
+        self.assertFalse(processor._trusted_non_vacancy_classification(result, post_text))
+
+    def test_empty_extraction_without_grounded_role_does_not_create_review_card(self):
+        post_text = (
+            "تنبيه للباحثين عن العمل. تتداول معلومات حول إمكانية فتح مناصب قريبا. "
+            "هذه المعلومات غير مؤكدة رسميا ولا يوجد إعلان توظيف رسمي. "
+            "يرجى انتظار الإعلانات الرسمية وتحضير السيرة الذاتية."
+        )
+        post = {"source": "test", "channel": "test", "message_id": 99002, "text": post_text}
+        events = []
+        with (
+            patch.object(processor, "looks_like_unconfirmed_recruitment_rumor", return_value=False),
+            patch.object(processor, "looks_like_non_job_service_promotion", return_value=False),
+            patch.object(processor, "looks_like_non_job_job_teaser", return_value=False),
+            patch.object(processor, "looks_like_non_job_social_post", return_value=False),
+            patch.object(processor, "analyze_offer", return_value={"jobs": []}) as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        analyze.assert_called_once()
+        save_result.assert_not_called()
+        self.assertEqual(events, [])
+
     def test_unconfirmed_sonatrach_rumor_with_cv_services_is_ignored_before_ai(self):
         # Regression for @rcrdz1/23066: the post itself explicitly says the
         # information is unconfirmed and not an official recruitment notice;

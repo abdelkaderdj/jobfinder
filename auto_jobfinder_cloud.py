@@ -2865,7 +2865,37 @@ def analyze_offer(text, vacancy_rescue=False):
 
 You are a precise multilingual recruitment screening AI.
 
-Analyze the COMPLETE job advertisement against the real candidate.
+Analyze the COMPLETE Telegram post against the real candidate, but FIRST classify
+whether the post contains a real, current vacancy. Do not assume every post is a job ad.
+
+============================================================
+POST TYPE CLASSIFICATION — REQUIRED
+============================================================
+
+Return post_type as exactly one of:
+- actual_vacancy
+- unconfirmed_rumour
+- career_advice
+- service_promotion
+- future_teaser
+- other
+
+Return post_type_evidence as an array of short VERBATIM quotes from this post that prove
+the classification. Evidence quotes must exist in the source text; do not paraphrase or translate.
+
+An actual_vacancy is a current, specific employer opening. Do NOT classify these as vacancies:
+- rumours about possible future recruitment;
+- advice to register with ANEM, prepare a CV, or follow job channels;
+- a sentence saying the post is NOT an official recruitment announcement;
+- a CV-writing or job-search service advertisement appended to the post.
+
+If post_type is anything other than actual_vacancy, jobs MUST be an empty array.
+Do not create a review record because a post merely mentions jobs or recruitment.
+
+For every actual position, include title_evidence: a short verbatim quote showing that
+the specific job title appears in the source. Never invent title_evidence. A section heading
+such as "Maintenance & Technique" is not itself a job title and must not become
+"Technicien Maintenance". If the source title cannot be grounded, do not create that job.
 
 ============================================================
 CORE RULES
@@ -3379,12 +3409,15 @@ Never describe the candidate as:
 OUTPUT FORMAT
 ============================================================
 
-Return ONLY valid JSON.
+Return ONLY valid JSON using this schema:
 
 {
+  "post_type": "actual_vacancy|unconfirmed_rumour|career_advice|service_promotion|future_teaser|other",
+  "post_type_evidence": ["short verbatim quote from this source post"],
   "jobs": [
     {
       "job_title": "original or recognizable title",
+      "title_evidence": "short verbatim quote showing this specific title in the source",
       "application_title_fr": "clean French title",
       "application_title_en": "clean English title",
       "company": "",
@@ -6452,6 +6485,123 @@ def looks_like_non_job_social_post(text):
     )
 
 
+def _source_quote_is_grounded(quote, source_text):
+    """Return true only when a non-trivial model evidence quote is present in the post."""
+    quote = str(quote or "").strip()
+    return len(normalize_text(quote)) >= 8 and normalize_text(quote) in normalize_text(source_text)
+
+
+_NON_VACANCY_POST_TYPES = {
+    "unconfirmed_rumour",
+    "career_advice",
+    "service_promotion",
+    "future_teaser",
+    "other",
+}
+
+
+def _has_grounded_actual_vacancy_signal(source_text, listed_titles=None, result=None):
+    """
+    Fallback reviews require evidence of a real role, not a generic word like
+    'recruitment'. A model-provided title quote must exist in the source.
+    """
+    if looks_like_unconfirmed_recruitment_rumor(source_text):
+        return False
+    if listed_titles:
+        return True
+
+    # A schema-based AI result may ground the existence of a role with a verbatim
+    # title quote even when no email/application route is present; that is enough
+    # for review-only fallback, never for automatic sending.
+    if isinstance(result, dict) and normalize_text(result.get("post_type", "")) == "actual_vacancy":
+        evidence = result.get("post_type_evidence", [])
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        if isinstance(evidence, list) and any(
+            _source_quote_is_grounded(item, source_text)
+            and _CONCRETE_VACANCY_TITLE_RE.search(str(item))
+            for item in evidence
+        ):
+            return True
+
+    return bool(
+        _CONCRETE_VACANCY_TITLE_RE.search(str(source_text or ""))
+        and _APPLICATION_ROUTE_RE.search(str(source_text or ""))
+    )
+
+
+def _trusted_non_vacancy_classification(result, source_text):
+    """Accept an AI non-vacancy label only when its quoted evidence is source-grounded."""
+    if not isinstance(result, dict):
+        return False
+    post_type = normalize_text(result.get("post_type", "")).replace(" ", "_")
+    if post_type not in _NON_VACANCY_POST_TYPES:
+        return False
+    evidence = result.get("post_type_evidence", [])
+    if isinstance(evidence, str):
+        evidence = [evidence]
+    if not isinstance(evidence, list) or not any(
+        _source_quote_is_grounded(item, source_text) for item in evidence
+    ):
+        return False
+    # Independent source check: a concrete role plus an actionable route
+    # overrides a mistaken non-vacancy label, even if the model returned jobs=[].
+    if _has_grounded_actual_vacancy_signal(source_text, result=result):
+        return False
+    # Also inspect any per-role evidence supplied by the model.
+    jobs = result.get("jobs", [])
+    if isinstance(jobs, list):
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            title_evidence = job.get("title_evidence", "")
+            if (
+                _source_quote_is_grounded(title_evidence, source_text)
+                and _CONCRETE_VACANCY_TITLE_RE.search(str(title_evidence))
+                and _APPLICATION_ROUTE_RE.search(str(source_text or ""))
+            ):
+                return False
+    return True
+
+
+def _job_title_evidence_is_grounded(job, source_text):
+    """A job title must be a source quote containing an occupational noun, not a section heading."""
+    if not isinstance(job, dict):
+        return False
+    quote = str(job.get("title_evidence") or "").strip()
+    if not _source_quote_is_grounded(quote, source_text):
+        return False
+    normalized_quote = normalize_text(quote)
+    occupational_markers = (
+        "agent", "technicien", "technician", "technologist", "ingenieur", "engineer",
+        "operateur", "operator", "chef", "cheffe", "responsable", "manager",
+        "superviseur", "supervisor", "mecanicien", "mechanic", "plombier",
+        "electricien", "magasinier", "chauffeur", "cuisinier", "boulanger",
+        "pattissier", "designer", "dessinateur", "projeteur", "conducteur",
+        "comptable", "acheteur", "soudeur", "مهندس", "تقني", "فني", "رئيس",
+        "مسؤول", "عامل", "عون", "مشرف", "سائق", "محاسب", "كهربائي", "سباك", "طباخ",
+    )
+    # Normalize each marker too: Arabic hamza may be decomposed by NFKD.
+    return any(normalize_text(marker) in normalized_quote for marker in occupational_markers)
+
+
+def _validated_job_records(result, source_text):
+    """For the new schema, remove any claimed position that lacks grounded title evidence."""
+    if not isinstance(result, dict):
+        return []
+    jobs = result.get("jobs", [])
+    if not isinstance(jobs, list):
+        return []
+    jobs = [job for job in jobs if isinstance(job, dict)]
+    if "post_type" not in result:
+        # Compatibility for older stored outputs / test fixtures during migration.
+        return jobs
+    valid = [job for job in jobs if _job_title_evidence_is_grounded(job, source_text)]
+    if len(valid) != len(jobs):
+        print(f"AI TITLE EVIDENCE CHECK: discarded {len(jobs) - len(valid)} ungrounded title(s)")
+    return valid
+
+
 def emit_unparsed_vacancy_review(post, advertisement):
     """Keep a recruitment-like post visible for manual review; never auto-send it."""
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
@@ -6569,10 +6719,15 @@ def process_post(
     if not isinstance(result, dict):
         print("AI ERROR: analysis response was not a JSON object")
         return False
-    jobs = result.get("jobs", [])
-    if not isinstance(jobs, list):
-        jobs = []
-    jobs = [job for job in jobs if isinstance(job, dict)]
+
+    # Model classification is separate from job extraction. Ignore only a
+    # non-vacancy label backed by an exact source quote.
+    if _trusted_non_vacancy_classification(result, text):
+        post_type = normalize_text(result.get("post_type", "")).replace(" ", "_")
+        print(f"AI POST CLASSIFICATION: {post_type}; source evidence verified; no review card created")
+        return True
+
+    jobs = _validated_job_records(result, text)
     listed_role_titles = extract_compact_listed_role_titles(text)
     vacancy_rescue_attempted = False
 
@@ -6585,15 +6740,14 @@ def process_post(
     # with an explicit extraction prompt; retain short title lists for review if
     # the model still omits their positions.
     if not jobs and looks_like_vacancy_ad(text):
-        print("AI EMPTY EXTRACTION: vacancy signals found; retrying extraction once")
+        if not _has_grounded_actual_vacancy_signal(text, listed_role_titles, result):
+            print("AI EMPTY EXTRACTION: no source-grounded position found; skipping instead of creating a false review card")
+            return True
+        print("AI EMPTY EXTRACTION: vacancy evidence found; retrying extraction once")
         vacancy_rescue_attempted = True
         try:
             retry_result = analyze_offer(text, vacancy_rescue=True)
-            retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
-            if isinstance(retry_jobs, list):
-                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
-            else:
-                retry_jobs = []
+            retry_jobs = _validated_job_records(retry_result, text)
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
             if isinstance(exc, AIProviderUnavailable):
@@ -6631,10 +6785,7 @@ def process_post(
             vacancy_rescue_attempted = True
             try:
                 retry_result = analyze_offer(text, vacancy_rescue=True)
-                retry_jobs = retry_result.get("jobs", []) if isinstance(retry_result, dict) else []
-                if not isinstance(retry_jobs, list):
-                    retry_jobs = []
-                retry_jobs = [job for job in retry_jobs if isinstance(job, dict)]
+                retry_jobs = _validated_job_records(retry_result, text)
                 retry_coverage = _coverage(retry_jobs)
                 if retry_coverage > covered_before:
                     result = retry_result
