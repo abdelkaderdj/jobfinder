@@ -6664,6 +6664,14 @@ def process_post(
     if not isinstance(result, dict):
         print("AI ERROR: analysis response was not a JSON object")
         return False
+
+    # Model classification is separate from job extraction. Ignore only a
+    # non-vacancy label backed by an exact source quote.
+    if _trusted_non_vacancy_classification(result, text):
+        post_type = normalize_text(result.get("post_type", "")).replace(" ", "_")
+        print(f"AI POST CLASSIFICATION: {post_type}; source evidence verified; no review card created")
+        return True
+
     jobs = result.get("jobs", [])
     if not isinstance(jobs, list):
         jobs = []
