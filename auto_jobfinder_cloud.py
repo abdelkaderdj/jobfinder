@@ -6561,6 +6561,44 @@ def _trusted_non_vacancy_classification(result, source_text):
     return True
 
 
+def _job_title_evidence_is_grounded(job, source_text):
+    """A job title must be a source quote containing an occupational noun, not a section heading."""
+    if not isinstance(job, dict):
+        return False
+    quote = str(job.get("title_evidence") or "").strip()
+    if not _source_quote_is_grounded(quote, source_text):
+        return False
+    normalized_quote = normalize_text(quote)
+    occupational_noun = re.compile(
+        r"\b(?:agent|agents|technicien\w*|technician\w*|technologist\w*|"
+        r"ingenieur\w*|engineer\w*|operateur\w*|operator\w*|chef|cheffe|"
+        r"responsable|manager|superviseur\w*|supervisor\w*|mecanicien\w*|mechanic\w*|"
+        r"plombier\w*|electricien\w*|electrician\w*|magasinier\w*|chauffeur|"
+        r"cuisinier\w*|boulanger\w*|pattissier\w*|designer|dessinateur\w*|projeteur\w*|"
+        r"conducteur\w*|comptable|acheteur\w*|soudeur\w*|"
+        r"مهندس\w*|تقني\w*|فني\w*|رئيس|ريس|مسؤول|عامل|عون|مشرف|سائق|محاسب|كهربائي|سباك|طباخ)",
+        flags=re.IGNORECASE,
+    )
+    return bool(occupational_noun.search(normalized_quote))
+
+
+def _validated_job_records(result, source_text):
+    """For the new schema, remove any claimed position that lacks grounded title evidence."""
+    if not isinstance(result, dict):
+        return []
+    jobs = result.get("jobs", [])
+    if not isinstance(jobs, list):
+        return []
+    jobs = [job for job in jobs if isinstance(job, dict)]
+    if "post_type" not in result:
+        # Compatibility for older stored outputs / test fixtures during migration.
+        return jobs
+    valid = [job for job in jobs if _job_title_evidence_is_grounded(job, source_text)]
+    if len(valid) != len(jobs):
+        print(f"AI TITLE EVIDENCE CHECK: discarded {len(jobs) - len(valid)} ungrounded title(s)")
+    return valid
+
+
 def emit_unparsed_vacancy_review(post, advertisement):
     """Keep a recruitment-like post visible for manual review; never auto-send it."""
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
