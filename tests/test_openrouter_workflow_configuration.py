@@ -13,6 +13,10 @@ WORKFLOWS = (
 
 
 class OpenRouterWorkflowConfigurationTests(unittest.TestCase):
+    def test_cloud_workflow_passes_optional_dedicated_gemini_review_model(self):
+        workflow = WORKFLOWS[0].read_text(encoding="utf-8")
+        self.assertIn("GEMINI_REVIEW_MODEL: ${{ vars.GEMINI_REVIEW_MODEL }}", workflow)
+
     def test_workflows_pass_openrouter_as_an_optional_secret(self):
         for path in WORKFLOWS:
             with self.subTest(workflow=path.name):
