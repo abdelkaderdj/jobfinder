@@ -20,6 +20,24 @@ def _title_key(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
 
 
+def enforce_verification_gate(
+    decision: Any,
+    verification_gate: Any,
+    verification_reason: Any = "",
+) -> tuple[str, str]:
+    """The independent review is the final authority for automatic APPLY."""
+    normalized = str(decision or "REJECT").strip().upper()
+    if normalized not in {"APPLY", "REVIEW", "REJECT"}:
+        normalized = "REJECT"
+    gate = str(verification_gate or "").strip().lower()
+    if normalized == "APPLY" and gate != "passed":
+        reason = " ".join(str(verification_reason or "").split())[:500]
+        return "REVIEW", reason or (
+            "لم يجتز قرار التقديم التحقق المستقل؛ يلزم فحص بشري قبل أي إرسال."
+        )
+    return normalized, ""
+
+
 def apply_verification_result(
     jobs: list[dict[str, Any]],
     review_result: Any,
