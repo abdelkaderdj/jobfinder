@@ -39,7 +39,11 @@ def main() -> int:
         # Preserve the router's sanitized diagnostics so the smoke test reveals
         # whether Gemini itself worked or the run survived through Groq fallback.
         with redirect_stdout(provider_log):
-            result = processor.groq_json_request(messages, max_completion_tokens=80)
+            result = processor.groq_json_request(
+                messages,
+                max_completion_tokens=512,
+                reasoning_level="high",
+            )
     except processor.AIProviderRateLimited as exc:
         print(provider_log.getvalue(), end="")
         retry_after = getattr(exc, "retry_after_seconds", 0)
@@ -78,7 +82,9 @@ def main() -> int:
         )
         return 1
 
-    if "AI PROVIDER: Gemini (" in route_log:
+    if "AI PROVIDER: OpenAI (" in route_log:
+        route_summary = "OpenAI succeeded"
+    elif "AI PROVIDER: Gemini (" in route_log:
         route_summary = "Gemini succeeded"
     elif "AI PROVIDER: Groq (" in route_log and not os.getenv("GEMINI_API_KEY", "").strip():
         route_summary = (
