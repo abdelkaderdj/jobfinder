@@ -14,7 +14,11 @@ from email.message import EmailMessage
 
 from groq import Groq
 
-from jobfinder_ai_quality import apply_verification_result, normalize_reasoning_level
+from jobfinder_ai_quality import (
+    apply_verification_result,
+    enforce_verification_gate,
+    normalize_reasoning_level,
+)
 
 
 # ============================================================
@@ -6987,13 +6991,6 @@ def process_post(
             decision = "REJECT"
 
         original_ai_decision = decision
-        verification_reason = ""
-        if decision == "APPLY" and str(job.get("verification_gate") or "") != "passed":
-            decision = "REVIEW"
-            verification_reason = str(
-                job.get("verification_reason")
-                or "لم يجتز قرار التقديم التحقق المستقل؛ يلزم فحص بشري قبل أي إرسال."
-            ).strip()
 
         # Deterministic fit checks override the AI when the score is weak
         # or the role title is clearly unrelated. A broad technical title
@@ -7010,6 +7007,17 @@ def process_post(
             cv_match_score=cv_match_score,
         )
         role_fit_overrode_ai = decision != decision_before_fit
+
+        # This is deliberately AFTER all fit overrides: no later exception may
+        # re-promote an unverified AI APPLY to an automatic send decision.
+        decision, verification_reason = enforce_verification_gate(
+            decision,
+            job.get("verification_gate"),
+            job.get("verification_reason"),
+        )
+        if verification_reason:
+            role_fit_reason = verification_reason
+            role_fit_overrode_ai = True
 
         # ====================================================
         # LOCATION SAFETY LAYER
