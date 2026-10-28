@@ -2865,7 +2865,37 @@ def analyze_offer(text, vacancy_rescue=False):
 
 You are a precise multilingual recruitment screening AI.
 
-Analyze the COMPLETE job advertisement against the real candidate.
+Analyze the COMPLETE Telegram post against the real candidate, but FIRST classify
+whether the post contains a real, current vacancy. Do not assume every post is a job ad.
+
+============================================================
+POST TYPE CLASSIFICATION — REQUIRED
+============================================================
+
+Return post_type as exactly one of:
+- actual_vacancy
+- unconfirmed_rumour
+- career_advice
+- service_promotion
+- future_teaser
+- other
+
+Return post_type_evidence as an array of short VERBATIM quotes from this post that prove
+the classification. Evidence quotes must exist in the source text; do not paraphrase or translate.
+
+An actual_vacancy is a current, specific employer opening. Do NOT classify these as vacancies:
+- rumours about possible future recruitment;
+- advice to register with ANEM, prepare a CV, or follow job channels;
+- a sentence saying the post is NOT an official recruitment announcement;
+- a CV-writing or job-search service advertisement appended to the post.
+
+If post_type is anything other than actual_vacancy, jobs MUST be an empty array.
+Do not create a review record because a post merely mentions jobs or recruitment.
+
+For every actual position, include title_evidence: a short verbatim quote showing that
+the specific job title appears in the source. Never invent title_evidence. A section heading
+such as "Maintenance & Technique" is not itself a job title and must not become
+"Technicien Maintenance". If the source title cannot be grounded, do not create that job.
 
 ============================================================
 CORE RULES
