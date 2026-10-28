@@ -2620,8 +2620,8 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             break
         if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
             continue
-        # Keep reasoning-oriented fallback models in low/hidden mode to reduce
-        # unnecessary reasoning-token use while preserving structured JSON output.
+        # Pass the requested reasoning effort to supported fallback models.
+        # Internal reasoning remains hidden; only the structured result is consumed.
         model_kwargs = {}
         if model_name.startswith("openai/gpt-oss-") or model_name == "qwen/qwen3.8-27b":
             model_kwargs = {"reasoning_effort": reasoning_level, "reasoning_format": "hidden"}
