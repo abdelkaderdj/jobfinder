@@ -3409,12 +3409,15 @@ Never describe the candidate as:
 OUTPUT FORMAT
 ============================================================
 
-Return ONLY valid JSON.
+Return ONLY valid JSON using this schema:
 
 {
+  "post_type": "actual_vacancy|unconfirmed_rumour|career_advice|service_promotion|future_teaser|other",
+  "post_type_evidence": ["short verbatim quote from this source post"],
   "jobs": [
     {
       "job_title": "original or recognizable title",
+      "title_evidence": "short verbatim quote showing this specific title in the source",
       "application_title_fr": "clean French title",
       "application_title_en": "clean English title",
       "company": "",
