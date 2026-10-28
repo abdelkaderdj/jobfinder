@@ -6359,41 +6359,41 @@ _CONCRETE_JOB_DETAIL_RE = re.compile(
 
 _UNCONFIRMED_RECRUITMENT_NOTICE_RE = re.compile(
     r"(?:"
-    r"تتداول\\s+(?:معلومات|اخبار)|"
-    r"معلومات\\s+غير\\s+مؤكدة\\s+رسميا|"
-    r"(?:هذه|هذي)\\s+المعلومات\\s+غير\\s+مؤكدة\\s+رسميا|"
-    r"غير\\s+مؤكد(?:ة)?\\s+(?:رسميا|حتى\\s+الان)|"
-    r"لا\\s+(?:يعد|يعتبر)\\s+(?:هذا\\s+)?(?:المنشور|الاعلان)\\s+"
-    r"(?:اعلان|اعلانا)\\s+توظيف\\s+رسميا|"
-    r"لا\\s+يعد\\s+هذا\\s+المنشور\\s+اعلان\\s+توظيف\\s+رسمي|"
-    r"لا\\s+يعتبر\\s+هذا\\s+المنشور\\s+اعلان\\s+توظيف\\s+رسمي|"
-    r"لم\\s+يصدر\\s+(?:اي\\s+)?اعلان\\s+توظيف\\s+رسمي|"
-    r"لم\\s+يتم\\s+تأكيد\\s+(?:هذه\\s+)?المعلومات\\s+رسميا|"
-    r"انتظار\\s+الاعلانات?\\s+(?:الرسمية|الصادرة)|"
-    r"unconfirmed\\s+(?:job\\s+)?(?:reports|information)|"
-    r"not\\s+an\\s+official\\s+(?:job|recruitment)\\s+(?:post|announcement)|"
-    r"await\\s+(?:the\\s+)?official\\s+(?:job\\s+)?announcements?"
+    r"تتداول\s+(?:معلومات|اخبار)|"
+    r"معلومات\s+غير\s+مؤكدة\s+رسميا|"
+    r"(?:هذه|هذي)\s+المعلومات\s+غير\s+مؤكدة\s+رسميا|"
+    r"غير\s+مؤكد(?:ة)?\s+(?:رسميا|حتى\s+الان)|"
+    r"لا\s+(?:يعد|يعتبر)\s+(?:هذا\s+)?(?:المنشور|الاعلان)\s+"
+    r"(?:اعلان|اعلانا)\s+توظيف\s+رسميا|"
+    r"لا\s+يعد\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
+    r"لا\s+يعتبر\s+هذا\s+المنشور\s+اعلان\s+توظيف\s+رسمي|"
+    r"لم\s+يصدر\s+(?:اي\s+)?اعلان\s+توظيف\s+رسمي|"
+    r"لم\s+يتم\s+تأكيد\s+(?:هذه\s+)?المعلومات\s+رسميا|"
+    r"انتظار\s+الاعلانات?\s+(?:الرسمية|الصادرة)|"
+    r"unconfirmed\s+(?:job\s+)?(?:reports|information)|"
+    r"not\s+an\s+official\s+(?:job|recruitment)\s+(?:post|announcement)|"
+    r"await\s+(?:the\s+)?official\s+(?:job\s+)?announcements?"
     r")",
     flags=re.IGNORECASE,
 )
 
 _CONCRETE_VACANCY_TITLE_RE = re.compile(
-    r"(?:\\btechnicien\\w*\\b|\\btechnician\\w*\\b|\\bmaintenance technician\\b|"
-    r"m[ée]canicien\\w*|\\bmechanic\\w*\\b|\\bfrigoriste\\w*\\b|"
-    r"\\bengineer\\w*\\b|ing[ée]nieur\\w*|\\boperator\\w*\\b|op[ée]rateur\\w*|"
-    r"\\bagent de conditionnement\\b|\\bcuisinier\\w*\\b|\\bchauffeur\\b|"
-    r"\\bplombier\\w*\\b|\\bélectricien\\w*\\b|\\belectrician\\w*\\b|"
-    r"\\bmagasinier\\w*\\b|\\bsoudeur\\w*\\b|"
+    r"(?:\btechnicien\w*\b|\btechnician\w*\b|\bmaintenance technician\b|"
+    r"m[ée]canicien\w*|\bmechanic\w*\b|\bfrigoriste\w*\b|"
+    r"\bengineer\w*\b|ing[ée]nieur\w*|\boperator\w*\b|op[ée]rateur\w*|"
+    r"\bagent de conditionnement\b|\bcuisinier\w*\b|\bchauffeur\b|"
+    r"\bplombier\w*\b|\bélectricien\w*\b|\belectrician\w*\b|"
+    r"\bmagasinier\w*\b|\bsoudeur\w*\b|"
     r"مهندس|تقني|فني|ميكانيكي|صيانة|كهربائي|سباك|عامل(?:ة)?|سائق|محاسب|مشرف|مسؤول|ممرض|طباخ)"
     ,
     flags=re.IGNORECASE,
 )
 
 _APPLICATION_ROUTE_RE = re.compile(
-    r"(?:\\b[\\w.+-]+@[\\w.-]+\\.[a-z]{2,}\\b|"
-    r"أرسل(?:وا)?|ارسل(?:وا)?|إرسال|ابعث(?:وا)?|يرجى\\s+إرسال|"
-    r"envoyez|envoyer|postuler|candidature|apply\\s+now|"
-    r"apply\\s+(?:by|via|to)|send\\s+(?:your\\s+)?(?:cv|resume))",
+    r"(?:\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b|"
+    r"أرسل(?:وا)?|ارسل(?:وا)?|إرسال|ابعث(?:وا)?|يرجى\s+إرسال|"
+    r"envoyez|envoyer|postuler|candidature|apply\s+now|"
+    r"apply\s+(?:by|via|to)|send\s+(?:your\s+)?(?:cv|resume))",
     flags=re.IGNORECASE,
 )
 
@@ -6419,7 +6419,7 @@ def looks_like_unconfirmed_recruitment_rumor(text: str) -> bool:
         )):
             break
         core_lines.append(line)
-    core = "\\n".join(core_lines)
+    core = "\n".join(core_lines)
 
     # A genuine opening with a specific role and an actionable application route
     # is allowed through for ordinary analysis. General advice such as "prepare
