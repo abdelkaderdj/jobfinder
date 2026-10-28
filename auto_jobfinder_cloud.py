@@ -6753,7 +6753,7 @@ def verify_apply_decisions(source_text, jobs):
         review_result = groq_json_request(
             messages=review_messages,
             temperature=0,
-            max_completion_tokens=3000,
+            max_completion_tokens=8192,
             reasoning_level="high",
         )
     except Exception as exc:
