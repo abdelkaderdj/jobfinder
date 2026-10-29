@@ -125,14 +125,22 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             status = "error" if item.get("status") == "error" else "evaluated"
-            case_runs.append({
+            case_run = {
                 "case_id": _safe_id(item.get("case_id")),
                 "status": status,
                 "passed": bool(item.get("passed", False)),
                 "successful_provider_routes": _successful_provider_routes(
                     item.get("provider_trace")
                 ),
-            })
+            }
+            # Preserve only the exception class, never request text or messages.
+            if status == "error":
+                raw_error = item.get("error")
+                if isinstance(raw_error, str):
+                    match = re.match(r"^([A-Za-z][A-Za-z0-9_]{0,79})(?::|$)", raw_error)
+                    if match:
+                        case_run["error_type"] = match.group(1)
+            case_runs.append(case_run)
 
     return {
         "metrics": metrics,
@@ -170,7 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--limit must be zero or a positive integer")
 
     stage = "provider_configuration"
-    original_env = {key: os.environ.get(key) for key in PROFILE_ENV_KEYS}
+    tracked_env_keys = (*PROFILE_ENV_KEYS, "JOBFINDER_EVAL_LIVE_PROGRESS")
+    original_env = {key: os.environ.get(key) for key in tracked_env_keys}
     try:
         if not any(os.getenv(key, "").strip() for key in AI_PROVIDER_KEYS):
             raise RuntimeError("no AI provider is configured")
@@ -187,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         from tools.evaluate_ai_quality import main as run_evaluation
 
         stage = "model_evaluation"
+        os.environ["JOBFINDER_EVAL_LIVE_PROGRESS"] = "1"
         with tempfile.TemporaryDirectory(prefix="jobfinder-private-eval-") as directory:
             raw_report_path = Path(directory) / "report.json"
             eval_args = build_evaluation_args(raw_report_path, args.limit, args.strict)

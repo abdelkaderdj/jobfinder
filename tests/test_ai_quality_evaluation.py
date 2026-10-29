@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import io
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.evaluate_ai_quality import (
+    emit_live_progress,
     evaluate_case,
     load_cases,
     source_quote_is_grounded,
@@ -12,6 +16,27 @@ from tools.evaluate_ai_quality import (
 
 
 class AIQualityEvaluationTests(unittest.TestCase):
+    def test_live_progress_is_opt_in_and_contains_only_safe_metadata(self):
+        stream = io.StringIO()
+        with patch.dict(os.environ, {"JOBFINDER_EVAL_LIVE_PROGRESS": "1"}):
+            with patch("tools.evaluate_ai_quality.sys.__stdout__", stream):
+                emit_live_progress(
+                    "case_finished",
+                    index=2,
+                    total=9,
+                    case_id="case/02",
+                    status="evaluated",
+                    passed=False,
+                )
+        rendered = stream.getvalue()
+        self.assertIn('"event":"case_finished"', rendered)
+        self.assertIn('"case_id":"case02"', rendered)
+        self.assertIn('"index":2', rendered)
+        self.assertIn('"total":9', rendered)
+        self.assertIn('"passed":false', rendered)
+        self.assertNotIn("source_text", rendered)
+        self.assertNotIn("candidate", rendered)
+
     def test_starter_dataset_has_labelled_cases_and_historical_regressions(self):
         path = Path(__file__).resolve().parents[1] / "data" / "ai_quality_eval_cases.jsonl"
         cases = load_cases(path)
