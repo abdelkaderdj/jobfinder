@@ -901,11 +901,14 @@ def _reason_explicitly_says_candidate_lacks_experience(reason: str) -> bool:
 
 def _advertisement_explicitly_requires_missing_qualification(job, advertisement: str) -> bool:
     """
-    Verify a missing qualification only against this position's own ad block.
+    Verify missing qualifications only against this position's own ad block.
+    Experience eligibility is enforced separately by the canonical policy gate.
     """
     ad = normalize_text(str(advertisement or ""))
     if not ad:
         return False
+
+    required_years = _experience_requirement_years(ad)
 
     no_experience_required = re.search(
         r"(no experience (?:is )?required|no prior experience|no previous experience|"
