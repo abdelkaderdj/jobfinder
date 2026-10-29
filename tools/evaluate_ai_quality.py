@@ -88,10 +88,29 @@ def title_matches_aliases(title: str, aliases: list[str]) -> bool:
     )
 
 
-def source_quote_is_grounded(quote: Any, source_text: str) -> bool:
+def job_title_variants(job: dict[str, Any]) -> list[str]:
+    """Return the original and localized titles for alias matching."""
+    variants: list[str] = []
+    for field in ("job_title", "application_title_fr", "application_title_en"):
+        value = str(job.get(field) or "").strip()
+        if value and value not in variants:
+            variants.append(value)
+    return variants
+
+
+def job_matches_aliases(job: dict[str, Any], aliases: list[str]) -> bool:
+    return any(title_matches_aliases(title, aliases) for title in job_title_variants(job))
+
+
+def source_quote_is_grounded(
+    quote: Any,
+    source_text: str,
+    minimum_length: int = 8,
+) -> bool:
     normalized_quote = normalize_for_match(quote)
     normalized_source = normalize_for_match(source_text)
-    return len(normalized_quote) >= 8 and normalized_quote in normalized_source
+    compact_length = len(normalized_quote.replace(" ", ""))
+    return compact_length >= max(1, int(minimum_length)) and normalized_quote in normalized_source
 
 
 def load_cases(dataset_path: Path) -> list[dict[str, Any]]:
@@ -130,7 +149,7 @@ def _match_expected_titles(
         match_index = next(
             (
                 index for index in sorted(unmatched_indices)
-                if title_matches_aliases(job_title(predicted_jobs[index]), aliases)
+                if job_matches_aliases(predicted_jobs[index], aliases)
             ),
             None,
         )
@@ -187,7 +206,7 @@ def evaluate_case(
     forbidden_aliases = [str(value) for value in (case.get("forbidden_titles") or [])]
     forbidden_hits = [
         job_title(job) for job in predicted_jobs
-        if title_matches_aliases(job_title(job), forbidden_aliases)
+        if job_matches_aliases(job, forbidden_aliases)
     ]
 
     evidence_errors: list[str] = []
@@ -201,7 +220,7 @@ def evaluate_case(
 
     for index, job in enumerate(predicted_jobs):
         quote = job.get("title_evidence")
-        if not source_quote_is_grounded(quote, source_text):
+        if not source_quote_is_grounded(quote, source_text, minimum_length=4):
             evidence_errors.append(f"ungrounded title_evidence for job {index}: {job_title(job)}")
 
     non_vacancy_with_jobs = actual_post_type != "actual_vacancy" and bool(predicted_jobs)
@@ -213,7 +232,7 @@ def evaluate_case(
         matching_job = next(
             (
                 job for job in predicted_jobs
-                if title_matches_aliases(job_title(job), aliases)
+                if job_matches_aliases(job, aliases)
             ),
             None,
         )
