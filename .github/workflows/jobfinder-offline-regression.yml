@@ -1,0 +1,43 @@
+name: JobFinder Offline AI & Decision Regression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Offline regression tests must not consume provider quotas or wait for live APIs.
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out current master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cloud.txt
+
+      - name: Install test dependencies
+        run: python -m pip install --retries 5 --timeout 60 -r requirements-cloud.txt
+
+      - name: Compile core modules and test files
+        run: >-
+          python -m py_compile
+          auto_jobfinder_cloud.py
+          jobfinder_ai_quality.py
+          jobfinder_candidate_policy.py
+          jobfinder_openai_provider.py
+          cloud_runner.py
+          decision_audit.py
+          tools/evaluate_ai_quality.py
+          tools/evaluate_encrypted_profile.py
+
+      - name: Run deterministic unit tests without external credentials
+        run: python -m unittest discover -s tests -v
