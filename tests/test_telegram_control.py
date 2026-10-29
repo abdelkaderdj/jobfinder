@@ -2244,7 +2244,7 @@ Expérience pratique de 2 à 5 ans en logistique.
             "Entreprise : EURL El Amana Maintenance\n"
             "Lieu de travail : Oran\n"
             "Poste : Technicien de Maintenance Industrielle\n"
-            "Recrutement d'un technicien de maintenance industrielle à Oran.\n"
+            "L'entreprise cherche un technicien de maintenance industrielle à Oran.\n"
             "Candidature : Envoyez votre CV au service recrutement.\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "📌 خدمات شخصية إضافية من صاحب الحساب\n"
@@ -2272,6 +2272,44 @@ Expérience pratique de 2 à 5 ans en logistique.
         )
         self.assertTrue(matched)
         self.assertEqual(processor.extract_emails(section_text), [])
+
+    def test_cv_promotion_footer_after_divider_does_not_steal_job_email(self):
+        advertisement = (
+            "📢 Offre d'emploi | إعلان توظيف\n"
+            "Entreprise : EURL El Amana Maintenance\n"
+            "Lieu de travail : Oran\n"
+            "Poste : Technicien de Maintenance Industrielle\n"
+            "L'entreprise cherche un technicien de maintenance industrielle à Oran.\n"
+            "Candidature : envoyer le CV à jobs@example.org\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📄 حاب/ة تزيد فرصك في التوظيف؟ حضّر CV احترافي مع RECRUTEMENT DZ!\n"
+            "☑️ إعداد وتحسين CV متوافق مع ATS\n"
+            "☑️ تصميم CV بالفرنسية والإنجليزية\n"
+            "☑️ رسائل تحفيزية وMail d’accompagnement\n"
+            "Contact services : personal.services@example.org"
+        )
+
+        contact_text = processor.strip_appended_service_promotion(advertisement)
+
+        self.assertIn("Technicien de Maintenance Industrielle", contact_text)
+        self.assertIn("jobs@example.org", contact_text)
+        self.assertNotIn("personal.services@example.org", contact_text)
+        sections = processor.split_advertisement_sections(contact_text)
+        section_text, matched, _reason = processor.resolve_job_section(
+            {
+                "job_title": "Technicien de Maintenance Industrielle",
+                "company": "EURL El Amana Maintenance",
+                "location": "Oran",
+            },
+            contact_text,
+            sections,
+            total_jobs=1,
+        )
+        self.assertTrue(matched)
+        self.assertEqual(
+            processor.extract_emails(section_text),
+            ["jobs@example.org"],
+        )
 
     def test_extraction_fallback_card_is_not_presented_as_confirmed_job(self):
         bot, _sent = self.build_bot()

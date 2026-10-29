@@ -6740,7 +6740,10 @@ _SERVICE_PROMOTION_FOOTER_CONTENT_RE = re.compile(
 _SERVICE_PROMOTION_FOOTER_SIGNAL_RE = re.compile(
     r"(?:خدمات\s+(?:شخصية|السيرة\s+الذاتية|إضافية)|nos\s+services|"
     r"services?\s+personnels?|services?\s+professionnels?|"
-    r"propose\s+(?:mes|nos)\s+services|للمهتمين\s+بهذه\s+الخدمات)",
+    r"propose\s+(?:mes|nos)\s+services|للمهتمين\s+بهذه\s+الخدمات|"
+    r"حاب(?:/ة|ة)?\s+تزيد\s+فرصك\s+في\s+التوظيف|"
+    r"حض[ّ]?ر(?:ي)?\s+cv\s+(?:احترافي|professionnel)|"
+    r"boost\s+your\s+job\s+chances|improve\s+your\s+cv)",
     flags=re.IGNORECASE | re.DOTALL,
 )
 
@@ -6753,13 +6756,31 @@ def strip_appended_service_promotion(advertisement: str) -> str:
         return text
 
     for index, line in enumerate(lines):
-        if index == 0 or not _SERVICE_PROMOTION_SECTION_START_RE.match(line):
+        if index == 0:
+            continue
+
+        explicit_service_heading = bool(
+            _SERVICE_PROMOTION_SECTION_START_RE.match(line)
+        )
+        separator_only = bool(re.fullmatch(r"\s*[-━─_=*]{3,}\s*", line))
+        if not explicit_service_heading and not separator_only:
             continue
 
         prefix = "\n".join(lines[:index]).rstrip()
         footer = "\n".join(lines[index:]).strip()
         if not prefix or not _ACTUAL_HIRING_INTENT_RE.search(prefix):
             continue
+
+        # A bare divider is a valid boundary only when the lines immediately
+        # after it already look like a CV-service pitch. Do not cut at an
+        # ordinary divider in a vacancy that happens to mention a CV later.
+        if separator_only and not explicit_service_heading:
+            marker_context = "\n".join(lines[index + 1:index + 5])
+            if not _SERVICE_PROMOTION_FOOTER_CONTENT_RE.search(marker_context):
+                continue
+            if not _SERVICE_PROMOTION_FOOTER_SIGNAL_RE.search(marker_context):
+                continue
+
         if not _SERVICE_PROMOTION_FOOTER_CONTENT_RE.search(footer):
             continue
         if not _SERVICE_PROMOTION_FOOTER_SIGNAL_RE.search(footer):
