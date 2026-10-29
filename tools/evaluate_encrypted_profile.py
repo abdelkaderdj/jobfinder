@@ -245,7 +245,10 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                 case_run["decision_checks"] = [
                     {
                         key: check[key]
-                        for key in ("expected", "raw", "after_candidate_gate", "passed")
+                        for key in (
+                            "expected", "raw", "raw_passed",
+                            "after_candidate_gate", "final_passed", "passed"
+                        )
                         if key in check and (
                             isinstance(check[key], bool)
                             or check[key] in {"APPLY", "REVIEW", "REJECT", "MISSING"}
