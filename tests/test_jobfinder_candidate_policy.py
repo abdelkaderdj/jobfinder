@@ -75,6 +75,37 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
             analysis,
         )
 
+    def test_two_year_direct_maintenance_role_applies_when_experience_is_only_threshold(self):
+        import os
+        from unittest.mock import patch
+
+        # Avoid a live provider; the deterministic gate takes a supplied score.
+        with patch.dict(os.environ, {"GROQ_API_KEY": "unit-test-unused"}, clear=False):
+            import auto_jobfinder_cloud as processor
+
+        job = {
+            "job_title": "Technicien de maintenance",
+            "application_title_fr": "Technicien de maintenance",
+            "application_title_en": "Maintenance Technician",
+            "score": 70,
+            "reason": "Candidate has no professional experience.",
+        }
+        advertisement = (
+            "Recrutement : Technicien de maintenance. "
+            "Expérience professionnelle minimum : 2 ans. "
+            "Lieu de travail : Oran. "
+            "Tâches : maintenance préventive et corrective des équipements mécaniques et des pompes. "
+            "Envoyez votre CV à jobs@example.org."
+        )
+        decision, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            advertisement,
+            cv_match_score=45,
+        )
+        self.assertEqual(decision, "APPLY")
+        self.assertIn("expérience", reason.lower())
+
     def test_deterministic_gate_uses_the_same_classifier(self):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
         source = source_path.read_text(encoding="utf-8")
