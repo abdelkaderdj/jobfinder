@@ -150,6 +150,16 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_evaluation_args(output_path: Path, limit: int, strict: bool) -> list[str]:
+    """Build evaluator CLI arguments without fragile list-index assignments."""
+    eval_args = ["--output", str(output_path)]
+    if limit:
+        eval_args.extend(["--limit", str(limit)])
+    if strict:
+        eval_args.append("--strict")
+    return eval_args
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile-file", type=Path, default=DEFAULT_PROFILE_FILE)
@@ -176,15 +186,10 @@ def main(argv: list[str] | None = None) -> int:
         sys.modules.pop("auto_jobfinder_cloud", None)
         from tools.evaluate_ai_quality import main as run_evaluation
 
-        eval_args = ["--output"]
         stage = "model_evaluation"
         with tempfile.TemporaryDirectory(prefix="jobfinder-private-eval-") as directory:
             raw_report_path = Path(directory) / "report.json"
-            eval_args[1] = str(raw_report_path)
-            if args.limit:
-                eval_args.extend(["--limit", str(args.limit)])
-            if args.strict:
-                eval_args.append("--strict")
+            eval_args = build_evaluation_args(raw_report_path, args.limit, args.strict)
 
             captured_stdout = io.StringIO()
             captured_stderr = io.StringIO()

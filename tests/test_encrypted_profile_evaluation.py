@@ -8,12 +8,24 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 from tools.evaluate_encrypted_profile import (
+    build_evaluation_args,
     load_encrypted_candidate_profile,
     safe_summary_from_report,
 )
 
 
 class EncryptedProfileEvaluationTests(unittest.TestCase):
+    def test_build_evaluation_args_includes_output_path_and_optional_flags(self):
+        output_path = Path("/tmp/private-report.json")
+        self.assertEqual(
+            build_evaluation_args(output_path, 0, False),
+            ["--output", "/tmp/private-report.json"],
+        )
+        self.assertEqual(
+            build_evaluation_args(output_path, 3, True),
+            ["--output", "/tmp/private-report.json", "--limit", "3", "--strict"],
+        )
+
     def test_profile_loader_returns_only_analysis_fields(self):
         key = Fernet.generate_key()
         fernet = Fernet(key)
