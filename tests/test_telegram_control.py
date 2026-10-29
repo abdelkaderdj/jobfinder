@@ -628,7 +628,8 @@ Kaader5881@gmail.com
             job, "APPLY", ad, cv_match_score=cv_score
         )
         self.assertEqual(final, "REJECT")
-        self.assertIn("شرطًا إلزاميًا", reason)
+        self.assertIn("5 سنوات خبرة", reason)
+        self.assertIn("4 سنوات", reason)
 
     def test_chiali_operator_qualification_lines_are_not_recovered_as_job_titles(self):
         ad = (
