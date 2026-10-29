@@ -907,10 +907,6 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     if not ad:
         return False
 
-    required_years, experience_policy = _experience_requirement_policy(ad)
-    if required_years is not None and experience_policy == "reject":
-        return True
-
     no_experience_required = re.search(
         r"(no experience (?:is )?required|no prior experience|no previous experience|"
         r"experience not required|without experience|without prior experience|"
@@ -1061,8 +1057,17 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     if ai_score is not None and (ai_score < 0 or ai_score > 100):
         return "REJECT", "رُفضت الوظيفة لأن درجة AI خارج النطاق الصحيح 0–100."
 
-    # Hard mismatches (degree, excluded discipline, named credentials, or >4
-    # years of experience) still reject before any experience exception.
+    # Experience thresholds are a candidate-specific policy and must not be
+    # inferred or hidden inside the separate missing-qualification detector.
+    required_years, experience_policy = _experience_requirement_policy(advertisement)
+    if experience_policy == "reject":
+        return (
+            "REJECT",
+            f"رُفضت الوظيفة لأن الإعلان يشترط {required_years:g} سنوات خبرة، وهو أكثر من الحد الأقصى المتفق عليه (4 سنوات).",
+        )
+
+    # Degree, named credentials, and other explicit mandatory requirements
+    # remain hard gates independently of experience policy.
     if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
         return (
             "REJECT",
@@ -1095,13 +1100,6 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         return (
             "REJECT",
             f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر مطابقة السيرة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
-        )
-
-    required_years, experience_policy = _experience_requirement_policy(advertisement)
-    if experience_policy == "reject":
-        return (
-            "REJECT",
-            f"رُفضت الوظيفة لأن الإعلان يشترط {required_years:g} سنوات خبرة، وهو أكثر من الحد الأقصى المتفق عليه (4 سنوات).",
         )
 
     if experience_policy == "manual_review":
