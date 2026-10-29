@@ -104,7 +104,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     "case_id": "private-case-1",
                     "status": "error",
                     "passed": False,
-                    "error": "PRIVATE_PROFILE_SENTINEL in an API error",
+                    "error": "RuntimeError: PRIVATE_PROFILE_SENTINEL in an API error",
                     "predicted_titles": ["PRIVATE_TITLE_SENTINEL"],
                     "reason": "PRIVATE_REASON_SENTINEL",
                     "provider_trace": [
@@ -129,6 +129,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, rendered)
         self.assertIn("private-case-1", rendered)
+        self.assertIn('"error_type": "RuntimeError"', rendered)
 
 
 if __name__ == "__main__":
