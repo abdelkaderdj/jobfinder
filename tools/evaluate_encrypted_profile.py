@@ -223,6 +223,21 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                 field_value = item.get(list_field)
                 if isinstance(field_value, list):
                     case_run[output_field] = len(field_value)
+            raw_evidence_errors = item.get("evidence_errors")
+            if isinstance(raw_evidence_errors, list):
+                safe_evidence_types: set[str] = set()
+                for error in raw_evidence_errors:
+                    if not isinstance(error, str):
+                        continue
+                    if error == "missing post_type_evidence":
+                        safe_evidence_types.add("missing_post_type_evidence")
+                    elif re.fullmatch(r"ungrounded post_type_evidence\\[\\d+\\]", error):
+                        safe_evidence_types.add("ungrounded_post_type_evidence")
+                    elif re.match(r"^ungrounded title_evidence for job \\d+:", error):
+                        safe_evidence_types.add("ungrounded_title_evidence")
+                if safe_evidence_types:
+                    case_run["evidence_error_types"] = sorted(safe_evidence_types)
+
             if isinstance(item.get("non_vacancy_with_jobs"), bool):
                 case_run["non_vacancy_with_jobs"] = item["non_vacancy_with_jobs"]
             checks = item.get("decision_checks")
