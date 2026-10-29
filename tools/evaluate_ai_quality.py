@@ -252,13 +252,18 @@ def evaluate_case(
             if decision_transform is not None
             else (raw_decision, str(matching_job.get("reason") or ""))
         )
+        final_decision = str(final_decision or "MISSING").upper()
         decision_checks.append({
             "expected_aliases": aliases,
             "predicted_title": job_title(matching_job),
             "expected": expected_decision,
             "raw": raw_decision,
-            "after_candidate_gate": str(final_decision or "MISSING").upper(),
-            "passed": str(final_decision or "MISSING").upper() == expected_decision,
+            "raw_passed": raw_decision == expected_decision,
+            "after_candidate_gate": final_decision,
+            "final_passed": final_decision == expected_decision,
+            # A case is a model-quality pass only when the initial model decision
+            # is correct AND the deterministic candidate gate preserves correctness.
+            "passed": raw_decision == expected_decision and final_decision == expected_decision,
             "reason": str(reason or "")[:300],
         })
 
@@ -293,7 +298,8 @@ def evaluate_case(
             and not forbidden_hits
             and not evidence_errors
             and not non_vacancy_with_jobs
-            and all(item["passed"] for item in decision_checks)
+            and all(item["raw_passed"] for item in decision_checks)
+            and all(item["final_passed"] for item in decision_checks)
         ),
     }
 
