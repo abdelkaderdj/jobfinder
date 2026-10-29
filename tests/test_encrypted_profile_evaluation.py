@@ -133,7 +133,10 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     "matched_titles": ["PRIVATE_TITLE_SENTINEL"],
                     "missing_titles": ["PRIVATE_EXPECTED_TITLE"],
                     "unexpected_titles": ["PRIVATE_UNEXPECTED_TITLE"],
-                    "evidence_errors": ["PRIVATE_REASON_SENTINEL"],
+                    "evidence_errors": [
+                        "PRIVATE_REASON_SENTINEL",
+                        "ungrounded title_evidence for job 0: PRIVATE_TITLE_SENTINEL",
+                    ],
                     "forbidden_title_hits": [],
                     "non_vacancy_with_jobs": False,
                     "decision_checks": [
@@ -175,6 +178,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_NETWORK_SENTINEL", rendered)
         self.assertIn('"expected_post_type": "actual_vacancy"', rendered)
         self.assertIn('"predicted_post_type": "future_teaser"', rendered)
+        self.assertIn('"evidence_error_types": ["ungrounded_title_evidence"]', rendered)
         self.assertIn('"missing_title_count": 1', rendered)
         self.assertIn('"unexpected_title_count": 1', rendered)
         self.assertIn('"after_candidate_gate": "REJECT"', rendered)
