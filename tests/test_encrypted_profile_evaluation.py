@@ -111,6 +111,30 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                         "AI PROVIDER: OpenAI (gpt-test-safe) succeeded",
                         "AI OPENAI REQUEST FAILED: PRIVATE_ERROR_SENTINEL",
                     ],
+                },
+                {
+                    "case_id": "safe-diagnostic-case",
+                    "status": "evaluated",
+                    "passed": False,
+                    "expected_post_type": "actual_vacancy",
+                    "predicted_post_type": "future_teaser",
+                    "post_type_passed": False,
+                    "matched_titles": ["PRIVATE_TITLE_SENTINEL"],
+                    "missing_titles": ["PRIVATE_EXPECTED_TITLE"],
+                    "unexpected_titles": ["PRIVATE_UNEXPECTED_TITLE"],
+                    "evidence_errors": ["PRIVATE_REASON_SENTINEL"],
+                    "forbidden_title_hits": [],
+                    "non_vacancy_with_jobs": False,
+                    "decision_checks": [
+                        {
+                            "expected_aliases": ["PRIVATE_TITLE_SENTINEL"],
+                            "expected": "APPLY",
+                            "raw": "REJECT",
+                            "after_candidate_gate": "REJECT",
+                            "passed": False,
+                            "reason": "PRIVATE_REASON_SENTINEL",
+                        }
+                    ],
                 }
             ],
             "configured_model_route": {"OPENAI_MODEL": "PRIVATE_CONFIG_SENTINEL"},
@@ -130,6 +154,16 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
             self.assertNotIn(forbidden, rendered)
         self.assertIn("private-case-1", rendered)
         self.assertIn('"error_type": "RuntimeError"', rendered)
+        self.assertIn('"expected_post_type": "actual_vacancy"', rendered)
+        self.assertIn('"predicted_post_type": "future_teaser"', rendered)
+        self.assertIn('"missing_title_count": 1', rendered)
+        self.assertIn('"unexpected_title_count": 1', rendered)
+        self.assertIn('"after_candidate_gate": "REJECT"', rendered)
+        for forbidden in (
+            "PRIVATE_EXPECTED_TITLE",
+            "PRIVATE_UNEXPECTED_TITLE",
+        ):
+            self.assertNotIn(forbidden, rendered)
 
 
 if __name__ == "__main__":
