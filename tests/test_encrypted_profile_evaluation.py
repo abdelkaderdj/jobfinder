@@ -113,6 +113,8 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     "provider_trace": [
                         "AI PROVIDER: OpenAI (gpt-test-safe) succeeded",
                         "AI OPENAI REQUEST FAILED: PRIVATE_ERROR_SENTINEL",
+                        "AI GEMINI PROVIDER FAILED: Gemini transport failure (TimeoutError): PRIVATE_NETWORK_SENTINEL",
+                        "AI RATE LIMIT: Groq model; switching to next available model",
                     ],
                 },
                 {
@@ -166,6 +168,11 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
             self.assertNotIn(forbidden, rendered)
         self.assertIn("private-case-1", rendered)
         self.assertIn('"error_type": "RuntimeError"', rendered)
+        self.assertIn('"provider": "Gemini"', rendered)
+        self.assertIn('"event": "transport_timeout"', rendered)
+        self.assertIn('"provider": "Groq"', rendered)
+        self.assertIn('"event": "rate_limited"', rendered)
+        self.assertNotIn("PRIVATE_NETWORK_SENTINEL", rendered)
         self.assertIn('"expected_post_type": "actual_vacancy"', rendered)
         self.assertIn('"predicted_post_type": "future_teaser"', rendered)
         self.assertIn('"missing_title_count": 1', rendered)

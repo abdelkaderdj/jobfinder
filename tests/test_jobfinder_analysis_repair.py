@@ -37,6 +37,24 @@ class GroundedOfferRecoveryTests(unittest.TestCase):
         self.assertEqual(job["decision"], "REVIEW")
         self.assertIn("شركة Example تعلن عن توظيف", recovered["post_type_evidence"][0])
 
+    def test_future_teaser_evidence_is_replaced_only_with_verbatim_source_clause(self):
+        source = (
+            "الله يبارك، راكم اغلبيتكم جامعيين و من كل ولايات، "
+            "شوفو خاوتي خواتاتي، رايح نحط مجموعه عروض عمل، "
+            "تخص ولايات الشرق و الغرب و الوسط و الصحراء، نحتاج منكم التفاعل."
+        )
+        result = {
+            "post_type": "future_teaser",
+            "post_type_evidence": ["The author will post several offers soon."],
+            "jobs": [],
+        }
+
+        repaired = processor._postprocess_analysis_result(source, result)
+
+        self.assertEqual(repaired["post_type"], "future_teaser")
+        self.assertEqual(repaired["post_type_evidence"], ["رايح نحط مجموعه عروض عمل"])
+        self.assertIn(repaired["post_type_evidence"][0], source)
+
     def test_generic_rumour_is_not_rescued(self):
         source = (
             "تتداول معلومات حول إمكانية فتح مناصب توظيف جديدة في الشركات الوطنية. "

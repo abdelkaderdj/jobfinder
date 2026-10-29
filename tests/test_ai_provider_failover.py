@@ -332,6 +332,35 @@ class AIProviderRoutingTests(unittest.TestCase):
         gemini.assert_called_once()
         groq.assert_not_called()
 
+    def test_gemini_invalid_json_response_tries_next_gemini_model(self):
+        malformed = ValueError("AI response does not contain valid JSON")
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(
+                processor,
+                "_gemini_json_request",
+                side_effect=[malformed, {"route": "gemini-fallback"}],
+            ) as gemini,
+            patch.object(processor.client.chat.completions, "create") as groq,
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}]
+            )
+
+        self.assertEqual(result, {"route": "gemini-fallback"})
+        self.assertEqual(gemini.call_count, 2)
+        self.assertIn("gemini-primary-test", processor._DISABLED_GEMINI_MODELS)
+        self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
+        groq.assert_not_called()
+
     def test_gemini_503_overload_falls_back_to_another_gemini_model(self):
         overloaded = RuntimeError(
             'Gemini HTTP 503: {"error":{"code":503,"message":"Model is experiencing high demand"}}'
