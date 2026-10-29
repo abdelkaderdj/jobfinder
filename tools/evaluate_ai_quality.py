@@ -342,7 +342,10 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             / len(decision_checks), 4
         ) if decision_checks else None,
         "decision_accuracy_after_candidate_gate": round(
-            sum(1 for item in decision_checks if item.get("passed")) / len(decision_checks), 4
+            sum(
+                1 for item in decision_checks
+                if item.get("final_passed", item.get("passed"))
+            ) / len(decision_checks), 4
         ) if decision_checks else None,
         "failed_case_ids": [item["case_id"] for item in results if not item.get("passed")],
     }
