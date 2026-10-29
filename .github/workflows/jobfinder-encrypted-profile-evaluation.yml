@@ -4,13 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       max_cases:
-        description: "Number of labelled cases to evaluate; 9 runs the full starter benchmark"
+        description: "Number of labelled cases to evaluate (choose 3 to split the benchmark)"
         required: true
         type: choice
         default: "9"
         options:
           - "3"
           - "9"
+      start_case:
+        description: "First case: choose 1, 4, or 7 for batches of three"
+        required: true
+        type: choice
+        default: "1"
+        options:
+          - "1"
+          - "4"
+          - "7"
 
 permissions:
   contents: read
@@ -62,5 +71,6 @@ jobs:
           JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
         run: >-
           python tools/evaluate_encrypted_profile.py
+          --start-index "${{ inputs.start_case }}"
           --limit "${{ inputs.max_cases }}"
           --strict
