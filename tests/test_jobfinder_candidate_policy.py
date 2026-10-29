@@ -122,7 +122,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
         source = source_path.read_text(encoding="utf-8")
         analysis_start = source.index("def analyze_offer(")
-        analysis_end = source.index("\\n\\ndef ", analysis_start + 8)
+        analysis_end = source.index("\n\ndef ", analysis_start + 8)
         analysis = source[analysis_start:analysis_end]
 
         self.assertIn("GENERALIST / POLYVALENT ROLE DECISION", analysis)
