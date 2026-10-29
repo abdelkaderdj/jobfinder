@@ -1098,6 +1098,12 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         )
 
     required_years, experience_policy = _experience_requirement_policy(advertisement)
+    if experience_policy == "reject":
+        return (
+            "REJECT",
+            f"رُفضت الوظيفة لأن الإعلان يشترط {required_years:g} سنوات خبرة، وهو أكثر من الحد الأقصى المتفق عليه (4 سنوات).",
+        )
+
     if experience_policy == "manual_review":
         return (
             "REVIEW",
