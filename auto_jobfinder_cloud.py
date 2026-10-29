@@ -1153,6 +1153,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         and direct_maintenance_technician_title
         and potentially_relevant
         and cv_match_score >= 30
+        and _reason_is_experience_only(reason)
     )
     experience_only_override = (
         waived_direct_maintenance_experience
@@ -3028,13 +3029,35 @@ def _postprocess_analysis_result(source_text: str, result: Any) -> Any:
         for job in jobs:
             if not isinstance(job, dict):
                 continue
-            if _source_quote_is_grounded_for_analysis(job.get("title_evidence"), source_text):
+            title_evidence = str(job.get("title_evidence") or "")
+            normalized_evidence = normalize_text(title_evidence)
+            variants = [
+                normalize_text(job.get(field))
+                for field in ("job_title", "application_title_fr", "application_title_en")
+                if str(job.get(field) or "").strip()
+            ]
+            evidence_supports_title = (
+                _source_quote_is_grounded_for_analysis(title_evidence, source_text)
+                and any(
+                    variant and (variant in normalized_evidence or normalized_evidence in variant)
+                    for variant in variants
+                )
+            )
+            if evidence_supports_title:
                 continue
+            # A source-grounded section heading is not proof of a different job
+            # title; replace it only with a literal substring of this job's title.
+            repaired = False
             for field in ("job_title", "application_title_fr", "application_title_en"):
                 quote = _literal_source_quote(job.get(field), source_text)
                 if quote:
                     job["title_evidence"] = quote
+                    repaired = True
                     break
+            if not repaired:
+                # Preserve the original evidence so the evaluator flags the
+                # title rather than silently fabricating a source quote.
+                continue
 
     # A single explicit recruitment heading is authoritative for one clearly listed
     # position. Multi-job posts are deliberately untouched.
