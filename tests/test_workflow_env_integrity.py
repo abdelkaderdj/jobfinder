@@ -98,19 +98,29 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
 """
         self.assertEqual(find_duplicate_env_keys(sample), [])
 
-    def test_manual_ai_regression_workflow_is_offline_and_quota_independent(self):
-        workflow = (
+    def test_offline_regression_is_separate_from_live_ai_benchmark(self):
+        offline = (
+            WORKFLOWS_DIR / "jobfinder-offline-regression.yml"
+        ).read_text(encoding="utf-8")
+        live = (
             WORKFLOWS_DIR / "jobfinder-encrypted-profile-evaluation.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("JobFinder Offline AI & Decision Regression", workflow)
-        self.assertIn("python -m unittest discover -s tests -v", workflow)
-        self.assertNotIn("python tools/evaluate_encrypted_profile.py", workflow)
-        self.assertNotIn("secrets.OPENAI_API_KEY", workflow)
-        self.assertNotIn("secrets.GEMINI_API_KEY", workflow)
-        self.assertNotIn("secrets.GROQ_API_KEY", workflow)
-        self.assertNotIn("secrets.OPENROUTER_API_KEY", workflow)
-        self.assertNotIn("group: jobfinder-cloud-monitor", workflow)
+        self.assertIn("JobFinder Offline AI & Decision Regression", offline)
+        self.assertIn("python -m unittest discover -s tests -v", offline)
+        self.assertNotIn("python tools/evaluate_encrypted_profile.py", offline)
+        self.assertNotIn("secrets.OPENAI_API_KEY", offline)
+        self.assertNotIn("secrets.GEMINI_API_KEY", offline)
+        self.assertNotIn("secrets.GROQ_API_KEY", offline)
+        self.assertNotIn("secrets.OPENROUTER_API_KEY", offline)
+        self.assertNotIn("group: jobfinder-cloud-monitor", offline)
+
+        self.assertIn("JobFinder Encrypted-Profile AI Evaluation", live)
+        self.assertIn("python tools/evaluate_encrypted_profile.py", live)
+        self.assertIn("secrets.GEMINI_API_KEY", live)
+        self.assertIn("secrets.GROQ_API_KEY", live)
+        self.assertIn("secrets.OPENROUTER_API_KEY", live)
+
 
 
 if __name__ == "__main__":
