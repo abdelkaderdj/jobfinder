@@ -2240,17 +2240,17 @@ Expérience pratique de 2 à 5 ans en logistique.
 
     def test_appended_personal_service_email_is_excluded_from_job_contact_scope(self):
         advertisement = (
-            "📢 Offre d'emploi | إعلان توظيف\\n"
-            "Entreprise : EURL El Amana Maintenance\\n"
-            "Lieu de travail : Oran\\n"
-            "Poste : Technicien de Maintenance Industrielle\\n"
-            "Recrutement d'un technicien de maintenance industrielle à Oran.\\n"
-            "Candidature : Envoyez votre CV au service recrutement.\\n"
-            "━━━━━━━━━━━━━━━━━━\\n"
-            "📌 خدمات شخصية إضافية من صاحب الحساب\\n"
-            "En parallèle des annonces d'emploi, je propose mes services personnels aux chercheurs d'emploi :\\n"
-            "Création et amélioration de CV professionnel.\\n"
-            "Rédaction de lettres de motivation en français et en arabe.\\n"
+            "📢 Offre d'emploi | إعلان توظيف\n"
+            "Entreprise : EURL El Amana Maintenance\n"
+            "Lieu de travail : Oran\n"
+            "Poste : Technicien de Maintenance Industrielle\n"
+            "Recrutement d'un technicien de maintenance industrielle à Oran.\n"
+            "Candidature : Envoyez votre CV au service recrutement.\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📌 خدمات شخصية إضافية من صاحب الحساب\n"
+            "En parallèle des annonces d'emploi, je propose mes services personnels aux chercheurs d'emploi :\n"
+            "Création et amélioration de CV professionnel.\n"
+            "Rédaction de lettres de motivation en français et en arabe.\n"
             "Contact services : personal.services@example.org"
         )
 
