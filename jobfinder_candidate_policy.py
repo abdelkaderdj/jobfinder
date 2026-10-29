@@ -37,7 +37,8 @@ def experience_policy_prompt_text() -> str:
     return (
         "EXPERIENCE ELIGIBILITY POLICY — AUTHORITATIVE; THE CODE ENFORCES THESE THRESHOLDS\n"
         "- Do not invent a minimum experience requirement when the advertisement does not state one.\n"
-        f"- Up to and including {waived} years: experience alone is NOT a reason to reject; evaluate every other explicit requirement normally.\n"
+        f"- Up to and including {waived} years: experience alone MUST NOT cause REJECT or REVIEW. If the role otherwise fits and no independent blocker applies, choose APPLY.\n"
+        "- Do not treat absence of professional experience as a second reason to reject or review when it is the same waived minimum-years condition.\n"
         f"- More than {waived} and up to and including {review_max} years: REVIEW only; never send an automatic application.\n"
         f"- More than {review_max} years: REJECT on experience grounds.\n"
         "- For a stated range, preserve the extracted minimum/lower endpoint; the deterministic policy layer applies the threshold.\n"
