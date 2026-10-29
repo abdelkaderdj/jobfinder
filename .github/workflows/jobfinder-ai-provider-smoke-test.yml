@@ -42,7 +42,7 @@ jobs:
           JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
           JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
         run: python tools/ai_provider_smoke_test.py
-      - name: Optional: Test OpenRouter free route when configured (one small JSON request)
+      - name: "Optional: Test OpenRouter free route when configured (one small JSON request)"
         continue-on-error: true
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
