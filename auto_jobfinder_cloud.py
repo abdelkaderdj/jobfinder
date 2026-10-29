@@ -1142,11 +1142,25 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             or direct_maintenance_technician_title
         )
     )
-    experience_only_override = (
-        (experience_policy == "waive_experience" or no_requirement_lack_override)
+    # The agreed policy is stronger than "do not reject": for a direct
+    # maintenance-technician role, a stated 0–3 year threshold is waived.
+    # Earlier hard gates above already handle unrelated titles, seniority,
+    # mandatory missing credentials, and other explicit disqualifiers. The
+    # downstream location and independent APPLY-verification gates still run.
+    waived_direct_maintenance_experience = (
+        experience_policy == "waive_experience"
+        and direct_maintenance_technician_title
         and potentially_relevant
         and cv_match_score >= 30
-        and _reason_is_experience_only(reason)
+    )
+    experience_only_override = (
+        waived_direct_maintenance_experience
+        or (
+            (experience_policy == "waive_experience" or no_requirement_lack_override)
+            and potentially_relevant
+            and cv_match_score >= 30
+            and _reason_is_experience_only(reason)
+        )
     )
     if experience_only_override:
         if decision in {"REJECT", "REVIEW"}:
