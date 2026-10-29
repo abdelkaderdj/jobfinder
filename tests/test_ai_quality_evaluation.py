@@ -115,7 +115,7 @@ class AIQualityEvaluationTests(unittest.TestCase):
         )
         self.assertTrue(evaluated["decision_checks"][0]["passed"])
         self.assertEqual(evaluated["decision_checks"][0]["raw"], "APPLY")
-        self.assertEqual(evaluated["decision_checks"][0]["final"], "REVIEW")
+        self.assertEqual(evaluated["decision_checks"][0]["after_candidate_gate"], "REVIEW")
         self.assertTrue(evaluated["passed"])
 
 
