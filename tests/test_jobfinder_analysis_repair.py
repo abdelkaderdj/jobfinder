@@ -111,6 +111,36 @@ class GroundedOfferRecoveryTests(unittest.TestCase):
 
         self.assertEqual(repaired["jobs"][0]["title_evidence"], "كهربائي")
 
+    def test_short_exact_arabic_occupational_title_is_grounded_and_kept(self):
+        source = (
+            "Maintenance & Technique\\n"
+            "🔹 رئيس فريق صيانة\\n"
+            "🔹 كهربائي\\n"
+            "إرسال السيرة الذاتية إلى jobs@example.org"
+        )
+        job = {
+            "job_title": "كهربائي",
+            "title_evidence": "كهربائي",
+            "decision": "REJECT",
+        }
+
+        self.assertTrue(processor._job_title_evidence_is_grounded(job, source))
+        validated = processor._validated_job_records(
+            {"post_type": "actual_vacancy", "jobs": [job]},
+            source,
+        )
+        self.assertEqual(validated, [job])
+
+    def test_short_evidence_not_matching_the_extracted_title_is_rejected(self):
+        source = "🔹 كهربائي\\nإرسال السيرة الذاتية إلى jobs@example.org"
+        job = {
+            "job_title": "كهربائي",
+            "title_evidence": "كهربا",
+            "decision": "REJECT",
+        }
+
+        self.assertFalse(processor._job_title_evidence_is_grounded(job, source))
+
 
 if __name__ == "__main__":
     unittest.main()
