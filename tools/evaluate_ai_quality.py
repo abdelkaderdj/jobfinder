@@ -25,6 +25,44 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT / "data" / "ai_quality_eval_cases.jsonl"
 
 
+def emit_live_progress(
+    event: str,
+    index: int = 0,
+    total: int = 0,
+    case_id: str = "",
+    status: str = "",
+    passed: bool | None = None,
+) -> None:
+    """Emit only whitelisted progress metadata outside the encrypted wrapper's capture."""
+    if os.getenv("JOBFINDER_EVAL_LIVE_PROGRESS") != "1":
+        return
+    if event not in {"evaluation_started", "case_started", "case_finished"}:
+        return
+    safe_case_id = re.sub(r"[^A-Za-z0-9_.:-]", "", str(case_id or ""))[:100]
+    payload: dict[str, Any] = {
+        "evaluation_progress": {
+            "event": event,
+            "index": max(0, int(index)),
+            "total": max(0, int(total)),
+        }
+    }
+    if safe_case_id:
+        payload["evaluation_progress"]["case_id"] = safe_case_id
+    if status in {"evaluated", "error"}:
+        payload["evaluation_progress"]["status"] = status
+    if isinstance(passed, bool):
+        payload["evaluation_progress"]["passed"] = passed
+    stream = getattr(sys, "__stdout__", None)
+    if stream is None:
+        return
+    try:
+        stream.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\\n")
+        stream.flush()
+    except Exception:
+        # Progress display must never change the evaluation result.
+        return
+
+
 def normalize_for_match(value: Any) -> str:
     """Normalize accents/punctuation while preserving Arabic and Latin letters."""
     text = unicodedata.normalize("NFKD", str(value or "").casefold())
@@ -325,7 +363,11 @@ def main(argv: list[str] | None = None) -> int:
         ).encode("utf-8")
     ).hexdigest()
     outputs: list[dict[str, Any]] = []
+    emit_live_progress("evaluation_started", total=len(cases))
     for index, case in enumerate(cases, start=1):
+        emit_live_progress(
+            "case_started", index=index, total=len(cases), case_id=str(case.get("id") or "")
+        )
         print(f"[{index}/{len(cases)}] Evaluating {case['id']}")
         provider_output = io.StringIO()
         try:
@@ -372,6 +414,14 @@ def main(argv: list[str] | None = None) -> int:
                 "passed": False,
             }
         outputs.append(evaluation)
+        emit_live_progress(
+            "case_finished",
+            index=index,
+            total=len(cases),
+            case_id=str(case.get("id") or ""),
+            status="error" if evaluation.get("status") == "error" else "evaluated",
+            passed=bool(evaluation.get("passed", False)),
+        )
         print(
             f"  type={evaluation.get('predicted_post_type', 'ERROR')} "
             f"passed={evaluation.get('passed', False)}"
