@@ -49,6 +49,8 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         review_max = f"{MAX_EXPERIENCE_YEARS_MANUAL_REVIEW:g}"
 
         self.assertIn(f"Up to and including {waived} years", text)
+        self.assertIn("MUST NOT cause REJECT or REVIEW", text)
+        self.assertIn("choose APPLY", text)
         self.assertIn(f"up to and including {review_max} years", text)
         self.assertIn(f"More than {review_max} years: REJECT", text)
         self.assertIn("does not override a mismatched discipline", text)
