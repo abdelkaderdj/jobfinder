@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       max_cases:
-        description: "Number of labelled cases to evaluate; use 3 for the initial smoke test"
+        description: "Number of labelled cases to evaluate; 9 runs the full starter benchmark"
         required: true
         type: choice
-        default: "3"
+        default: "9"
         options:
           - "3"
           - "9"
