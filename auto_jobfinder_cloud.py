@@ -6762,12 +6762,12 @@ def strip_appended_service_promotion(advertisement: str) -> str:
         explicit_service_heading = bool(
             _SERVICE_PROMOTION_SECTION_START_RE.match(line)
         )
-        separator_only = bool(re.fullmatch(r"\\s*[-━─_=*]{3,}\\s*", line))
+        separator_only = bool(re.fullmatch(r"\s*[-━─_=*]{3,}\s*", line))
         if not explicit_service_heading and not separator_only:
             continue
 
-        prefix = "\\n".join(lines[:index]).rstrip()
-        footer = "\\n".join(lines[index:]).strip()
+        prefix = "\n".join(lines[:index]).rstrip()
+        footer = "\n".join(lines[index:]).strip()
         if not prefix or not _ACTUAL_HIRING_INTENT_RE.search(prefix):
             continue
 
@@ -6775,7 +6775,7 @@ def strip_appended_service_promotion(advertisement: str) -> str:
         # after it already look like a CV-service pitch. Do not cut at an
         # ordinary divider in a vacancy that happens to mention a CV later.
         if separator_only and not explicit_service_heading:
-            marker_context = "\\n".join(lines[index + 1:index + 5])
+            marker_context = "\n".join(lines[index + 1:index + 5])
             if not _SERVICE_PROMOTION_FOOTER_CONTENT_RE.search(marker_context):
                 continue
             if not _SERVICE_PROMOTION_FOOTER_SIGNAL_RE.search(marker_context):
@@ -6787,7 +6787,7 @@ def strip_appended_service_promotion(advertisement: str) -> str:
             continue
 
         # A second actual vacancy after the marker makes the boundary ambiguous.
-        remainder = "\\n".join(lines[index + 1:])
+        remainder = "\n".join(lines[index + 1:])
         if _ACTUAL_HIRING_INTENT_RE.search(remainder):
             continue
         return prefix
