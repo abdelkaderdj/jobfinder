@@ -6720,6 +6720,60 @@ def looks_like_non_job_service_promotion(text):
     )
 
 
+# A real vacancy can be followed by a separate personal-services advertisement.
+# Keep the full post for vacancy extraction, but exclude this clearly marked
+# trailing service block from position/contact scoping so its email cannot be
+# mistaken for an application recipient.
+_SERVICE_PROMOTION_SECTION_START_RE = re.compile(
+    r"^\\s*(?:[-━─_=*]{3,}\\s*)?(?:📌\\s*)?(?:"
+    r"خدمات\\s+(?:شخصية|إضافية|السيرة\\s+الذاتية|مهنية|خاصة)|"
+    r"nos\\s+services|services?\\s+personnels?|services?\\s+professionnels?|"
+    r"en\\s+parall[eè]le\\s+des\\s+annonces\\s+d['’ ]?emploi"
+    r")(?=\\s|[:：—–-]|$).*$",
+    flags=re.IGNORECASE,
+)
+_SERVICE_PROMOTION_FOOTER_CONTENT_RE = re.compile(
+    r"(?:\\bcv\\b|curriculum\\s+vitae|lettres?\\s+de\\s+motivation|"
+    r"السيرة\\s+الذاتية|رسائل?\\s+(?:ال)?تحفيز)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_SERVICE_PROMOTION_FOOTER_SIGNAL_RE = re.compile(
+    r"(?:خدمات\\s+(?:شخصية|السيرة\\s+الذاتية|إضافية)|nos\\s+services|"
+    r"services?\\s+personnels?|services?\\s+professionnels?|"
+    r"propose\\s+(?:mes|nos)\\s+services|للمهتمين\\s+بهذه\\s+الخدمات)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_appended_service_promotion(advertisement: str) -> str:
+    """Remove a clearly marked trailing personal-service block for contact scoping only."""
+    text = str(advertisement or "")
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return text
+
+    for index, line in enumerate(lines):
+        if index == 0 or not _SERVICE_PROMOTION_SECTION_START_RE.match(line):
+            continue
+
+        prefix = "\\n".join(lines[:index]).rstrip()
+        footer = "\\n".join(lines[index:]).strip()
+        if not prefix or not _ACTUAL_HIRING_INTENT_RE.search(prefix):
+            continue
+        if not _SERVICE_PROMOTION_FOOTER_CONTENT_RE.search(footer):
+            continue
+        if not _SERVICE_PROMOTION_FOOTER_SIGNAL_RE.search(footer):
+            continue
+
+        # A second actual vacancy after the marker makes the boundary ambiguous.
+        remainder = "\\n".join(lines[index + 1:])
+        if _ACTUAL_HIRING_INTENT_RE.search(remainder):
+            continue
+        return prefix
+
+    return text
+
+
 _FUTURE_JOB_POST_TEASER_RE = re.compile(
     r"(?:"
     r"(?:رايح|راح|راني|رح|سوف|سأ|سن)\s*"
@@ -7221,8 +7275,11 @@ def process_post(
     listed_role_titles = extract_compact_listed_role_titles(text)
     vacancy_rescue_attempted = False
 
-    # Split independently headed notices before assigning contact details.
-    job_sections = split_advertisement_sections(text)
+    # AI still sees the complete post so a real vacancy is not hidden by a
+    # services footer. Contact/eligibility scoping excludes a clearly appended
+    # personal-services block, preventing its email from becoming a job contact.
+    contact_scope_advertisement = strip_appended_service_promotion(text)
+    job_sections = split_advertisement_sections(contact_scope_advertisement)
     has_multiple_sections = len(job_sections) > 1
     print(f"Detected {len(job_sections)} recruitment section(s)")
 
@@ -7316,7 +7373,7 @@ def process_post(
 
         job_section_text, scope_matched, scope_reason = resolve_job_section(
             job,
-            text,
+            contact_scope_advertisement,
             job_sections,
             len(jobs),
         )
