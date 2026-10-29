@@ -231,9 +231,9 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                         continue
                     if error == "missing post_type_evidence":
                         safe_evidence_types.add("missing_post_type_evidence")
-                    elif re.fullmatch(r"ungrounded post_type_evidence\\[\\d+\\]", error):
+                    elif re.fullmatch(r"ungrounded post_type_evidence\[\d+\]", error):
                         safe_evidence_types.add("ungrounded_post_type_evidence")
-                    elif re.match(r"^ungrounded title_evidence for job \\d+:", error):
+                    elif re.match(r"^ungrounded title_evidence for job \d+:", error):
                         safe_evidence_types.add("ungrounded_title_evidence")
                 if safe_evidence_types:
                     case_run["evidence_error_types"] = sorted(safe_evidence_types)
