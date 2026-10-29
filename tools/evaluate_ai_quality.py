@@ -200,7 +200,7 @@ def evaluate_case(
             "predicted_title": job_title(matching_job),
             "expected": expected_decision,
             "raw": raw_decision,
-            "final": str(final_decision or "MISSING").upper(),
+            "after_candidate_gate": str(final_decision or "MISSING").upper(),
             "passed": str(final_decision or "MISSING").upper() == expected_decision,
             "reason": str(reason or "")[:300],
         })
@@ -278,7 +278,7 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             sum(1 for item in decision_checks if item.get("raw") == item.get("expected"))
             / len(decision_checks), 4
         ) if decision_checks else None,
-        "decision_accuracy_after_gate": round(
+        "decision_accuracy_after_candidate_gate": round(
             sum(1 for item in decision_checks if item.get("passed")) / len(decision_checks), 4
         ) if decision_checks else None,
         "failed_case_ids": [item["case_id"] for item in results if not item.get("passed")],
@@ -322,7 +322,6 @@ def main(argv: list[str] | None = None) -> int:
         (
             inspect.getsource(processor.enforce_candidate_fit_rule)
             + inspect.getsource(processor.calculate_candidate_cv_match)
-            + inspect.getsource(processor.enforce_location_rule)
         ).encode("utf-8")
     ).hexdigest()
     outputs: list[dict[str, Any]] = []
