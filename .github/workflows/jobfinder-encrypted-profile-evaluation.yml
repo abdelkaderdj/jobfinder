@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       max_cases:
-        description: "Number of labelled cases to evaluate; live AI quota is used"
+        description: "Number of labelled cases to evaluate; use 3 for the initial smoke test"
         required: true
         type: choice
-        default: "9"
+        default: "3"
         options:
           - "3"
           - "9"
