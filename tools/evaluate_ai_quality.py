@@ -48,7 +48,7 @@ def emit_live_progress(
     }
     if safe_case_id:
         payload["evaluation_progress"]["case_id"] = safe_case_id
-    if status in {"evaluated", "error"}:
+    if status in {"evaluated", "error", "skipped"}:
         payload["evaluation_progress"]["status"] = status
     if isinstance(passed, bool):
         payload["evaluation_progress"]["passed"] = passed
@@ -327,7 +327,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON report path")
-    parser.add_argument("--limit", type=int, default=0, help="Run only the first N cases")
+    parser.add_argument("--limit", type=int, default=0, help="Run up to N cases from the start index")
+    parser.add_argument("--start-index", type=int, default=1, help="One-based index of the first case")
     parser.add_argument("--strict", action="store_true", help="Return exit code 1 if any case fails")
     args = parser.parse_args(argv)
 
@@ -335,8 +336,16 @@ def main(argv: list[str] | None = None) -> int:
         cases = load_cases(args.dataset)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    total_dataset_cases = len(cases)
+    if args.start_index < 1:
+        parser.error("--start-index must be at least 1")
+    if args.start_index > total_dataset_cases:
+        parser.error(f"--start-index cannot exceed the {total_dataset_cases} available cases")
+    cases = cases[args.start_index - 1:]
     if args.limit > 0:
         cases = cases[:args.limit]
+    if not cases:
+        parser.error("the selected case range is empty")
 
     if not any(os.getenv(name, "").strip() for name in (
         "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"
@@ -363,12 +372,30 @@ def main(argv: list[str] | None = None) -> int:
         ).encode("utf-8")
     ).hexdigest()
     outputs: list[dict[str, Any]] = []
-    emit_live_progress("evaluation_started", total=len(cases))
-    for index, case in enumerate(cases, start=1):
+    provider_stop_category = ""
+    emit_live_progress("evaluation_started", index=args.start_index - 1, total=total_dataset_cases)
+    for case_index, case in enumerate(cases, start=args.start_index):
         emit_live_progress(
-            "case_started", index=index, total=len(cases), case_id=str(case.get("id") or "")
+            "case_started", index=case_index, total=total_dataset_cases,
+            case_id=str(case.get("id") or "")
         )
-        print(f"[{index}/{len(cases)}] Evaluating {case['id']}")
+        if provider_stop_category:
+            evaluation = {
+                "case_id": case["id"],
+                "provenance": case.get("provenance", ""),
+                "status": "skipped",
+                "error_category": provider_stop_category,
+                "passed": False,
+            }
+            outputs.append(evaluation)
+            emit_live_progress(
+                "case_finished", index=case_index, total=total_dataset_cases,
+                case_id=str(case.get("id") or ""), status="skipped", passed=False
+            )
+            print(f"  skipped ({provider_stop_category}); no provider calls made")
+            continue
+
+        print(f"[{case_index}/{total_dataset_cases}] Evaluating {case['id']}")
         provider_output = io.StringIO()
         try:
             with redirect_stdout(provider_output):
@@ -399,6 +426,18 @@ def main(argv: list[str] | None = None) -> int:
             provider_lines = provider_output.getvalue().splitlines()
             for line in provider_lines:
                 print(line)
+            error_category = "other_runtime_error"
+            rate_limited_type = getattr(processor, "AIProviderRateLimited", ())
+            unavailable_type = getattr(processor, "AIProviderUnavailable", ())
+            if isinstance(rate_limited_type, type) and isinstance(exc, rate_limited_type):
+                error_category = "provider_quota_exhausted"
+                provider_stop_category = error_category
+            elif isinstance(unavailable_type, type) and isinstance(exc, unavailable_type):
+                error_category = "provider_routes_unavailable"
+                provider_stop_category = error_category
+            elif isinstance(exc, RuntimeError) and str(exc).strip() == "No configured AI provider was available":
+                error_category = "provider_routes_unavailable"
+                provider_stop_category = error_category
             evaluation = {
                 "case_id": case["id"],
                 "provenance": case.get("provenance", ""),
@@ -410,16 +449,20 @@ def main(argv: list[str] | None = None) -> int:
                     ))
                 ],
                 "status": "error",
-                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                "error_type": type(exc).__name__,
+                "error_category": error_category,
                 "passed": False,
             }
         outputs.append(evaluation)
+        progress_status = evaluation.get("status")
+        if progress_status not in {"evaluated", "error", "skipped"}:
+            progress_status = "evaluated"
         emit_live_progress(
             "case_finished",
-            index=index,
-            total=len(cases),
+            index=case_index,
+            total=total_dataset_cases,
             case_id=str(case.get("id") or ""),
-            status="error" if evaluation.get("status") == "error" else "evaluated",
+            status=progress_status,
             passed=bool(evaluation.get("passed", False)),
         )
         print(
@@ -428,9 +471,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     summary = summarize([
-        item for item in outputs if item.get("status") != "error"
+        item for item in outputs if item.get("status") == "evaluated"
     ])
     error_count = sum(1 for item in outputs if item.get("status") == "error")
+    skipped_count = sum(1 for item in outputs if item.get("status") == "skipped")
     report = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": os.getenv("GITHUB_SHA", "unknown"),
@@ -444,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "summary": summary,
         "execution_errors": error_count,
+        "skipped_cases": skipped_count,
+        "start_index": args.start_index,
         "results": outputs,
         "side_effects": "analyze_offer only; no email sends, state changes, or job persistence",
     }
@@ -455,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Report written to {args.output}")
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     if args.strict and (
-        error_count or summary.get("cases_passed", 0) != summary.get("cases", 0)
+        error_count or skipped_count or summary.get("cases_passed", 0) != summary.get("cases", 0)
     ):
         return 1
     return 0
