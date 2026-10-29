@@ -87,6 +87,70 @@ def _successful_provider_routes(trace: Any) -> list[dict[str, str]]:
     return routes
 
 
+def _provider_diagnostics(trace: Any) -> list[dict[str, str]]:
+    """Map provider log lines to a tiny safe taxonomy; never return raw error text."""
+    if not isinstance(trace, list):
+        return []
+    diagnostics: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for line in trace:
+        if not isinstance(line, str):
+            continue
+        text = line.strip()
+        provider = ""
+        event = ""
+        lower = text.lower()
+
+        if text.startswith("AI RATE LIMIT: Gemini"):
+            provider, event = "Gemini", "rate_limited"
+        elif text.startswith("AI GEMINI INVALID JSON RESPONSE:"):
+            provider, event = "Gemini", "invalid_json_response"
+        elif text.startswith("AI GEMINI TEMPORARY OVERLOAD:"):
+            provider, event = "Gemini", "temporary_overload"
+        elif text.startswith("AI GEMINI MODEL UNAVAILABLE:"):
+            provider, event = "Gemini", "model_unavailable"
+        elif text.startswith("AI GEMINI PROVIDER FAILED:"):
+            provider = "Gemini"
+            if "timeouterror" in lower or "timeout" in lower or "timed out" in lower:
+                event = "transport_timeout"
+            elif "http 503" in lower or "http 502" in lower or "http 504" in lower:
+                event = "temporary_http_overload"
+            elif "valid json" in lower or "invalid json" in lower or "valueerror" in lower:
+                event = "invalid_json_response"
+            else:
+                event = "provider_failed"
+        elif text.startswith("AI OPENAI RATE LIMIT:"):
+            provider, event = "OpenAI", "rate_limited"
+        elif text.startswith("AI OPENAI TEMPORARY OUTAGE:"):
+            provider, event = "OpenAI", "temporary_overload"
+        elif text.startswith("AI RATE LIMIT:") or text.startswith("AI GROQ RATE LIMIT:"):
+            provider, event = "Groq", "rate_limited"
+        elif text.startswith("AI PROVIDER TEMPORARILY UNAVAILABLE:"):
+            provider, event = "Groq", "temporary_overload"
+        elif text.startswith("AI OPENROUTER RATE LIMIT:"):
+            provider, event = "OpenRouter", "rate_limited"
+        elif text.startswith("AI OPENROUTER TEMPORARY OUTAGE:"):
+            provider, event = "OpenRouter", "temporary_overload"
+        elif text.startswith("AI OPENROUTER REQUEST FAILED:"):
+            provider, event = "OpenRouter", "request_failed"
+        elif text.startswith("JSON MODE RETRY:"):
+            provider, event = "Groq", "json_mode_retry"
+        elif text.startswith("AI MODEL RETRY FAILED:"):
+            provider, event = "Groq", "model_retry_failed"
+        else:
+            continue
+
+        key = (provider, event)
+        if key in seen:
+            continue
+        seen.add(key)
+        diagnostics.append({"provider": provider, "event": event})
+        if len(diagnostics) >= 8:
+            break
+    return diagnostics
+
+
 def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
     """Whitelist aggregate fields only; do not leak titles, reasons, or exceptions."""
     raw_summary = report.get("summary")
@@ -133,6 +197,7 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                 "successful_provider_routes": _successful_provider_routes(
                     item.get("provider_trace")
                 ),
+                "provider_diagnostics": _provider_diagnostics(item.get("provider_trace")),
             }
             # Safe diagnostics explain which layer failed without emitting ad text,
             # titles, aliases, reasons, profile fields, or raw provider errors.
@@ -177,7 +242,7 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
             category = item.get("error_category")
             if category in {
                 "provider_quota_exhausted", "provider_routes_unavailable",
-                "other_runtime_error",
+                "provider_invalid_response", "other_runtime_error",
             }:
                 case_run["error_category"] = category
             # Preserve only the exception class, never request text or messages.
