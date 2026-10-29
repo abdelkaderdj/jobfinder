@@ -3260,6 +3260,23 @@ candidate genuinely matches the stated requirements.
 
 11. Partially relevant positions with uncertainty are REVIEW.
 
+11A. GENERALIST / POLYVALENT ROLE DECISION — STRICT:
+- For titles such as "Agents polyvalents", "Agent polyvalent", "polyvalent worker",
+  "multi-purpose worker", or their Arabic/French equivalents, choose REVIEW by
+  default when the advertisement does not state concrete duties that independently
+  establish a direct match to the candidate's mechanical/energy target lanes.
+- Do NOT choose APPLY merely because the employer is a factory, an industrial
+  company, a biscuit/food producer, or because the ad includes a location, email,
+  or generic recruitment wording. Those facts prove neither technical fit nor
+  role-specific eligibility.
+- Do NOT infer mechanical maintenance, equipment repair, HVAC, pumps, or CAD duties
+  from a vague generalist title. The ad must state those duties for this position.
+- Only choose APPLY when the title AND concrete duties in this position's own text
+  show a clear target-lane match and all mandatory eligibility requirements pass.
+  If the duties remain vague, raw decision MUST be REVIEW. Hard exclusions may
+  still require REJECT.
+- This rule controls the model's initial decision, not only a later safety gate.
+
 12. Extract every email address found in the advertisement.
 
 13. Do NOT assume that a technical role requires prior professional experience,
