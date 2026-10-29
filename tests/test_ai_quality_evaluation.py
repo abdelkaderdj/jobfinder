@@ -109,6 +109,66 @@ class AIQualityEvaluationTests(unittest.TestCase):
         self.assertTrue(evaluated["non_vacancy_with_jobs"])
         self.assertGreaterEqual(len(evaluated["evidence_errors"]), 2)
 
+    def test_title_alias_can_match_a_localized_title_variant(self):
+        case = {
+            "id": "localized-title-alias",
+            "source_text": "Recrutement : Ingénieurs techniques - Bureau technique. Diplôme d'ingénieur exigé.",
+            "expected_post_type": "actual_vacancy",
+            "expected_titles": [{
+                "aliases": [
+                    "Ingénieurs techniques - Bureau technique",
+                    "Ingénieur technique",
+                    "Technical Engineer",
+                ]
+            }],
+            "expected_decisions": [{
+                "title_aliases": [
+                    "Ingénieurs techniques - Bureau technique",
+                    "Ingénieur technique",
+                    "Technical Engineer",
+                ],
+                "expected": "REJECT",
+            }],
+        }
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["Recrutement"],
+            "jobs": [{
+                "job_title": "Technical Engineering Office",
+                "application_title_fr": "Ingénieur technique",
+                "application_title_en": "Technical Engineer",
+                "title_evidence": "Ingénieurs techniques - Bureau technique",
+                "decision": "REJECT",
+                "reason": "Mandatory engineering diploma is not held.",
+            }],
+        }
+        evaluated = evaluate_case(case, result)
+        self.assertEqual(len(evaluated["matched_titles"]), 1)
+        self.assertEqual(evaluated["missing_titles"], [])
+        self.assertEqual(evaluated["decision_checks"][0]["raw"], "REJECT")
+        self.assertTrue(evaluated["decision_checks"][0]["passed"])
+
+    def test_short_but_verbatim_title_evidence_is_valid(self):
+        case = {
+            "id": "short-arabic-title-evidence",
+            "source_text": "Maintenance & Technique\n🔹 رئيس فريق صيانة\n🔹 كهربائي\nإرسال السيرة الذاتية إلى jobs@example.org",
+            "expected_post_type": "actual_vacancy",
+            "expected_titles": [{"aliases": ["كهربائي"]}],
+            "expected_decisions": [],
+        }
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["إرسال السيرة الذاتية إلى jobs@example.org"],
+            "jobs": [{
+                "job_title": "كهربائي",
+                "title_evidence": "كهربائي",
+                "decision": "REJECT",
+            }],
+        }
+        evaluated = evaluate_case(case, result)
+        self.assertEqual(evaluated["evidence_errors"], [])
+        self.assertTrue(evaluated["passed"])
+
     def test_expected_decision_can_use_final_gate_result(self):
         case = {
             "id": "decision-metrics",

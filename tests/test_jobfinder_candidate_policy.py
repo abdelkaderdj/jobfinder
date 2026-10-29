@@ -49,6 +49,8 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         review_max = f"{MAX_EXPERIENCE_YEARS_MANUAL_REVIEW:g}"
 
         self.assertIn(f"Up to and including {waived} years", text)
+        self.assertIn("MUST NOT cause REJECT or REVIEW", text)
+        self.assertIn("choose APPLY", text)
         self.assertIn(f"up to and including {review_max} years", text)
         self.assertIn(f"More than {review_max} years: REJECT", text)
         self.assertIn("does not override a mismatched discipline", text)
@@ -72,6 +74,37 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
             "minimum experience requirements not met by the candidate are REJECT",
             analysis,
         )
+
+    def test_two_year_direct_maintenance_role_applies_when_experience_is_only_threshold(self):
+        import os
+        from unittest.mock import patch
+
+        # Avoid a live provider; the deterministic gate takes a supplied score.
+        with patch.dict(os.environ, {"GROQ_API_KEY": "unit-test-unused"}, clear=False):
+            import auto_jobfinder_cloud as processor
+
+        job = {
+            "job_title": "Technicien de maintenance",
+            "application_title_fr": "Technicien de maintenance",
+            "application_title_en": "Maintenance Technician",
+            "score": 70,
+            "reason": "Candidate has no professional experience.",
+        }
+        advertisement = (
+            "Recrutement : Technicien de maintenance. "
+            "Expérience professionnelle minimum : 2 ans. "
+            "Lieu de travail : Oran. "
+            "Tâches : maintenance préventive et corrective des équipements mécaniques et des pompes. "
+            "Envoyez votre CV à jobs@example.org."
+        )
+        decision, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            advertisement,
+            cv_match_score=45,
+        )
+        self.assertEqual(decision, "APPLY")
+        self.assertIn("تجاوز شرط الخبرة", reason)
 
     def test_deterministic_gate_uses_the_same_classifier(self):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"

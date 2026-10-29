@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from difflib import SequenceMatcher
+from typing import Any
 from email.message import EmailMessage
 
 from groq import Groq
@@ -1142,11 +1143,26 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             or direct_maintenance_technician_title
         )
     )
-    experience_only_override = (
-        (experience_policy == "waive_experience" or no_requirement_lack_override)
+    # The agreed policy is stronger than "do not reject": for a direct
+    # maintenance-technician role, a stated 0–3 year threshold is waived.
+    # Earlier hard gates above already handle unrelated titles, seniority,
+    # mandatory missing credentials, and other explicit disqualifiers. The
+    # downstream location and independent APPLY-verification gates still run.
+    waived_direct_maintenance_experience = (
+        experience_policy == "waive_experience"
+        and direct_maintenance_technician_title
         and potentially_relevant
         and cv_match_score >= 30
         and _reason_is_experience_only(reason)
+    )
+    experience_only_override = (
+        waived_direct_maintenance_experience
+        or (
+            (experience_policy == "waive_experience" or no_requirement_lack_override)
+            and potentially_relevant
+            and cv_match_score >= 30
+            and _reason_is_experience_only(reason)
+        )
     )
     if experience_only_override:
         if decision in {"REJECT", "REVIEW"}:
@@ -2932,6 +2948,163 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     raise RuntimeError("No configured AI provider was available")
 
 
+def _literal_source_quote(candidate: Any, source_text: str) -> str | None:
+    """Return the exact source substring when a proposed title is literally present."""
+    candidate = str(candidate or "").strip()
+    source = str(source_text or "")
+    if not candidate or len(normalize_text(candidate)) < 4:
+        return None
+    match = re.search(re.escape(candidate), source, flags=re.IGNORECASE)
+    return match.group(0) if match else None
+
+
+def _source_quote_is_grounded_for_analysis(quote: Any, source_text: str) -> bool:
+    normalized_quote = normalize_text(quote)
+    normalized_source = normalize_text(source_text)
+    return len(normalized_quote.replace(" ", "")) >= 4 and normalized_quote in normalized_source
+
+
+def _explicit_concrete_offer_after_rumour(source_text: str) -> dict[str, str] | None:
+    """Conservatively rescue a specific current offer that follows a rumour preamble.
+
+    The rule requires contrast + named employer + explicit hiring verb + title +
+    location + an application email. Generic recruitment rumours never qualify.
+    """
+    source = str(source_text or "")
+    emails = extract_emails(source)
+    if not emails:
+        return None
+
+    patterns = (
+        re.compile(
+            r"(?P<sentence>(?P<contrast>لكن|ولكن|غير أن)\s+(?:شركة\s+)?"
+            r"(?P<company>[A-Za-z][A-Za-z0-9&.'’-]{1,59})\s+"
+            r"(?P<hiring>تعلن\s+عن\s+توظيف|أعلنت\s+عن\s+توظيف)\s+"
+            r"(?P<title>[^،,.\n]+?)\s+(?:في|بـ|بولاية)\s+(?P<location>[^،,.\n]+))",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?P<sentence>(?P<contrast>but|however)\s+(?:company\s+)?"
+            r"(?P<company>[A-Z][A-Za-z0-9&.'’-]{1,59})\s+"
+            r"(?P<hiring>is hiring|announces hiring|is recruiting)\s+"
+            r"(?P<title>[^,.\n]+?)\s+(?:in|at)\s+(?P<location>[^,.\n]+))",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?P<sentence>(?P<contrast>mais|pourtant|cependant)\s+(?:la\s+)?"
+            r"(?:(?:société|entreprise)\s+)?"
+            r"(?P<company>[A-Z][A-Za-z0-9&.'’-]{1,59})\s+"
+            r"(?P<hiring>recrute|annonce le recrutement de)\s+"
+            r"(?:(?:un|une|des)\s+)?(?P<title>[^,.\n]+?)\s+"
+            r"(?:à|dans)\s+(?P<location>[^,.\n]+))",
+            flags=re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(source)
+        if not match:
+            continue
+        title = match.group("title").strip(" \t:;-")
+        company = match.group("company").strip()
+        location = match.group("location").strip(" \t:;-")
+        if len(normalize_text(title).replace(" ", "")) < 4 or not location:
+            continue
+        return {
+            "company": company,
+            "title": title,
+            "location": location,
+            "source_evidence": match.group("sentence").strip(),
+            "email": emails[0],
+        }
+    return None
+
+
+def _postprocess_analysis_result(source_text: str, result: Any) -> Any:
+    """Apply narrow source-grounded corrections; never invent a job title."""
+    if not isinstance(result, dict):
+        return result
+
+    jobs = result.get("jobs")
+    if isinstance(jobs, list):
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            title_evidence = str(job.get("title_evidence") or "")
+            normalized_evidence = normalize_text(title_evidence)
+            variants = [
+                normalize_text(job.get(field))
+                for field in ("job_title", "application_title_fr", "application_title_en")
+                if str(job.get(field) or "").strip()
+            ]
+            evidence_supports_title = (
+                _source_quote_is_grounded_for_analysis(title_evidence, source_text)
+                and any(
+                    variant and (variant in normalized_evidence or normalized_evidence in variant)
+                    for variant in variants
+                )
+            )
+            if evidence_supports_title:
+                continue
+            # A source-grounded section heading is not proof of a different job
+            # title; replace it only with a literal substring of this job's title.
+            repaired = False
+            for field in ("job_title", "application_title_fr", "application_title_en"):
+                quote = _literal_source_quote(job.get(field), source_text)
+                if quote:
+                    job["title_evidence"] = quote
+                    repaired = True
+                    break
+            if not repaired:
+                # Preserve the original evidence so the evaluator flags the
+                # title rather than silently fabricating a source quote.
+                continue
+
+    # A single explicit recruitment heading is authoritative for one clearly listed
+    # position. Multi-job posts are deliberately untouched.
+    if str(result.get("post_type") or "").strip() == "actual_vacancy" and isinstance(jobs, list) and len(jobs) == 1:
+        heading = re.match(
+            r"^\s*(?:recrutement|recruitment|hiring|offre d'emploi)\s*[:：-]\s*(?P<title>[^.\n;]+)",
+            str(source_text or "").lstrip(),
+            flags=re.IGNORECASE,
+        )
+        if heading and isinstance(jobs[0], dict):
+            source_title = heading.group("title").strip()
+            if (
+                len(normalize_text(source_title).replace(" ", "")) >= 6
+                and normalize_text(source_title) not in {
+                    "plusieurs postes", "several positions", "multiple positions",
+                    "nos postes", "job openings",
+                }
+            ):
+                jobs[0]["job_title"] = source_title
+                jobs[0]["title_evidence"] = source_title
+
+    jobs = result.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        offer = _explicit_concrete_offer_after_rumour(source_text)
+        if offer:
+            # This narrow deterministic recovery always queues a human review;
+            # it never makes an automatic application decision.
+            result["post_type"] = "actual_vacancy"
+            result["post_type_evidence"] = [offer["source_evidence"]]
+            result["jobs"] = [{
+                "job_title": offer["title"],
+                "title_evidence": offer["title"],
+                "application_title_fr": "",
+                "application_title_en": "",
+                "company": offer["company"],
+                "location": offer["location"],
+                "accommodation_provided": "unknown",
+                "location_reason": "الموقع مذكور صراحة في نص الإعلان.",
+                "language": "ar" if re.search(r"[\u0600-\u06FF]", source_text) else "fr",
+                "decision": "REVIEW",
+                "score": 30,
+                "reason": "وجد النظام شركة ومسمى وظيفيًا محددًا ووسيلة تقديم فعلية رغم مقدمة تشكك في الخبر؛ أُحيل للمراجعة اليدوية لتأكيد الإعلان.",
+                "emails": [offer["email"]],
+            }]
+    return result
+
+
 # ============================================================
 # AI ANALYSIS
 # ============================================================
@@ -2965,6 +3138,16 @@ An actual_vacancy is a current, specific employer opening. Do NOT classify these
 - advice to register with ANEM, prepare a CV, or follow job channels;
 - a sentence saying the post is NOT an official recruitment announcement;
 - a CV-writing or job-search service advertisement appended to the post.
+
+PRECEDENCE WHEN A POST CONTAINS BOTH RUMOUR LANGUAGE AND A CONCRETE OFFER:
+- A generic rumour disclaimer at the beginning does not cancel a later explicit,
+  current opening from a named employer.
+- If a contrast such as "لكن / ولكن / but / however / mais" is followed by a
+  named employer, a direct current hiring verb, a specific title, location, and
+  an application email, classify the concrete offer as actual_vacancy.
+- Extract the named position even if candidate rules will make its decision REJECT
+  or REVIEW. Job extraction is separate from candidate eligibility; never omit a
+  real position merely because its qualifications do not fit the candidate.
 
 If post_type is anything other than actual_vacancy, jobs MUST be an empty array.
 Do not create a review record because a post merely mentions jobs or recruitment.
@@ -3597,12 +3780,13 @@ contacts, or requirements.
     # Full-post extraction is a multi-constraint reasoning task, not a lightweight
     # classification call. Use high thinking and enough output budget to avoid
     # starving either internal reasoning or multi-position JSON output.
-    return groq_json_request(
+    result = groq_json_request(
         messages=messages,
         temperature=0,
         max_completion_tokens=8192,
         reasoning_level="high",
     )
+    return _postprocess_analysis_result(text, result)
 
 
 # ============================================================
