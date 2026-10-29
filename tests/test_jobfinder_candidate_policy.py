@@ -104,7 +104,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
             cv_match_score=45,
         )
         self.assertEqual(decision, "APPLY")
-        self.assertIn("expérience", reason.lower())
+        self.assertIn("تجاوز شرط الخبرة", reason)
 
     def test_deterministic_gate_uses_the_same_classifier(self):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
