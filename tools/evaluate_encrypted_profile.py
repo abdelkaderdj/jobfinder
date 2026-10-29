@@ -170,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--limit must be zero or a positive integer")
 
     stage = "provider_configuration"
-    original_env = {key: os.environ.get(key) for key in PROFILE_ENV_KEYS}
+    tracked_env_keys = (*PROFILE_ENV_KEYS, "JOBFINDER_EVAL_LIVE_PROGRESS")
+    original_env = {key: os.environ.get(key) for key in tracked_env_keys}
     try:
         if not any(os.getenv(key, "").strip() for key in AI_PROVIDER_KEYS):
             raise RuntimeError("no AI provider is configured")
@@ -187,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         from tools.evaluate_ai_quality import main as run_evaluation
 
         stage = "model_evaluation"
+        os.environ["JOBFINDER_EVAL_LIVE_PROGRESS"] = "1"
         with tempfile.TemporaryDirectory(prefix="jobfinder-private-eval-") as directory:
             raw_report_path = Path(directory) / "report.json"
             eval_args = build_evaluation_args(raw_report_path, args.limit, args.strict)
