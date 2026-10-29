@@ -41,15 +41,18 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
-    def test_build_evaluation_args_includes_output_path_and_optional_flags(self):
+    def test_build_evaluation_args_supports_resumable_batches(self):
         output_path = Path("/tmp/private-report.json")
         self.assertEqual(
             build_evaluation_args(output_path, 0, False),
-            ["--output", "/tmp/private-report.json"],
+            ["--output", "/tmp/private-report.json", "--start-index", "1"],
         )
         self.assertEqual(
-            build_evaluation_args(output_path, 3, True),
-            ["--output", "/tmp/private-report.json", "--limit", "3", "--strict"],
+            build_evaluation_args(output_path, 3, True, 7),
+            [
+                "--output", "/tmp/private-report.json",
+                "--start-index", "7", "--limit", "3", "--strict",
+            ],
         )
 
     def test_profile_loader_returns_only_analysis_fields(self):
@@ -113,6 +116,12 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     ],
                 },
                 {
+                    "case_id": "quota-skipped-case",
+                    "status": "skipped",
+                    "error_category": "provider_quota_exhausted",
+                    "passed": False,
+                },
+                {
                     "case_id": "safe-diagnostic-case",
                     "status": "evaluated",
                     "passed": False,
@@ -138,6 +147,9 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                 }
             ],
             "configured_model_route": {"OPENAI_MODEL": "PRIVATE_CONFIG_SENTINEL"},
+            "execution_errors": 1,
+            "skipped_cases": 1,
+            "start_index": 7,
         }
 
         safe = safe_summary_from_report(report)
@@ -159,6 +171,11 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         self.assertIn('"missing_title_count": 1', rendered)
         self.assertIn('"unexpected_title_count": 1', rendered)
         self.assertIn('"after_candidate_gate": "REJECT"', rendered)
+        self.assertIn('"case_id": "quota-skipped-case"', rendered)
+        self.assertIn('"status": "skipped"', rendered)
+        self.assertIn('"error_category": "provider_quota_exhausted"', rendered)
+        self.assertIn('"skipped_cases": 1', rendered)
+        self.assertIn('"start_index": 7', rendered)
         for forbidden in (
             "PRIVATE_EXPECTED_TITLE",
             "PRIVATE_UNEXPECTED_TITLE",
