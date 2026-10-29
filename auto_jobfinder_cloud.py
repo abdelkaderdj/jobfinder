@@ -6993,13 +6993,18 @@ def _trusted_non_vacancy_classification(result, source_text):
 
 
 def _job_title_evidence_is_grounded(job, source_text):
-    """A job title must be a source quote containing an occupational noun, not a section heading."""
+    """Require source-grounded occupational evidence; allow short exact job titles."""
     if not isinstance(job, dict):
         return False
     quote = str(job.get("title_evidence") or "").strip()
-    if not _source_quote_is_grounded(quote, source_text):
+    if not quote:
         return False
+
     normalized_quote = normalize_text(quote)
+    normalized_source = normalize_text(source_text)
+    if not normalized_quote or normalized_quote not in normalized_source:
+        return False
+
     occupational_markers = (
         "agent", "technicien", "technician", "technologist", "ingenieur", "engineer",
         "operateur", "operator", "chef", "cheffe", "responsable", "manager",
@@ -7009,8 +7014,30 @@ def _job_title_evidence_is_grounded(job, source_text):
         "comptable", "acheteur", "soudeur", "مهندس", "تقني", "فني", "رئيس",
         "مسؤول", "عامل", "عون", "مشرف", "سائق", "محاسب", "كهربائي", "سباك", "طباخ",
     )
-    # Normalize each marker too: Arabic hamza may be decomposed by NFKD.
-    return any(normalize_text(marker) in normalized_quote for marker in occupational_markers)
+    # Normalize markers too: Arabic hamza may be decomposed by NFKD.
+    has_occupational_marker = any(
+        normalize_text(marker) in normalized_quote
+        for marker in occupational_markers
+    )
+    if not has_occupational_marker:
+        return False
+
+    if len(normalized_quote) < 8:
+        # Short evidence is accepted only when it is the exact extracted title,
+        # is at least four normalized characters long, and is visibly occupational.
+        # This preserves literal Arabic titles such as "كهربائي" without weakening
+        # the stricter eight-character rule for generic post-type evidence.
+        if len(normalized_quote.replace(" ", "")) < 4:
+            return False
+        title_variants = [
+            normalize_text(job.get(field))
+            for field in ("job_title", "application_title_fr", "application_title_en")
+            if str(job.get(field) or "").strip()
+        ]
+        if normalized_quote not in title_variants:
+            return False
+
+    return True
 
 
 def _validated_job_records(result, source_text):
