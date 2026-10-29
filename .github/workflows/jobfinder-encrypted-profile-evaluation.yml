@@ -1,39 +1,16 @@
-name: JobFinder Encrypted-Profile AI Evaluation
+name: JobFinder Offline AI & Decision Regression
 
 on:
   workflow_dispatch:
-    inputs:
-      max_cases:
-        description: "Number of labelled cases to evaluate (choose 3 to split the benchmark)"
-        required: true
-        type: choice
-        default: "9"
-        options:
-          - "3"
-          - "9"
-      start_case:
-        description: "First case: choose 1, 4, or 7 for batches of three"
-        required: true
-        type: choice
-        default: "1"
-        options:
-          - "1"
-          - "4"
-          - "7"
 
 permissions:
   contents: read
 
-# Reuse the production provider lock so evaluation does not compete with the live monitor.
-concurrency:
-  group: jobfinder-cloud-monitor
-  queue: max
-  cancel-in-progress: false
-
+# Offline regression tests must not consume provider quotas or wait for live APIs.
 jobs:
-  encrypted-profile-evaluation:
+  offline-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Check out current master
         uses: actions/checkout@v4
@@ -47,30 +24,20 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-cloud.txt
 
-      - name: Install cloud dependencies
+      - name: Install test dependencies
         run: python -m pip install --retries 5 --timeout 60 -r requirements-cloud.txt
 
-      - name: Compile evaluator
-        run: python -m py_compile tools/evaluate_ai_quality.py tools/evaluate_encrypted_profile.py
-
-      - name: Run labelled evaluation using the encrypted candidate profile
-        env:
-          JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-6.1-sol' }}
-          OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          GEMINI_REVIEW_MODEL: ${{ vars.GEMINI_REVIEW_MODEL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
-          GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}
-          JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
-          JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
-          JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
+      - name: Compile core modules and test files
         run: >-
-          python tools/evaluate_encrypted_profile.py
-          --start-index "${{ inputs.start_case }}"
-          --limit "${{ inputs.max_cases }}"
-          --strict
+          python -m py_compile
+          auto_jobfinder_cloud.py
+          jobfinder_ai_quality.py
+          jobfinder_candidate_policy.py
+          jobfinder_openai_provider.py
+          cloud_runner.py
+          decision_audit.py
+          tools/evaluate_ai_quality.py
+          tools/evaluate_encrypted_profile.py
+
+      - name: Run deterministic unit tests without external credentials
+        run: python -m unittest discover -s tests -v
