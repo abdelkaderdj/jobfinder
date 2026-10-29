@@ -274,6 +274,10 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "forbidden_title_hits": sum(len(item.get("forbidden_title_hits", [])) for item in results),
         "non_vacancy_with_jobs": sum(1 for item in results if item.get("non_vacancy_with_jobs")),
         "decision_checks": len(decision_checks),
+        "raw_model_decision_accuracy": round(
+            sum(1 for item in decision_checks if item.get("raw") == item.get("expected"))
+            / len(decision_checks), 4
+        ) if decision_checks else None,
         "decision_accuracy_after_gate": round(
             sum(1 for item in decision_checks if item.get("passed")) / len(decision_checks), 4
         ) if decision_checks else None,
@@ -312,6 +316,13 @@ def main(argv: list[str] | None = None) -> int:
         (
             inspect.getsource(processor.analyze_offer)
             + inspect.getsource(jobfinder_candidate_policy.experience_policy_prompt_text)
+        ).encode("utf-8")
+    ).hexdigest()
+    decision_code_fingerprint = hashlib.sha256(
+        (
+            inspect.getsource(processor.enforce_candidate_fit_rule)
+            + inspect.getsource(processor.calculate_candidate_cv_match)
+            + inspect.getsource(processor.enforce_location_rule)
         ).encode("utf-8")
     ).hexdigest()
     outputs: list[dict[str, Any]] = []
@@ -375,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": os.getenv("GITHUB_SHA", "unknown"),
         "prompt_fingerprint": prompt_fingerprint,
+        "decision_code_fingerprint": decision_code_fingerprint,
         "configured_model_route": {
             "OPENAI_MODEL": os.getenv("OPENAI_MODEL", ""),
             "GEMINI_MODEL": os.getenv("GEMINI_MODEL", ""),
