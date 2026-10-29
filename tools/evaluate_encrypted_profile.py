@@ -21,13 +21,14 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 DEFAULT_PROFILE_FILE = ROOT / "cloud_private" / "profile.enc"
 PROFILE_ENV_KEYS = ("JOBFINDER_CANDIDATE_PROFILE", "JOBFINDER_CANDIDATE_NAME")
 AI_PROVIDER_KEYS = ("OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
 
 _PROVIDER_SUCCESS = re.compile(
     r"^AI PROVIDER: (OpenAI|Gemini|Groq|OpenRouter) "
-    r"\\(([^()\\r\\n]{1,100})\\) succeeded(?: after JSON-mode retry)?$"
+    r"\(([^()\r\n]{1,100})\) succeeded(?: after JSON-mode retry)?$"
 )
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_.:-]")
 
@@ -160,7 +161,6 @@ def main(argv: list[str] | None = None) -> int:
 
     stage = "provider_configuration"
     original_env = {key: os.environ.get(key) for key in PROFILE_ENV_KEYS}
-    loaded_module = False
     try:
         if not any(os.getenv(key, "").strip() for key in AI_PROVIDER_KEYS):
             raise RuntimeError("no AI provider is configured")
