@@ -118,5 +118,18 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         self.assertNotIn("if years <= 4:", policy_function)
 
 
+    def test_model_prompt_explicitly_requires_review_for_vague_generalist_roles(self):
+        source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
+        source = source_path.read_text(encoding="utf-8")
+        analysis_start = source.index("def analyze_offer(")
+        analysis_end = source.index("\\n\\ndef ", analysis_start + 8)
+        analysis = source[analysis_start:analysis_end]
+
+        self.assertIn("GENERALIST / POLYVALENT ROLE DECISION", analysis)
+        self.assertIn('"Agents polyvalents"', analysis)
+        self.assertIn("raw decision MUST be REVIEW", analysis)
+        self.assertIn("Do NOT choose APPLY merely because the employer is a factory", analysis)
+
+
 if __name__ == "__main__":
     unittest.main()
