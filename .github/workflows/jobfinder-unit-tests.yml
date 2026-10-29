@@ -9,13 +9,11 @@ on:
       - "jobfinder_candidate_policy.py"
       - "tools/evaluate_ai_quality.py"
       - "tools/evaluate_encrypted_profile.py"
-      - "tools/evaluate_encrypted_profile.py"
       - "data/ai_quality_eval_cases.jsonl"
       - "cloud_runner.py"
       - "decision_audit.py"
       - "tools/export_decision_audit.py"
       - ".github/workflows/jobfinder-decision-audit-export.yml"
-      - ".github/workflows/jobfinder-encrypted-profile-evaluation.yml"
       - ".github/workflows/jobfinder-encrypted-profile-evaluation.yml"
       - "telegram_control.py"
       - "tests/**"
@@ -26,6 +24,7 @@ on:
       - "auto_jobfinder_cloud.py"
       - "jobfinder_candidate_policy.py"
       - "tools/evaluate_ai_quality.py"
+      - "tools/evaluate_encrypted_profile.py"
       - "data/ai_quality_eval_cases.jsonl"
       - "cloud_runner.py"
       - "decision_audit.py"
@@ -35,6 +34,7 @@ on:
       - ".github/workflows/jobfinder-unit-tests.yml"
       - ".github/workflows/jobfinder-cloud.yml"
       - ".github/workflows/jobfinder-decision-audit-export.yml"
+      - ".github/workflows/jobfinder-encrypted-profile-evaluation.yml"
   workflow_dispatch:
 
 permissions:
@@ -56,6 +56,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-cloud.txt
       - name: Compile Python modules
-        run: python -m py_compile auto_jobfinder_cloud.py jobfinder_ai_quality.py jobfinder_candidate_policy.py jobfinder_openai_provider.py cloud_runner.py decision_audit.py tools/export_decision_audit.py tools/evaluate_ai_quality.py tools/evaluate_encrypted_profile.py telegram_control.py tests/test_encrypted_profile_evaluation.py tests/test_decision_audit.py tests/test_telegram_control.py tests/test_openai_provider.py tests/test_ai_quality_evaluation.py
+        run: python -m py_compile auto_jobfinder_cloud.py jobfinder_ai_quality.py jobfinder_candidate_policy.py jobfinder_openai_provider.py cloud_runner.py decision_audit.py tools/export_decision_audit.py tools/evaluate_ai_quality.py tools/evaluate_encrypted_profile.py telegram_control.py tests/test_decision_audit.py tests/test_telegram_control.py tests/test_openai_provider.py tests/test_ai_quality_evaluation.py tests/test_encrypted_profile_evaluation.py
       - name: Run unit tests without external credentials
         run: python -m unittest discover -s tests -v
