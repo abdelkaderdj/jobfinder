@@ -7,8 +7,10 @@ enqueue Telegram events, or send email.
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import hashlib
 import inspect
+import io
 import json
 import os
 import re
@@ -315,8 +317,20 @@ def main(argv: list[str] | None = None) -> int:
     outputs: list[dict[str, Any]] = []
     for index, case in enumerate(cases, start=1):
         print(f"[{index}/{len(cases)}] Evaluating {case['id']}")
+        provider_output = io.StringIO()
         try:
-            response = processor.analyze_offer(str(case["source_text"]))
+            with redirect_stdout(provider_output):
+                response = processor.analyze_offer(str(case["source_text"]))
+            provider_lines = provider_output.getvalue().splitlines()
+            for line in provider_lines:
+                print(line)
+            provider_trace = [
+                line for line in provider_lines
+                if line.startswith((
+                    "AI PROVIDER:", "AI OPENAI", "AI GEMINI", "AI GROQ",
+                    "AI OPENROUTER", "AI RATE LIMIT", "AI MODEL RETRY",
+                ))
+            ]
             if not isinstance(response, dict):
                 response = {}
             evaluation = evaluate_case(
@@ -327,11 +341,22 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
             evaluation["status"] = "evaluated"
+            evaluation["provider_trace"] = provider_trace
             evaluation["predicted_titles"] = [job_title(job) for job in (response.get("jobs") or []) if isinstance(job, dict)]
         except Exception as exc:
+            provider_lines = provider_output.getvalue().splitlines()
+            for line in provider_lines:
+                print(line)
             evaluation = {
                 "case_id": case["id"],
                 "provenance": case.get("provenance", ""),
+                "provider_trace": [
+                    line for line in provider_lines
+                    if line.startswith((
+                        "AI PROVIDER:", "AI OPENAI", "AI GEMINI", "AI GROQ",
+                        "AI OPENROUTER", "AI RATE LIMIT", "AI MODEL RETRY",
+                    ))
+                ],
                 "status": "error",
                 "error": f"{type(exc).__name__}: {str(exc)[:300]}",
                 "passed": False,
