@@ -56,7 +56,7 @@ def emit_live_progress(
     if stream is None:
         return
     try:
-        stream.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\\n")
+        stream.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
         stream.flush()
     except Exception:
         # Progress display must never change the evaluation result.
