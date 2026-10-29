@@ -22,7 +22,7 @@ def find_duplicate_env_keys(workflow_text):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
 
-        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:", line)
+        match = re.match(r"^(\\s*)([A-Za-z_][A-Za-z0-9_-]*)\\s*:", line)
         if not match:
             continue
 
@@ -65,7 +65,7 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
                     f"{workflow_path.relative_to(ROOT)}: {key} appears on lines {lines}"
                 )
 
-        self.assertEqual(problems, [], "\n".join(problems))
+        self.assertEqual(problems, [], "\\n".join(problems))
 
     def test_duplicate_detector_catches_a_duplicate_within_one_env_block(self):
         sample = """jobs:
@@ -97,6 +97,20 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
         run: echo second
 """
         self.assertEqual(find_duplicate_env_keys(sample), [])
+
+    def test_manual_ai_regression_workflow_is_offline_and_quota_independent(self):
+        workflow = (
+            WORKFLOWS_DIR / "jobfinder-encrypted-profile-evaluation.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("JobFinder Offline AI & Decision Regression", workflow)
+        self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertNotIn("python tools/evaluate_encrypted_profile.py", workflow)
+        self.assertNotIn("secrets.OPENAI_API_KEY", workflow)
+        self.assertNotIn("secrets.GEMINI_API_KEY", workflow)
+        self.assertNotIn("secrets.GROQ_API_KEY", workflow)
+        self.assertNotIn("secrets.OPENROUTER_API_KEY", workflow)
+        self.assertNotIn("group: jobfinder-cloud-monitor", workflow)
 
 
 if __name__ == "__main__":
