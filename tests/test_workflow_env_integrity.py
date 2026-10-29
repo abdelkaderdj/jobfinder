@@ -22,7 +22,7 @@ def find_duplicate_env_keys(workflow_text):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
 
-        match = re.match(r"^(\\s*)([A-Za-z_][A-Za-z0-9_-]*)\\s*:", line)
+        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:", line)
         if not match:
             continue
 
@@ -65,7 +65,7 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
                     f"{workflow_path.relative_to(ROOT)}: {key} appears on lines {lines}"
                 )
 
-        self.assertEqual(problems, [], "\\n".join(problems))
+        self.assertEqual(problems, [], "\n".join(problems))
 
     def test_duplicate_detector_catches_a_duplicate_within_one_env_block(self):
         sample = """jobs:
