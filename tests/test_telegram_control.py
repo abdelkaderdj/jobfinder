@@ -2238,6 +2238,41 @@ Expérience pratique de 2 à 5 ans en logistique.
             processor.looks_like_non_job_service_promotion(arabic_actual_job)
         )
 
+    def test_appended_personal_service_email_is_excluded_from_job_contact_scope(self):
+        advertisement = (
+            "📢 Offre d'emploi | إعلان توظيف\\n"
+            "Entreprise : EURL El Amana Maintenance\\n"
+            "Lieu de travail : Oran\\n"
+            "Poste : Technicien de Maintenance Industrielle\\n"
+            "Recrutement d'un technicien de maintenance industrielle à Oran.\\n"
+            "Candidature : Envoyez votre CV au service recrutement.\\n"
+            "━━━━━━━━━━━━━━━━━━\\n"
+            "📌 خدمات شخصية إضافية من صاحب الحساب\\n"
+            "En parallèle des annonces d'emploi, je propose mes services personnels aux chercheurs d'emploi :\\n"
+            "Création et amélioration de CV professionnel.\\n"
+            "Rédaction de lettres de motivation en français et en arabe.\\n"
+            "Contact services : personal.services@example.org"
+        )
+
+        # The combined post remains a real-vacancy post, not a standalone service ad.
+        self.assertFalse(processor.looks_like_non_job_service_promotion(advertisement))
+
+        contact_text = processor.strip_appended_service_promotion(advertisement)
+        self.assertIn("Technicien de Maintenance Industrielle", contact_text)
+        self.assertNotIn("personal.services@example.org", contact_text)
+
+        job = {
+            "job_title": "Technicien de Maintenance Industrielle",
+            "company": "EURL El Amana Maintenance",
+            "location": "Oran",
+        }
+        sections = processor.split_advertisement_sections(contact_text)
+        section_text, matched, _reason = processor.resolve_job_section(
+            job, contact_text, sections, total_jobs=1
+        )
+        self.assertTrue(matched)
+        self.assertEqual(processor.extract_emails(section_text), [])
+
     def test_extraction_fallback_card_is_not_presented_as_confirmed_job(self):
         bot, _sent = self.build_bot()
         event = sample_event("REVIEW")
