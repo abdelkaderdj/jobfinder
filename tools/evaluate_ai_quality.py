@@ -446,6 +446,18 @@ def main(argv: list[str] | None = None) -> int:
             for line in provider_lines:
                 print(line)
             error_category = "other_runtime_error"
+            if isinstance(exc, ValueError):
+                safe_parse_markers = (
+                    "invalid json from ai",
+                    "does not contain valid json",
+                    "ai returned empty response",
+                    "gemini returned no candidate",
+                    "gemini returned empty content",
+                    "openrouter returned no response choices",
+                    "openrouter returned empty content",
+                )
+                if any(marker in str(exc).lower() for marker in safe_parse_markers):
+                    error_category = "provider_invalid_response"
             rate_limited_type = getattr(processor, "AIProviderRateLimited", ())
             unavailable_type = getattr(processor, "AIProviderUnavailable", ())
             if isinstance(rate_limited_type, type) and isinstance(exc, rate_limited_type):
