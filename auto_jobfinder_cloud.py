@@ -6725,22 +6725,22 @@ def looks_like_non_job_service_promotion(text):
 # trailing service block from position/contact scoping so its email cannot be
 # mistaken for an application recipient.
 _SERVICE_PROMOTION_SECTION_START_RE = re.compile(
-    r"^\\s*(?:[-━─_=*]{3,}\\s*)?(?:📌\\s*)?(?:"
-    r"خدمات\\s+(?:شخصية|إضافية|السيرة\\s+الذاتية|مهنية|خاصة)|"
-    r"nos\\s+services|services?\\s+personnels?|services?\\s+professionnels?|"
-    r"en\\s+parall[eè]le\\s+des\\s+annonces\\s+d['’ ]?emploi"
-    r")(?=\\s|[:：—–-]|$).*$",
+    r"^\s*(?:[-━─_=*]{3,}\s*)?(?:📌\s*)?(?:"
+    r"خدمات\s+(?:شخصية|إضافية|السيرة\s+الذاتية|مهنية|خاصة)|"
+    r"nos\s+services|services?\s+personnels?|services?\s+professionnels?|"
+    r"en\s+parall[eè]le\s+des\s+annonces\s+d['’ ]?emploi"
+    r")(?=\s|[:：—–-]|$).*$",
     flags=re.IGNORECASE,
 )
 _SERVICE_PROMOTION_FOOTER_CONTENT_RE = re.compile(
-    r"(?:\\bcv\\b|curriculum\\s+vitae|lettres?\\s+de\\s+motivation|"
-    r"السيرة\\s+الذاتية|رسائل?\\s+(?:ال)?تحفيز)",
+    r"(?:\bcv\b|curriculum\s+vitae|lettres?\s+de\s+motivation|"
+    r"السيرة\s+الذاتية|رسائل?\s+(?:ال)?تحفيز)",
     flags=re.IGNORECASE | re.DOTALL,
 )
 _SERVICE_PROMOTION_FOOTER_SIGNAL_RE = re.compile(
-    r"(?:خدمات\\s+(?:شخصية|السيرة\\s+الذاتية|إضافية)|nos\\s+services|"
-    r"services?\\s+personnels?|services?\\s+professionnels?|"
-    r"propose\\s+(?:mes|nos)\\s+services|للمهتمين\\s+بهذه\\s+الخدمات)",
+    r"(?:خدمات\s+(?:شخصية|السيرة\s+الذاتية|إضافية)|nos\s+services|"
+    r"services?\s+personnels?|services?\s+professionnels?|"
+    r"propose\s+(?:mes|nos)\s+services|للمهتمين\s+بهذه\s+الخدمات)",
     flags=re.IGNORECASE | re.DOTALL,
 )
 
@@ -6756,8 +6756,8 @@ def strip_appended_service_promotion(advertisement: str) -> str:
         if index == 0 or not _SERVICE_PROMOTION_SECTION_START_RE.match(line):
             continue
 
-        prefix = "\\n".join(lines[:index]).rstrip()
-        footer = "\\n".join(lines[index:]).strip()
+        prefix = "\n".join(lines[:index]).rstrip()
+        footer = "\n".join(lines[index:]).strip()
         if not prefix or not _ACTUAL_HIRING_INTENT_RE.search(prefix):
             continue
         if not _SERVICE_PROMOTION_FOOTER_CONTENT_RE.search(footer):
@@ -6766,7 +6766,7 @@ def strip_appended_service_promotion(advertisement: str) -> str:
             continue
 
         # A second actual vacancy after the marker makes the boundary ambiguous.
-        remainder = "\\n".join(lines[index + 1:])
+        remainder = "\n".join(lines[index + 1:])
         if _ACTUAL_HIRING_INTENT_RE.search(remainder):
             continue
         return prefix
