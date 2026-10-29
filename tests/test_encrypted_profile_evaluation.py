@@ -144,7 +144,9 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                             "expected_aliases": ["PRIVATE_TITLE_SENTINEL"],
                             "expected": "APPLY",
                             "raw": "REJECT",
+                            "raw_passed": False,
                             "after_candidate_gate": "REJECT",
+                            "final_passed": False,
                             "passed": False,
                             "reason": "PRIVATE_REASON_SENTINEL",
                         }
@@ -182,6 +184,8 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         self.assertIn('"missing_title_count": 1', rendered)
         self.assertIn('"unexpected_title_count": 1', rendered)
         self.assertIn('"after_candidate_gate": "REJECT"', rendered)
+        self.assertIn('"raw_passed": false', rendered)
+        self.assertIn('"final_passed": false', rendered)
         self.assertIn('"case_id": "quota-skipped-case"', rendered)
         self.assertIn('"status": "skipped"', rendered)
         self.assertIn('"error_category": "provider_quota_exhausted"', rendered)
