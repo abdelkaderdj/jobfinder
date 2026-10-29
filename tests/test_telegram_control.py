@@ -628,7 +628,8 @@ Kaader5881@gmail.com
             job, "APPLY", ad, cv_match_score=cv_score
         )
         self.assertEqual(final, "REJECT")
-        self.assertIn("شرطًا إلزاميًا", reason)
+        self.assertIn("5 سنوات خبرة", reason)
+        self.assertIn("4 سنوات", reason)
 
     def test_chiali_operator_qualification_lines_are_not_recovered_as_job_titles(self):
         ad = (
@@ -1187,6 +1188,22 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(final, "APPLY", reason)
         self.assertIn("بقية حواجز", reason)
     
+    def test_more_than_four_years_is_hard_rejected_for_relevant_roles(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 85,
+            "reason": "Strong technical match, but the role requires 5 years of experience.",
+        }
+        final, reason = processor.enforce_candidate_fit_rule(
+            job,
+            "REVIEW",
+            "Technicien de maintenance. Minimum 5 years of professional experience.",
+            cv_match_score=60,
+        )
+        self.assertEqual(final, "REJECT", reason)
+        self.assertIn("5", reason)
+        self.assertIn("4", reason)
+
     def test_four_year_requirement_not_sent_automatically(self):
         job = {
             "job_title": "Technicien de maintenance",
