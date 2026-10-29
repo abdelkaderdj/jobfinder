@@ -198,10 +198,18 @@ class AIQualityEvaluationTests(unittest.TestCase):
             result,
             decision_transform=lambda _job, _source: ("REVIEW", "Production role requires manual review."),
         )
-        self.assertTrue(evaluated["decision_checks"][0]["passed"])
+        self.assertFalse(evaluated["decision_checks"][0]["raw_passed"])
+        self.assertTrue(evaluated["decision_checks"][0]["final_passed"])
         self.assertEqual(evaluated["decision_checks"][0]["raw"], "APPLY")
         self.assertEqual(evaluated["decision_checks"][0]["after_candidate_gate"], "REVIEW")
-        self.assertTrue(evaluated["passed"])
+        # The gate keeps the final action safe, but it must not hide an initial
+        # model-quality error from the live benchmark.
+        self.assertFalse(evaluated["decision_checks"][0]["passed"])
+        self.assertFalse(evaluated["passed"])
+
+        summary = summarize([evaluated])
+        self.assertEqual(summary["raw_model_decision_accuracy"], 0.0)
+        self.assertEqual(summary["decision_accuracy_after_candidate_gate"], 1.0)
 
 
 if __name__ == "__main__":
