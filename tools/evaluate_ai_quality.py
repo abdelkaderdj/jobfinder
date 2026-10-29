@@ -80,7 +80,7 @@ def load_cases(dataset_path: Path) -> list[dict[str, Any]]:
 def _match_expected_titles(
     expected_titles: list[dict[str, Any]],
     predicted_jobs: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     """One-to-one match expected title labels to predictions to avoid double counting."""
     unmatched_indices = set(range(len(predicted_jobs)))
     matched: list[dict[str, Any]] = []
@@ -104,7 +104,7 @@ def _match_expected_titles(
             "job_index": match_index,
         })
     unexpected = [job_title(predicted_jobs[index]) for index in sorted(unmatched_indices)]
-    return matched, missing + unexpected
+    return matched, missing, unexpected
 
 
 def _default_decision_transform(
@@ -140,7 +140,10 @@ def evaluate_case(
     actual_post_type = str(result.get("post_type") or "missing").strip()
 
     expected_titles = case.get("expected_titles") or []
-    matched_titles, title_errors = _match_expected_titles(expected_titles, predicted_jobs)
+    matched_titles, missing_titles, unexpected_titles = _match_expected_titles(
+        expected_titles, predicted_jobs
+    )
+    title_errors = missing_titles + unexpected_titles
     forbidden_aliases = [str(value) for value in (case.get("forbidden_titles") or [])]
     forbidden_hits = [
         job_title(job) for job in predicted_jobs
@@ -215,7 +218,10 @@ def evaluate_case(
         "predicted_post_type": actual_post_type,
         "post_type_passed": actual_post_type == expected_post_type,
         "matched_titles": matched_titles,
+        "missing_titles": missing_titles,
+        "unexpected_titles": unexpected_titles,
         "title_errors": title_errors,
+        "predicted_title_count": predicted_count,
         "title_precision": precision,
         "title_recall": recall,
         "forbidden_title_hits": forbidden_hits,
@@ -236,17 +242,14 @@ def evaluate_case(
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     case_count = len(results)
     expected_title_count = sum(
-        len(item.get("matched_titles", [])) + len(item.get("title_errors", []))
+        len(item.get("matched_titles", [])) + len(item.get("missing_titles", []))
+        for item in results
+    )
+    predicted_title_count = sum(
+        int(item.get("predicted_title_count", 0))
         for item in results
     )
     matched_title_count = sum(len(item.get("matched_titles", [])) for item in results)
-    predicted_title_count = sum(
-        len(item.get("matched_titles", [])) + len(item.get("title_errors", []))
-        for item in results
-    )
-    # A title-error list contains both missed and unexpected titles; recover the
-    # total predictions from matched + unexpected titles by keeping a case metric.
-    # Title precision/recall averages below are supplemented with exact case pass.
     decision_checks = [
         decision
         for item in results
@@ -259,6 +262,9 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "post_type_accuracy": round(
             sum(1 for item in results if item.get("post_type_passed")) / case_count, 4
         ) if case_count else 0.0,
+        "title_precision": round(
+            matched_title_count / predicted_title_count, 4
+        ) if predicted_title_count else (1.0 if expected_title_count == 0 else 0.0),
         "title_recall": round(
             matched_title_count / expected_title_count, 4
         ) if expected_title_count else 1.0,
