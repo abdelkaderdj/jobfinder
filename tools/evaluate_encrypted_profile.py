@@ -124,7 +124,8 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
         for item in raw_results[:100]:
             if not isinstance(item, dict):
                 continue
-            status = "error" if item.get("status") == "error" else "evaluated"
+            raw_status = item.get("status")
+            status = raw_status if raw_status in {"error", "skipped"} else "evaluated"
             case_run = {
                 "case_id": _safe_id(item.get("case_id")),
                 "status": status,
@@ -173,19 +174,35 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                     for check in checks[:30]
                     if isinstance(check, dict)
                 ]
+            category = item.get("error_category")
+            if category in {
+                "provider_quota_exhausted", "provider_routes_unavailable",
+                "other_runtime_error",
+            }:
+                case_run["error_category"] = category
             # Preserve only the exception class, never request text or messages.
             if status == "error":
-                raw_error = item.get("error")
-                if isinstance(raw_error, str):
-                    match = re.match(r"^([A-Za-z][A-Za-z0-9_]{0,79})(?::|$)", raw_error)
-                    if match:
-                        case_run["error_type"] = match.group(1)
+                error_type = item.get("error_type")
+                if isinstance(error_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", error_type):
+                    case_run["error_type"] = error_type
+                else:
+                    raw_error = item.get("error")
+                    if isinstance(raw_error, str):
+                        match = re.match(r"^([A-Za-z][A-Za-z0-9_]{0,79})(?::|$)", raw_error)
+                        if match:
+                            case_run["error_type"] = match.group(1)
             case_runs.append(case_run)
 
+    error_count = report.get("execution_errors", 0)
+    skipped_count = report.get("skipped_cases", 0)
+    start_index = report.get("start_index", 1)
     return {
         "metrics": metrics,
         "failed_case_ids": failed_ids,
         "case_runs": case_runs,
+        "execution_errors": error_count if isinstance(error_count, int) and error_count >= 0 else 0,
+        "skipped_cases": skipped_count if isinstance(skipped_count, int) and skipped_count >= 0 else 0,
+        "start_index": start_index if isinstance(start_index, int) and start_index >= 1 else 1,
         "privacy": {
             "encrypted_profile_loaded": True,
             "only_aggregate_results_printed": True,
@@ -198,9 +215,14 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_evaluation_args(output_path: Path, limit: int, strict: bool) -> list[str]:
+def build_evaluation_args(
+    output_path: Path,
+    limit: int,
+    strict: bool,
+    start_index: int = 1,
+) -> list[str]:
     """Build evaluator CLI arguments without fragile list-index assignments."""
-    eval_args = ["--output", str(output_path)]
+    eval_args = ["--output", str(output_path), "--start-index", str(start_index)]
     if limit:
         eval_args.extend(["--limit", str(limit)])
     if strict:
@@ -211,11 +233,14 @@ def build_evaluation_args(output_path: Path, limit: int, strict: bool) -> list[s
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile-file", type=Path, default=DEFAULT_PROFILE_FILE)
-    parser.add_argument("--limit", type=int, default=0, help="Evaluate only the first N labelled cases")
+    parser.add_argument("--limit", type=int, default=0, help="Evaluate up to N labelled cases")
+    parser.add_argument("--start-index", type=int, default=1, help="One-based index of first case")
     parser.add_argument("--strict", action="store_true", help="Fail when any labelled case fails")
     args = parser.parse_args(argv)
     if args.limit < 0:
         parser.error("--limit must be zero or a positive integer")
+    if args.start_index < 1:
+        parser.error("--start-index must be at least 1")
 
     stage = "provider_configuration"
     tracked_env_keys = (*PROFILE_ENV_KEYS, "JOBFINDER_EVAL_LIVE_PROGRESS")
@@ -239,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["JOBFINDER_EVAL_LIVE_PROGRESS"] = "1"
         with tempfile.TemporaryDirectory(prefix="jobfinder-private-eval-") as directory:
             raw_report_path = Path(directory) / "report.json"
-            eval_args = build_evaluation_args(raw_report_path, args.limit, args.strict)
+            eval_args = build_evaluation_args(raw_report_path, args.limit, args.strict, args.start_index)
 
             captured_stdout = io.StringIO()
             captured_stderr = io.StringIO()
