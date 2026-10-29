@@ -125,14 +125,22 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             status = "error" if item.get("status") == "error" else "evaluated"
-            case_runs.append({
+            case_run = {
                 "case_id": _safe_id(item.get("case_id")),
                 "status": status,
                 "passed": bool(item.get("passed", False)),
                 "successful_provider_routes": _successful_provider_routes(
                     item.get("provider_trace")
                 ),
-            })
+            }
+            # Preserve only the exception class, never request text or messages.
+            if status == "error":
+                raw_error = item.get("error")
+                if isinstance(raw_error, str):
+                    match = re.match(r"^([A-Za-z][A-Za-z0-9_]{0,79})(?::|$)", raw_error)
+                    if match:
+                        case_run["error_type"] = match.group(1)
+            case_runs.append(case_run)
 
     return {
         "metrics": metrics,
