@@ -2984,6 +2984,48 @@ def _source_quote_is_grounded_for_analysis(quote: Any, source_text: str) -> bool
     return len(normalized_quote.replace(" ", "")) >= 4 and normalized_quote in normalized_source
 
 
+def _source_grounded_post_type_evidence(post_type: Any, source_text: str) -> str | None:
+    """Choose a verbatim clause matching the assigned post type; never paraphrase evidence."""
+    kind = str(post_type or "").strip().lower()
+    source = str(source_text or "")
+    patterns = {
+        "future_teaser": (
+            r"(?:رايح|راح|سوف|سأنشر|سننشر|سنقوم بنشر|نحتاج منكم التفاعل|"
+            r"i will post|we will post|coming soon|will publish|"
+            r"je vais publier|nous publierons|prochainement)",
+        ),
+        "unconfirmed_rumour": (
+            r"(?:معلومات غير مؤكدة|غير مؤكدة رسمي|غير مؤكدة|غير مؤكد|"
+            r"لا يعد هذا المنشور إعلان|لا يعتبر هذا المنشور إعلان|"
+            r"unconfirmed|rumou?r|not officially confirmed|"
+            r"information not confirmed|rumeur|non confirmé)",
+        ),
+        "career_advice": (
+            r"(?:نصيحة|نصائح للباحثين|حضّر سيرتك الذاتية|تحضير السيرة الذاتية|"
+            r"prepare your cv|career advice|register with anem|"
+            r"conseils aux candidats|préparez votre cv)",
+        ),
+        "service_promotion": (
+            r"(?:خدمات السيرة الذاتية|تحسين السيرة الذاتية|إعداد السير الذاتية|"
+            r"cv writing|resume writing|our services|nos services|"
+            r"خدماتنا|نقدم خدمات)",
+        ),
+    }
+    markers = patterns.get(kind, ())
+    if not markers:
+        return None
+
+    segments = re.split(r"(?<=[.!?؟؛])|[,،;؛\n]+", source)
+    for segment in segments:
+        candidate = segment.strip(" \t\r\n:؛,،-")
+        if len(normalize_text(candidate).replace(" ", "")) < 8:
+            continue
+        if any(re.search(pattern, candidate, flags=re.IGNORECASE) for pattern in markers):
+            if _source_quote_is_grounded_for_analysis(candidate, source):
+                return candidate
+    return None
+
+
 def _explicit_concrete_offer_after_rumour(source_text: str) -> dict[str, str] | None:
     """Conservatively rescue a specific current offer that follows a rumour preamble.
 
@@ -3043,6 +3085,20 @@ def _postprocess_analysis_result(source_text: str, result: Any) -> Any:
     """Apply narrow source-grounded corrections; never invent a job title."""
     if not isinstance(result, dict):
         return result
+
+    post_type = str(result.get("post_type") or "").strip()
+    post_type_evidence = result.get("post_type_evidence")
+    has_grounded_type_evidence = (
+        isinstance(post_type_evidence, list)
+        and any(
+            _source_quote_is_grounded_for_analysis(quote, source_text)
+            for quote in post_type_evidence
+        )
+    )
+    if not has_grounded_type_evidence:
+        replacement_evidence = _source_grounded_post_type_evidence(post_type, source_text)
+        if replacement_evidence:
+            result["post_type_evidence"] = [replacement_evidence]
 
     jobs = result.get("jobs")
     if isinstance(jobs, list):
