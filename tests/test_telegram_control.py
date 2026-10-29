@@ -2279,7 +2279,7 @@ Expérience pratique de 2 à 5 ans en logistique.
             "Entreprise : EURL El Amana Maintenance\n"
             "Lieu de travail : Oran\n"
             "Poste : Technicien de Maintenance Industrielle\n"
-            "Recrutement d'un technicien de maintenance industrielle à Oran.\n"
+            "L'entreprise cherche un technicien de maintenance industrielle à Oran.\n"
             "Candidature : envoyer le CV à jobs@example.org\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "📄 حاب/ة تزيد فرصك في التوظيف؟ حضّر CV احترافي مع RECRUTEMENT DZ!\n"
