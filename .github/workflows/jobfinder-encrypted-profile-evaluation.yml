@@ -4,22 +4,29 @@ on:
   workflow_dispatch:
     inputs:
       max_cases:
-        description: "Number of labelled cases to evaluate (choose 3 to split the benchmark)"
+        description: "Number of labelled cases: 1 for a targeted check, 3 for a batch, or 9 for all cases"
         required: true
         type: choice
         default: "9"
         options:
+          - "1"
           - "3"
           - "9"
       start_case:
-        description: "First case: choose 1, 4, or 7 for batches of three"
+        description: "First case to evaluate (choose 4 with max_cases=1 to retest the evidence fix)"
         required: true
         type: choice
         default: "1"
         options:
           - "1"
+          - "2"
+          - "3"
           - "4"
+          - "5"
+          - "6"
           - "7"
+          - "8"
+          - "9"
 
 permissions:
   contents: read
