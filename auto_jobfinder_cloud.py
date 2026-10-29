@@ -2632,6 +2632,26 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                     )
                     continue
 
+                # A malformed/empty structured response belongs to this model route,
+                # not necessarily to the entire Gemini provider. Try the next configured
+                # Gemini model before consuming Groq/OpenRouter quotas.
+                if isinstance(gemini_error, ValueError) and any(
+                    marker in str(gemini_error).lower()
+                    for marker in (
+                        "invalid json from ai",
+                        "does not contain valid json",
+                        "ai returned empty response",
+                        "gemini returned no candidate",
+                        "gemini returned empty content",
+                    )
+                ):
+                    _DISABLED_GEMINI_MODELS.add(model_name)
+                    print(
+                        f"AI GEMINI INVALID JSON RESPONSE: {model_name}; "
+                        "trying next configured Gemini model"
+                    )
+                    continue
+
                 if _is_provider_configuration_error(gemini_error):
                     _GEMINI_DISABLED_FOR_RUN = True
                     print(
