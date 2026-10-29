@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +18,29 @@ from tools.evaluate_encrypted_profile import (
 
 
 class EncryptedProfileEvaluationTests(unittest.TestCase):
+    def test_analysis_module_import_does_not_require_gmail_credentials(self):
+        root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        for name in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
+            env.pop(name, None)
+        env["GEMINI_API_KEY"] = "validation-dummy-key"
+        env.pop("GROQ_API_KEY", None)
+        env.pop("OPENAI_API_KEY", None)
+        env.pop("OPENROUTER_API_KEY", None)
+        env["JOBFINDER_CANDIDATE_PROFILE"] = "Synthetic candidate profile for import test"
+        env["JOBFINDER_CANDIDATE_NAME"] = "Synthetic Candidate"
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import auto_jobfinder_cloud"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
     def test_build_evaluation_args_includes_output_path_and_optional_flags(self):
         output_path = Path("/tmp/private-report.json")
         self.assertEqual(

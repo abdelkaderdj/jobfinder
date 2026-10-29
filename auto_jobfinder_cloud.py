@@ -68,11 +68,8 @@ if not GROQ_API_KEY and not GEMINI_API_KEY and not OPENROUTER_API_KEY and not OP
         "At least one AI provider key is required: OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
-if not GMAIL_APP_PASSWORD:
-    raise RuntimeError("GMAIL_APP_PASSWORD is not set")
-
-if not GMAIL_ADDRESS:
-    raise RuntimeError("GMAIL_ADDRESS is not set")
+# Email credentials are validated at the send boundary, not on module import.
+# Read-only analysis and evaluation must not require Gmail access.
 
 
 # Groq is an optional fallback provider. A valid Gemini-only configuration must
@@ -6206,6 +6203,15 @@ def send_application(
     advertisement,
     application_title
 ):
+    # Fail closed at the only point that can send an application email.
+    gmail_address = str(os.getenv("GMAIL_ADDRESS") or GMAIL_ADDRESS or "").strip()
+    gmail_app_password = str(
+        os.getenv("GMAIL_APP_PASSWORD") or GMAIL_APP_PASSWORD or ""
+    ).strip()
+    if not gmail_address or not gmail_app_password:
+        raise RuntimeError(
+            "Gmail credentials are not configured; refusing to send application"
+        )
 
     subject, body = build_email(
         job,
@@ -6216,7 +6222,7 @@ def send_application(
 
     message = EmailMessage()
 
-    message["From"] = GMAIL_ADDRESS
+    message["From"] = gmail_address
     message["To"] = email_address
     message["Subject"] = subject
 
@@ -6260,8 +6266,8 @@ def send_application(
         server.ehlo()
 
         server.login(
-            GMAIL_ADDRESS,
-            GMAIL_APP_PASSWORD
+            gmail_address,
+            gmail_app_password
         )
 
         refused = server.send_message(
