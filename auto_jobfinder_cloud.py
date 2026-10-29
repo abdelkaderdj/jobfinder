@@ -19,6 +19,10 @@ from jobfinder_ai_quality import (
     enforce_verification_gate,
     normalize_reasoning_level,
 )
+from jobfinder_candidate_policy import (
+    classify_experience_requirement,
+    experience_policy_prompt_text,
+)
 from jobfinder_openai_provider import openai_json_request as _openai_json_request
 
 
@@ -849,18 +853,11 @@ def _experience_requirement_years(advertisement: str):
 
 
 def _experience_requirement_policy(advertisement: str):
-    """
-    <=3 years: experience is not a rejection reason; 3..4 years: REVIEW;
-    >4 years: REJECT. This affects only experience, not other eligibility rules.
-    """
+    """Parse the stated minimum and classify it using the canonical candidate policy."""
     years = _experience_requirement_years(advertisement)
     if years is None:
         return None, None
-    if years <= 3:
-        return years, "waive_experience"
-    if years <= 4:
-        return years, "manual_review"
-    return years, "reject"
+    return years, classify_experience_requirement(years)
 
 
 def _reason_is_experience_only(reason: str) -> bool:
@@ -3031,10 +3028,11 @@ candidate genuinely matches the stated requirements.
       biology, aircraft maintenance/aviation, stock/inventory/logistics/supply
       chain, sales, and other unrelated roles even if the full advertisement
       mentions maintenance, pumps, fluids, or production elsewhere.
-    - The candidate has no professional engineering experience. Explicit
-      minimum experience requirements not met by the candidate are REJECT,
-      including "at least 6 months", "6 months minimum", "2–5 years",
-      "2 ans minimum", and "6 أشهر على الأقل". These are not REVIEW.
+    - The candidate has no professional engineering experience. Knowledge,
+      study, and training do not count as professional work experience.
+
+    {{EXPERIENCE_POLICY_BLOCK}}
+
     - "Débutant accepté", "no experience required", or equivalent means do NOT
       invent an experience requirement; assess the other actual requirements.
     - For a message containing several jobs, evaluate each position's own title
@@ -3565,6 +3563,8 @@ must be REVIEW, not silently omitted. Return an empty array only when the
 text truly has no job vacancy. Never invent titles, employers, locations,
 contacts, or requirements.
 """
+
+    prompt = prompt.replace("{{EXPERIENCE_POLICY_BLOCK}}", experience_policy_prompt_text())
 
     messages = [
 
@@ -6793,9 +6793,7 @@ def verify_apply_decisions(source_text, jobs):
                 "Hard eligibility rules:\n"
                 "- Candidate holds a Licence/Bac+3 in Mechanical and Energy Engineering, not an engineering degree.\n"
                 "- Candidate has no professional engineering experience; knowledge, studies, and training are not work experience.\n"
-                "- Experience requirements of up to 3 years are not by themselves grounds for rejection.\n"
-                "- Requirements of 3 to 4 years must not remain automatic APPLY; they require REVIEW.\n"
-                "- More than 4 years is outside the candidate's target.\n"
+                + experience_policy_prompt_text() + "\n"
                 "- Relevant targets include mechanical maintenance, mechanical equipment, refrigeration/HVAC/thermal, pumps/fluids, and junior CAD/SolidWorks/design/technical drawing, plus genuinely close junior technical roles.\n"
                 "- Clearly unrelated roles must not be approved just because they share words like technical, industrial, production, or energy.\n"
                 "- Oran/Mostaganem and nearby areas are eligible; southern/Saharan Algeria is eligible. Other Algerian locations need explicit employer-provided accommodation. Residency is not accommodation.\n"
