@@ -122,13 +122,14 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
         source = source_path.read_text(encoding="utf-8")
         analysis_start = source.index("def analyze_offer(")
-        analysis_end = source.index("\n\ndef ", analysis_start + 8)
-        analysis = source[analysis_start:analysis_end]
+        prompt_rule_start = source.index("11A. GENERALIST / POLYVALENT ROLE DECISION", analysis_start)
+        self.assertGreater(prompt_rule_start, analysis_start)
+        prompt_rule = source[prompt_rule_start:prompt_rule_start + 1200]
 
-        self.assertIn("GENERALIST / POLYVALENT ROLE DECISION", analysis)
-        self.assertIn('"Agents polyvalents"', analysis)
-        self.assertIn("raw decision MUST be REVIEW", analysis)
-        self.assertIn("Do NOT choose APPLY merely because the employer is a factory", analysis)
+        self.assertIn("GENERALIST / POLYVALENT ROLE DECISION", prompt_rule)
+        self.assertIn('"Agents polyvalents"', prompt_rule)
+        self.assertIn("raw decision MUST be REVIEW", prompt_rule)
+        self.assertIn("Do NOT choose APPLY merely because the employer is a factory", prompt_rule)
 
 
 if __name__ == "__main__":
