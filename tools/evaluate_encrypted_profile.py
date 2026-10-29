@@ -133,6 +133,46 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
                     item.get("provider_trace")
                 ),
             }
+            # Safe diagnostics explain which layer failed without emitting ad text,
+            # titles, aliases, reasons, profile fields, or raw provider errors.
+            if isinstance(item.get("post_type_passed"), bool):
+                case_run["post_type_passed"] = item["post_type_passed"]
+            if item.get("expected_post_type") in {
+                "actual_vacancy", "unconfirmed_rumour", "career_advice",
+                "service_promotion", "future_teaser", "other",
+            }:
+                case_run["expected_post_type"] = item["expected_post_type"]
+            if item.get("predicted_post_type") in {
+                "actual_vacancy", "unconfirmed_rumour", "career_advice",
+                "service_promotion", "future_teaser", "other", "missing",
+            }:
+                case_run["predicted_post_type"] = item["predicted_post_type"]
+            for list_field, output_field in (
+                ("matched_titles", "matched_title_count"),
+                ("missing_titles", "missing_title_count"),
+                ("unexpected_titles", "unexpected_title_count"),
+                ("evidence_errors", "evidence_error_count"),
+                ("forbidden_title_hits", "forbidden_title_hit_count"),
+            ):
+                field_value = item.get(list_field)
+                if isinstance(field_value, list):
+                    case_run[output_field] = len(field_value)
+            if isinstance(item.get("non_vacancy_with_jobs"), bool):
+                case_run["non_vacancy_with_jobs"] = item["non_vacancy_with_jobs"]
+            checks = item.get("decision_checks")
+            if isinstance(checks, list):
+                case_run["decision_checks"] = [
+                    {
+                        key: check[key]
+                        for key in ("expected", "raw", "after_candidate_gate", "passed")
+                        if key in check and (
+                            isinstance(check[key], bool)
+                            or check[key] in {"APPLY", "REVIEW", "REJECT", "MISSING"}
+                        )
+                    }
+                    for check in checks[:30]
+                    if isinstance(check, dict)
+                ]
             # Preserve only the exception class, never request text or messages.
             if status == "error":
                 raw_error = item.get("error")
