@@ -48,7 +48,7 @@ def emit_live_progress(
     }
     if safe_case_id:
         payload["evaluation_progress"]["case_id"] = safe_case_id
-    if status in {"evaluated", "error"}:
+    if status in {"evaluated", "error", "skipped"}:
         payload["evaluation_progress"]["status"] = status
     if isinstance(passed, bool):
         payload["evaluation_progress"]["passed"] = passed
