@@ -82,7 +82,6 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         rendered = json.dumps(safe, ensure_ascii=False)
 
         self.assertIn("gpt-test-safe", rendered)
-        self.assertIn("PRIVATE_TITLE_SENTINEL", "")  # explicitly not copied into report
         for forbidden in (
             "PRIVATE_PROFILE_SENTINEL",
             "PRIVATE_TITLE_SENTINEL",
