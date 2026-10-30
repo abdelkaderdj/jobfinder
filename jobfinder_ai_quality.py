@@ -42,6 +42,7 @@ def apply_verification_result(
     jobs: list[dict[str, Any]],
     review_result: Any,
     evidence_is_grounded: Callable[[str], bool],
+    evidence_is_grounded_for_job: Callable[[int, dict[str, Any], str], bool] | None = None,
 ) -> list[dict[str, Any]]:
     """Apply an independent reviewer only as a fail-closed gate for APPLY jobs.
 
@@ -93,7 +94,11 @@ def apply_verification_result(
             if not isinstance(quote, str) or not quote.strip():
                 continue
             try:
-                if evidence_is_grounded(quote):
+                if evidence_is_grounded_for_job is not None:
+                    is_grounded = evidence_is_grounded_for_job(review_index, job, quote)
+                else:
+                    is_grounded = evidence_is_grounded(quote)
+                if is_grounded:
                     grounded_evidence = True
                     break
             except Exception:
