@@ -5,8 +5,19 @@ import unittest
 from pathlib import Path
 
 from jobfinder_candidate_policy import (
+    ACCOMMODATION_MARKERS,
+    CV_MATCH_SKILL_GROUPS,
+    DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS,
+    ENGINEERING_GRADE_ROLE_TITLE_PATTERNS,
+    GENERALIST_ROLE_TITLE_PATTERNS,
+    GENERIC_TECHNICAL_ROLE_PATTERNS,
+    LOCAL_LOCATION_MARKERS,
     MAX_EXPERIENCE_YEARS_APPLY,
+    PRODUCTION_ROLE_TITLE_PATTERNS,
+    SOUTH_LOCATION_MARKERS,
+    STRONG_RELEVANT_ROLE_PATTERNS,
     UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION,
+    UNRELATED_ROLE_TITLE_PATTERNS,
     candidate_location_policy_prompt_text,
     candidate_role_policy_prompt_text,
     classify_experience_requirement,
@@ -93,6 +104,41 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
 
         self.assertNotIn("3 years: REVIEW", reviewer)
         self.assertNotIn("up to 3 years", analysis.lower())
+
+    def test_deterministic_role_and_location_lists_have_one_canonical_source(self):
+        source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
+        source = source_path.read_text(encoding="utf-8")
+
+        expected_names = (
+            "UNRELATED_ROLE_TITLE_PATTERNS",
+            "DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS",
+            "GENERALIST_ROLE_TITLE_PATTERNS",
+            "PRODUCTION_ROLE_TITLE_PATTERNS",
+            "ENGINEERING_GRADE_ROLE_TITLE_PATTERNS",
+            "STRONG_RELEVANT_ROLE_PATTERNS",
+            "GENERIC_TECHNICAL_ROLE_PATTERNS",
+            "CV_MATCH_SKILL_GROUPS",
+            "LOCAL_LOCATION_MARKERS",
+            "SOUTH_LOCATION_MARKERS",
+            "ACCOMMODATION_MARKERS",
+        )
+        for name in expected_names:
+            with self.subTest(name=name):
+                self.assertIn(name, source.split("from jobfinder_candidate_policy import", 1)[1].split(")", 1)[0])
+                self.assertNotRegex(source, rf"(?m)^{name}\\s*=")
+
+        self.assertTrue(UNRELATED_ROLE_TITLE_PATTERNS)
+        self.assertTrue(DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS)
+        self.assertTrue(GENERALIST_ROLE_TITLE_PATTERNS)
+        self.assertTrue(PRODUCTION_ROLE_TITLE_PATTERNS)
+        self.assertTrue(ENGINEERING_GRADE_ROLE_TITLE_PATTERNS)
+        self.assertTrue(STRONG_RELEVANT_ROLE_PATTERNS)
+        self.assertTrue(GENERIC_TECHNICAL_ROLE_PATTERNS)
+        self.assertTrue(CV_MATCH_SKILL_GROUPS)
+        self.assertIn("oran", {item.lower() for item in LOCAL_LOCATION_MARKERS})
+        self.assertIn("mostaganem", {item.lower() for item in LOCAL_LOCATION_MARKERS})
+        self.assertIn("ouargla", {item.lower() for item in SOUTH_LOCATION_MARKERS})
+        self.assertIn("logement fourni", ACCOMMODATION_MARKERS)
 
     def test_unquantified_mandatory_experience_is_review_not_rejected(self):
         self.assertEqual(UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION, "review")
