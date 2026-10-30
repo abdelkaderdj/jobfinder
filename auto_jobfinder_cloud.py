@@ -21,8 +21,11 @@ from jobfinder_ai_quality import (
     normalize_reasoning_level,
 )
 from jobfinder_candidate_policy import (
+    candidate_location_policy_prompt_text,
+    candidate_role_policy_prompt_text,
     classify_experience_requirement,
     experience_policy_prompt_text,
+    UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION,
 )
 from jobfinder_openai_provider import openai_json_request as _openai_json_request
 
@@ -779,9 +782,9 @@ def _advertisement_has_experience_upper_bound(advertisement: str) -> bool:
 
 def _experience_requirement_years(advertisement: str):
     """
-    Extract the stated minimum experience threshold for this position.
-    For "2 to 5 years", use 2 as the stated lower/minimum endpoint.
-    Convert months to a fraction of a year; return None if not tied to experience.
+    Extract an explicit mandatory minimum/lower-bound experience threshold.
+    For "2 to 5 years", use 2. Optional/preferred values and upper bounds are
+    not minimum requirements. Months are converted to fractions of a year.
     """
     raw = str(advertisement or "").lower()
     digit_map = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
@@ -802,24 +805,19 @@ def _experience_requirement_years(advertisement: str):
     number = r"\d+(?:[.,]\d+)?"
     candidates = []
 
-    range_pattern = re.compile(
-        rf"(?P<low>{number})\s*(?:to|a|à|-)\s*(?P<high>{number})\s*(?P<unit>{unit})",
+    optional_markers = re.compile(
+        r"(?:\bpreferred\b|\bdesirable\b|\boptional\b|"
+        r"\ba plus\b|\batout\b|\bsouhait[eé]e?s?\b|"
+        r"\bappr[eé]ci[eé]e?s?\b|\bwould be an advantage\b|"
+        r"\bpreferably\b|يفضل|مفضل|مستحسن|ميزة اضافية|ميزة إضافية|مرغوب)",
         flags=re.IGNORECASE,
     )
-    for match in range_pattern.finditer(raw):
-        before = raw[max(0, match.start() - 65):match.start()]
-        after = raw[match.end():min(len(raw), match.end() + 55)]
-        if re.search(experience, before, re.IGNORECASE) or re.search(experience, after, re.IGNORECASE):
-            try:
-                value = float(match.group("low").replace(",", "."))
-            except (TypeError, ValueError):
-                continue
-            if match.group("unit").lower() in {"month", "months", "mois", "شهر", "اشهر"}:
-                value /= 12.0
-            candidates.append((match.start(), match.end(), value))
-
-    single_pattern = re.compile(
-        rf"(?P<n>{number})\s*(?P<unit>{unit})",
+    mandatory_markers = re.compile(
+        r"(?:\bminimum\b|\bmin\.?\b|\bat least\b|"
+        r"\brequired\b|\bmandatory\b|\bobligatoire\b|"
+        r"\brequis(?:e)?\b|\bexig[eé](?:e)?\b|\bindispensable\b|"
+        r"\bmust have\b|على الاقل|على الأقل|كحد ادنى|كحد أدنى|"
+        r"يشترط|مطلوب|ضروري|إجباري|اجباري)",
         flags=re.IGNORECASE,
     )
     max_only_markers = re.compile(
@@ -830,31 +828,104 @@ def _experience_requirement_years(advertisement: str):
         flags=re.IGNORECASE,
     )
 
-    for match in single_pattern.finditer(raw):
-        if any(start <= match.start() < end for start, end, _value in candidates):
-            continue
-        before = raw[max(0, match.start() - 65):match.start()]
-        after = raw[match.end():min(len(raw), match.end() + 55)]
+    def is_optional_context(before: str, after: str) -> bool:
+        context = before[-70:] + " " + after[:55]
+        return bool(optional_markers.search(context)) and not bool(
+            mandatory_markers.search(context)
+        )
+
+    def to_years(value_text: str, unit_text: str) -> float | None:
+        try:
+            value = float(value_text.replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+        if unit_text.lower() in {"month", "months", "mois", "شهر", "اشهر"}:
+            value /= 12.0
+        return value
+
+    range_pattern = re.compile(
+        rf"(?P<low>{number})\s*(?:to|a|à|-)\s*(?P<high>{number})\s*(?P<unit>{unit})",
+        flags=re.IGNORECASE,
+    )
+    for match in range_pattern.finditer(raw):
+        before = raw[max(0, match.start() - 70):match.start()]
+        after = raw[match.end():min(len(raw), match.end() + 60)]
         if not (
             re.search(experience, before, re.IGNORECASE)
             or re.search(experience, after, re.IGNORECASE)
         ):
             continue
-        # Upper-bound phrasing is not a minimum experience threshold.
-        if max_only_markers.search(before[-45:]) or max_only_markers.match(after.lstrip()[:45]):
+        if is_optional_context(before, after):
             continue
-        try:
-            value = float(match.group("n").replace(",", "."))
-        except (TypeError, ValueError):
+        if max_only_markers.search(before[-50:]) or max_only_markers.match(after.lstrip()[:50]):
             continue
-        if match.group("unit").lower() in {"month", "months", "mois", "شهر", "اشهر"}:
-            value /= 12.0
-        candidates.append((match.start(), match.end(), value))
+        value = to_years(match.group("low"), match.group("unit"))
+        if value is not None:
+            candidates.append((match.start(), match.end(), value))
+
+    single_pattern = re.compile(
+        rf"(?P<n>{number})\s*(?P<unit>{unit})",
+        flags=re.IGNORECASE,
+    )
+    for match in single_pattern.finditer(raw):
+        if any(start <= match.start() < end for start, end, _value in candidates):
+            continue
+        before = raw[max(0, match.start() - 70):match.start()]
+        after = raw[match.end():min(len(raw), match.end() + 60)]
+        if not (
+            re.search(experience, before, re.IGNORECASE)
+            or re.search(experience, after, re.IGNORECASE)
+        ):
+            continue
+        if is_optional_context(before, after):
+            continue
+        if max_only_markers.search(before[-50:]) or max_only_markers.match(after.lstrip()[:50]):
+            continue
+        value = to_years(match.group("n"), match.group("unit"))
+        if value is not None:
+            candidates.append((match.start(), match.end(), value))
 
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0])
     return max(0.0, candidates[0][2])
+
+
+def _advertisement_has_unquantified_mandatory_experience(advertisement: str) -> bool:
+    """Detect mandatory experience with no numeric lower bound; this requires review."""
+    ad = normalize_text(str(advertisement or ""))
+    if not ad or _experience_requirement_years(ad) is not None:
+        return False
+
+    optional_or_absent = re.search(
+        r"(?:no experience (?:is )?required|no prior experience|no previous experience|"
+        r"experience not required|without experience|without prior experience|"
+        r"no experience needed|no experience necessary|entry level no experience|"
+        r"sans experience|aucune experience exigee|experience non exigee|"
+        r"experience professionnelle non exigee|debutant accepte|debutante acceptee|"
+        r"debutants acceptes|open to beginners|no work experience required|"
+        r"experience is optional|experience is a plus|experience is preferred|"
+        r"experience souhaitee|experience appreciee|experience non obligatoire|"
+        r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة|"
+        r"بدون خبرة|دون خبرة|للمبتدئين|يفضل وجود خبرة|ميزة اضافية)",
+        ad,
+    )
+    if optional_or_absent or _advertisement_has_experience_upper_bound(ad):
+        return False
+
+    experience_language = (
+        r"(?:experience professionnelle|professional experience|work experience|"
+        r"experience in the field|experience|خبرة مهنية|خبرة في المجال|خبرة)"
+    )
+    mandatory = (
+        r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
+        r"indispensable|must have|اجبارية|إجبارية|مطلوبة|يشترط|ضرورية|إجباري|اجباري)"
+    )
+    return bool(
+        re.search(rf"{experience_language}.{{0,50}}{mandatory}", ad)
+        or re.search(rf"{mandatory}.{{0,50}}{experience_language}", ad)
+    )
+
 
 
 def _experience_requirement_policy(advertisement: str):
@@ -912,48 +983,6 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
     ad = normalize_text(str(advertisement or ""))
     if not ad:
         return False
-
-    required_years = _experience_requirement_years(ad)
-
-    no_experience_required = re.search(
-        r"(no experience (?:is )?required|no prior experience|no previous experience|"
-        r"experience not required|without experience|without prior experience|"
-        r"no experience needed|no experience necessary|entry level no experience|"
-        r"sans experience|aucune experience exigee|experience non exigee|"
-        r"experience professionnelle non exigee|debutant accepte|debutante acceptee|"
-        r"debutants acceptes|open to beginners|no work experience required|"
-        r"experience is optional|experience is a plus|experience is preferred|"
-        r"experience souhaitee|experience appreciee|experience non obligatoire|"
-        r"لا يشترط وجود خبرة|لا يشترط الخبرة|الخبرة غير مطلوبة|"
-        r"بدون خبرة|دون خبرة|للمبتدئين)",
-        ad,
-    )
-
-    # Preserve the prior rule for an unquantified mandatory-experience condition.
-    # Numeric requirements up to 4 years are governed by the explicit threshold rule.
-    if required_years is None and not no_experience_required:
-        experience_language = re.search(
-            r"(experience professionnelle|professional experience|work experience|"
-            r"experience in the field|experience|خبرة مهنية|خبرة في المجال|خبرة)",
-            ad,
-        )
-        mandatory_experience_nearby = re.search(
-            r"(?:professional experience|experience professionnelle|work experience|"
-            r"experience|خبرة مهنية|خبرة).{0,40}"
-            r"(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-            r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية)"
-            r"|(?:mandatory|required|obligatoire|requis|requise|exige|exigee|"
-            r"اجبارية|إجبارية|مطلوبة|يشترط|ضرورية).{0,40}"
-            r"(?:professional experience|experience professionnelle|work experience|"
-            r"experience|خبرة مهنية|خبرة)",
-            ad,
-        )
-        if (
-            experience_language
-            and mandatory_experience_nearby
-            and not _advertisement_has_experience_upper_bound(ad)
-        ):
-            return True
 
     # A Licence/Bac+3 is not an Ingénieur d'État/Master/Bac+5 qualification.
     # Explicit Engineer title mismatches are handled in the title gate below.
@@ -1077,6 +1106,16 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
             f"رُفضت الوظيفة لأن الإعلان يشترط {required_years:g} سنوات خبرة، وهو أكثر من الحد الأقصى المتفق عليه (4 سنوات).",
         )
 
+    if (
+        UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION == "review"
+        and _advertisement_has_unquantified_mandatory_experience(advertisement)
+    ):
+        if potentially_relevant:
+            return (
+                "REVIEW",
+                "يشترط الإعلان خبرة مهنية لكنه لم يحدد عدد السنوات؛ لا يمكن تطبيق استثناء الأربع سنوات دون حد أدنى واضح، لذلك يلزم تحقق بشري دون إرسال تلقائي.",
+            )
+
     # Degree, named credentials, and other explicit mandatory requirements
     # remain hard gates independently of experience policy.
     if _advertisement_explicitly_requires_missing_qualification(job, advertisement):
@@ -1111,12 +1150,6 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         return (
             "REJECT",
             f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر مطابقة السيرة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
-        )
-
-    if experience_policy == "manual_review":
-        return (
-            "REVIEW",
-            f"يشترط الإعلان {required_years:g} سنوات خبرة؛ وفق القاعدة المتفق عليها، ما زاد على 3 سنوات وحتى 4 سنوات يُرسل للمراجعة اليدوية فقط، دون إرسال تلقائي.",
         )
 
     if is_production_role:
@@ -1154,7 +1187,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         )
     )
     # The agreed policy is stronger than "do not reject": for a direct
-    # maintenance-technician role, a stated 0–3 year threshold is waived.
+    # maintenance-technician role, a stated 0–4 year threshold is waived.
     # Earlier hard gates above already handle unrelated titles, seniority,
     # mandatory missing credentials, and other explicit disqualifiers. The
     # downstream location and independent APPLY-verification gates still run.
@@ -3333,7 +3366,11 @@ candidate genuinely matches the stated requirements.
     - The candidate has no professional engineering experience. Knowledge,
       study, and training do not count as professional work experience.
 
+    {{CANDIDATE_ROLE_POLICY_BLOCK}}
+
     {{EXPERIENCE_POLICY_BLOCK}}
+
+    {{LOCATION_POLICY_BLOCK}}
 
     - "Débutant accepté", "no experience required", or equivalent means do NOT
       invent an experience requirement; assess the other actual requirements.
@@ -3866,7 +3903,9 @@ text truly has no job vacancy. Never invent titles, employers, locations,
 contacts, or requirements.
 """
 
+    prompt = prompt.replace("{{CANDIDATE_ROLE_POLICY_BLOCK}}", candidate_role_policy_prompt_text())
     prompt = prompt.replace("{{EXPERIENCE_POLICY_BLOCK}}", experience_policy_prompt_text())
+    prompt = prompt.replace("{{LOCATION_POLICY_BLOCK}}", candidate_location_policy_prompt_text())
 
     messages = [
 
@@ -7201,12 +7240,9 @@ def verify_apply_decisions(source_text, jobs):
                 "INDEPENDENT APPLY-DECISION AUDIT\n\n"
                 "Candidate's verified profile:\n" + str(CANDIDATE) + "\n\n"
                 "Hard eligibility rules:\n"
-                "- Candidate holds a Licence/Bac+3 in Mechanical and Energy Engineering, not an engineering degree.\n"
-                "- Candidate has no professional engineering experience; knowledge, studies, and training are not work experience.\n"
+                + candidate_role_policy_prompt_text() + "\n"
                 + experience_policy_prompt_text() + "\n"
-                "- Relevant targets include mechanical maintenance, mechanical equipment, refrigeration/HVAC/thermal, pumps/fluids, and junior CAD/SolidWorks/design/technical drawing, plus genuinely close junior technical roles.\n"
-                "- Clearly unrelated roles must not be approved just because they share words like technical, industrial, production, or energy.\n"
-                "- Oran/Mostaganem and nearby areas are eligible; southern/Saharan Algeria is eligible. Other Algerian locations need explicit employer-provided accommodation. Residency is not accommodation.\n"
+                + candidate_location_policy_prompt_text() + "\n"
                 "- Do not infer a mandatory requirement that the employer did not state. Missing evidence is uncertainty, not proof of ineligibility.\n\n"
                 "Advertisement source (evidence only):\n" + str(source_text or "") + "\n\n"
                 "Proposed APPLY decisions to audit:\n" +
