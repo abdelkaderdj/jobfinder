@@ -1142,19 +1142,66 @@ Expérience pratique de 2 à 5 ans en logistique.
             )
         )
 
-    def test_three_years_is_experience_waiver_and_four_years_requires_review(self):
+    def test_experience_thresholds_follow_owner_rule_through_four_years(self):
         cases = [
             ("Minimum 3 years of professional experience in mechanical maintenance.", 3, "waive_experience"),
-            ("Expérience professionnelle obligatoire de 4 ans en maintenance mécanique.", 4, "manual_review"),
+            ("Expérience professionnelle obligatoire de 4 ans en maintenance mécanique.", 4, "waive_experience"),
             ("At least 5 years of experience in mechanical maintenance.", 5, "reject"),
             ("الخبرة: 3 سنوات على الأقل في الصيانة الميكانيكية.", 3, "waive_experience"),
-            ("الخبرة المطلوبة: 4 سنوات في الصيانة الميكانيكية.", 4, "manual_review"),
+            ("الخبرة المطلوبة: 4 سنوات في الصيانة الميكانيكية.", 4, "waive_experience"),
+            ("خبرة مهنية لا تقل عن 6 أشهر في الصيانة.", 0.5, "waive_experience"),
         ]
         for advertisement, expected_years, expected_policy in cases:
             with self.subTest(advertisement=advertisement):
                 years, policy = processor._experience_requirement_policy(advertisement)
                 self.assertEqual(years, expected_years)
                 self.assertEqual(policy, expected_policy)
+
+    def test_four_year_minimum_does_not_block_an_otherwise_matching_maintenance_application(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 70,
+            "reason": "The candidate lacks professional experience.",
+        }
+        advertisement = (
+            "Technicien de maintenance. Expérience professionnelle minimum: 4 ans. "
+            "Missions: maintenance mécanique des pompes et équipements."
+        )
+        decision, reason = processor.enforce_candidate_fit_rule(
+            job, "REJECT", advertisement, cv_match_score=45
+        )
+        self.assertEqual(decision, "APPLY")
+        self.assertIn("تجاوز شرط الخبرة", reason)
+
+    def test_unquantified_mandatory_experience_requires_review_not_automatic_rejection(self):
+        job = {
+            "job_title": "Technicien de maintenance",
+            "score": 75,
+            "reason": "The employer requires professional experience but gives no number.",
+        }
+        advertisement = (
+            "Technicien de maintenance. Expérience professionnelle obligatoire. "
+            "Missions: maintenance mécanique des pompes et équipements."
+        )
+        self.assertTrue(
+            processor._advertisement_has_unquantified_mandatory_experience(advertisement)
+        )
+        decision, reason = processor.enforce_candidate_fit_rule(
+            job, "APPLY", advertisement, cv_match_score=45
+        )
+        self.assertEqual(decision, "REVIEW")
+        self.assertIn("لم يحدد عدد السنوات", reason)
+
+    def test_optional_five_year_experience_is_not_a_mandatory_minimum(self):
+        advertisement = (
+            "Technicien de maintenance. Expérience souhaitée: 5 ans. "
+            "La connaissance des pompes est un atout."
+        )
+        self.assertIsNone(processor._experience_requirement_years(advertisement))
+        self.assertIsNone(processor._experience_requirement_policy(advertisement))
+        self.assertFalse(
+            processor._advertisement_has_unquantified_mandatory_experience(advertisement)
+        )
 
     def test_experience_upper_bounds_are_not_misread_as_minimums(self):
         cases = [
