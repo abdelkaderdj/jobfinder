@@ -89,6 +89,20 @@ def candidate_location_policy_prompt_text() -> str:
 UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
     r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
+    # Information technology, helpdesk, computer systems, networks and telecoms
+    # are outside the candidate's mechanical/energy engineering target paths.
+    r"\b(?:it support|support informatique|technicien support informatique|"
+    r"computer support|computer technician|help ?desk|service desk|"
+    r"information technology|computer science|informatique|informaticien\\w*|"
+    r"systemes? d information|information systems|system administrator|"
+    r"systems administrator|network technician|technicien reseaux|"
+    r"technicien reseaux et telecoms|reseaux informatiques|"
+    r"telecommunications?|telecoms?|telecom technician|"
+    r"ingenieur reseaux|ingenieur infrastructure|support it)\b",
+    r"\b(?:standardiste|agent de communication|communication officer|"
+    r"communication and switchboard|standard operator)\b",
+    r"\b(?:approvisionnement|approvisionnements|procurement|purchasing|"
+    r"supply officer)\b",
     # Packaging/conditioning is not mechanical maintenance.
     r"\bagent de conditionnement\b", r"\boperateur de conditionnement\b",
     r"\bpackaging (?:agent|operator|worker)\b", r"\bpacking (?:agent|operator|worker)\b",
