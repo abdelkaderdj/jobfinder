@@ -1328,27 +1328,150 @@ def _compact_list_title_matches(title: str, job: dict) -> bool:
     return False
 
 
-def _recover_missing_compact_list_roles(titles: list[str], jobs: list[dict]) -> tuple[list[dict], int]:
-    """Keep every detected title visible, routing omitted/underspecified roles to review only."""
+def _clean_compact_role_list_line(raw_line: str) -> str:
+    """Remove list decoration/count prefixes while preserving the source wording."""
+    line = re.sub(r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)", "", str(raw_line or "")).strip()
+    line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
+    return line.strip(" .;,-–—")
+
+
+def _split_compact_role_title_and_requirement(value: str) -> tuple[str, str]:
+    """Split a title from its parenthetical qualification without losing source wording."""
+    line = _clean_compact_role_list_line(value)
+    if "(" not in line or ")" not in line:
+        return line, ""
+    left, remainder = line.split("(", 1)
+    detail, _closing, trailing = remainder.partition(")")
+    if not _closing:
+        return line, ""
+    title = left.strip(" .;,-–—")
+    requirement = detail.strip()
+    if trailing.strip(" .;,-–—"):
+        requirement = (requirement + " " + trailing.strip(" .;,-–—")).strip()
+    return title or line, requirement
+
+
+def _infer_company_name_from_advertisement(advertisement: str) -> str:
+    """Recover a company name only from a legal-form/name sequence in the source."""
+    source = str(advertisement or "")
+    patterns = (
+        re.compile(
+            r"\b(?P<legal>EURL|SARL|SPA|EPIC|SNC|SCS)\s+"
+            r"(?P<name>[A-Za-z0-9][A-Za-z0-9&.'’\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9&.'’\-]*){0,4})",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?:شركة|الشركة)\s+(?P<name>(?:EURL|SARL|SPA|EPIC|SNC|SCS)\s+"
+            r"[A-Za-z0-9][A-Za-z0-9&.'’\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9&.'’\-]*){0,4})",
+            flags=re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(source)
+        if not match:
+            continue
+        legal = str(match.groupdict().get("legal") or "").strip()
+        name = str(match.groupdict().get("name") or "").strip()
+        candidate = (legal + " " + name).strip() if legal else name
+        candidate = re.sub(
+            r"\s+(?:النفطية|الصناعية|للنقل|للخدمات|p[eé]troli[eè]re|oil|services company)$",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip()
+        if candidate:
+            return candidate[:120]
+    return ""
+
+
+def _compact_role_department_before_line(advertisement: str, role_line: str) -> str:
+    """Return the latest explicit department heading preceding a listed role."""
+    lines = str(advertisement or "").splitlines()
+    target = normalize_text(_clean_compact_role_list_line(role_line))
+    target_index = None
+    for index, raw_line in enumerate(lines):
+        if normalize_text(_clean_compact_role_list_line(raw_line)) == target:
+            target_index = index
+            break
+    if target_index is None:
+        return ""
+
+    heading_re = re.compile(
+        r"(?:\bdepartment\b|\bsection\b|\bd[eé]partement\b|\bservice\b|قسم)",
+        flags=re.IGNORECASE,
+    )
+    for raw_line in reversed(lines[:target_index]):
+        normalized = normalize_text(raw_line)
+        if not normalized or not heading_re.search(normalized):
+            continue
+        if raw_line.rstrip().endswith((":", "：")) or re.match(r"^\s*\d+\s*[.)\-]", raw_line):
+            return raw_line.strip()
+    return ""
+
+
+def _compact_role_source_details(title: str, advertisement: str) -> dict[str, str]:
+    """Attach source-exact qualification, department, and company data to a recovered title."""
+    source = str(advertisement or "")
+    cleaned_source_title = _clean_compact_role_list_line(title)
+    clean_title, inline_requirement = _split_compact_role_title_and_requirement(cleaned_source_title)
+    matched_line = ""
+    for raw_line in source.splitlines():
+        candidate = _clean_compact_role_list_line(raw_line)
+        if normalize_text(candidate) == normalize_text(cleaned_source_title):
+            matched_line = candidate
+            break
+    if matched_line:
+        clean_title, inline_requirement = _split_compact_role_title_and_requirement(matched_line)
+    return {
+        "job_title": clean_title,
+        "title_evidence": clean_title,
+        "source_title_line": matched_line or cleaned_source_title,
+        "requirements": inline_requirement,
+        "department": _compact_role_department_before_line(source, matched_line or cleaned_source_title),
+        "company": _infer_company_name_from_advertisement(source),
+    }
+
+
+def _recover_missing_compact_list_roles(
+    titles: list[str],
+    jobs: list[dict],
+    advertisement: str = "",
+) -> tuple[list[dict], int]:
+    """
+    Recover omitted roles with their source-line requirements and department.
+    These records still receive no AI score and can never auto-send merely
+    because recovery succeeded; they continue through deterministic fit,
+    location, contact, and review gates like every other position.
+    """
     recovered = list(jobs)
     count = 0
     for title in titles:
         if any(_compact_list_title_matches(title, job) for job in recovered):
             continue
+
+        details = _compact_role_source_details(title, advertisement)
+        clean_title = details.get("job_title") or str(title).strip()
+        if not clean_title:
+            continue
         recovered.append({
-            "job_title": title,
-            "application_title_fr": title,
-            "application_title_en": title,
-            "company": "",
+            "job_title": clean_title,
+            "title_evidence": details.get("title_evidence") or clean_title,
+            "application_title_fr": clean_title,
+            "application_title_en": clean_title,
+            "company": details.get("company") or "",
             "location": "",
+            "department": details.get("department") or "",
+            "requirements": details.get("requirements") or "",
+            "source_title_line": details.get("source_title_line") or str(title),
             "decision": "REVIEW",
-            # This title was recovered from text; no AI score was computed.
             "score": None,
             "reason": (
-                "استُرجع هذا المسمى من قائمة وظائف منفصلة لأن التحليل الأول لم يستخرج كل المناصب. "
-                "تفاصيل شروط هذا المنصب غير كافية في بيانات الاستخراج؛ يلزم التحقق اليدوي، "
-                "ولا يسمح هذا الاسترجاع وحده بالإرسال التلقائي."
+                "استُرجع المنصب من سطره الأصلي في الإعلان بعد أن أسقطه التحليل الأول. "
+                "أُرفق المؤهل/الشرط المكتوب بجانب المسمّى والقسم الذي ورد فيه، "
+                "ثم مرّ المنصب عبر بوابات الملاءمة الحتمية. لا توجد درجة AI لهذا السجل، "
+                "ولا يسمح الاسترجاع وحده بالإرسال التلقائي."
             ),
+            "recovered_from_compact_role_list": True,
         })
         count += 1
     return recovered, count
@@ -1749,7 +1872,28 @@ def resolve_job_position_scope(
         if explicit_location or explicit_accommodation:
             shared_header_lines.append(header_line)
 
-    block_lines = list(shared_header_lines) + list(lines[target_idx:end_idx])
+    # A department heading applies to the positions listed beneath it until
+    # the next department heading. Include it with this role so department-level
+    # context is not lost when AI under-extracts one position.
+    department_heading_re = re.compile(
+        r"(?:\bdepartment\b|\bsection\b|\bd[eé]partement\b|\bservice\b|قسم)",
+        flags=re.IGNORECASE,
+    )
+    department_heading = ""
+    for raw_line in reversed(lines[:target_idx]):
+        normalized = normalize_text(raw_line)
+        if (
+            normalized
+            and department_heading_re.search(normalized)
+            and (raw_line.rstrip().endswith((":", "：")) or re.match(r"^\s*\d+\s*[.)\-]", raw_line))
+        ):
+            department_heading = raw_line.strip()
+            break
+
+    block_lines = list(shared_header_lines)
+    if department_heading and department_heading not in block_lines:
+        block_lines.append(department_heading)
+    block_lines.extend(lines[target_idx:end_idx])
     block_normalized = {normalize_text(line) for line in block_lines if normalize_text(line)}
     for footer_line in shared_footer_lines:
         normalized_footer = normalize_text(footer_line)
@@ -6858,7 +7002,9 @@ def _job_title_evidence_is_grounded(job, source_text):
 
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
         is_listed_role_line = bool(bullet_prefix.match(raw_line))
-        if has_explicit_title_label or is_listed_role_line:
+        suffix = normalized_line[len(normalized_quote):].lstrip() if normalized_line.startswith(normalized_quote) else ""
+        title_with_inline_qualification = suffix.startswith("(")
+        if has_explicit_title_label or is_listed_role_line or title_with_inline_qualification:
             return True
 
         # Exact title wording on a standalone line is accepted when the
@@ -7259,7 +7405,11 @@ def process_post(
                 # Retain the original decision set; missing listed titles are
                 # added below for manual review only.
 
-        jobs, recovered_count = _recover_missing_compact_list_roles(listed_role_titles, jobs)
+        jobs, recovered_count = _recover_missing_compact_list_roles(
+            listed_role_titles,
+            jobs,
+            contact_scope_advertisement,
+        )
         if recovered_count:
             print(
                 f"COMPACT ROLE LIST RECOVERY: added {recovered_count} omitted title(s) "
