@@ -94,7 +94,8 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bpackaging (?:agent|operator|worker)\b", r"\bpacking (?:agent|operator|worker)\b",
     # Training and administrative-writing roles are outside the candidate's target paths.
     r"\bformateur\b", r"\bformatrice\b", r"\btrainer\b", r"\btraining instructor\b",
-    r"\binstructor\b", r"\bteacher\b", r"\benseignant(?:e)?\b",
+    r"\binstructor\b", r"\bteacher\b", r"\bprofessor\b", r"\bprofesseur(?:e)?\b",
+    r"\benseignant(?:e)?\b", r"أستاذ", r"أساتذة",
     r"\bredaction administrative\b", r"\badministrative writing\b",
     r"\breceptionniste\b", r"\breceptionist\b",
     r"\bassistant(e)? de direction\b", r"\bassistant e de direction\b",
