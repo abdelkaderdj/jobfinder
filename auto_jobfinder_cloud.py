@@ -7413,7 +7413,7 @@ def process_post(
         if recovered_count:
             print(
                 f"COMPACT ROLE LIST RECOVERY: added {recovered_count} omitted title(s) "
-                "as REVIEW-only records; automatic send was not inferred"
+                "as source-enriched records for the normal eligibility gates; automatic send was not inferred"
             )
 
     # Resolve each position before the independent APPLY reviewer runs.
