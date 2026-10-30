@@ -3315,23 +3315,6 @@ candidate genuinely matches the stated requirements.
 
 11. Partially relevant positions with uncertainty are REVIEW.
 
-11A. GENERALIST / POLYVALENT ROLE DECISION — STRICT:
-- For titles such as "Agents polyvalents", "Agent polyvalent", "polyvalent worker",
-  "multi-purpose worker", or their Arabic/French equivalents, choose REVIEW by
-  default when the advertisement does not state concrete duties that independently
-  establish a direct match to the candidate's mechanical/energy target lanes.
-- Do NOT choose APPLY merely because the employer is a factory, an industrial
-  company, a biscuit/food producer, or because the ad includes a location, email,
-  or generic recruitment wording. Those facts prove neither technical fit nor
-  role-specific eligibility.
-- Do NOT infer mechanical maintenance, equipment repair, HVAC, pumps, or CAD duties
-  from a vague generalist title. The ad must state those duties for this position.
-- Only choose APPLY when the title AND concrete duties in this position's own text
-  show a clear target-lane match and all mandatory eligibility requirements pass.
-  If the duties remain vague, raw decision MUST be REVIEW. Hard exclusions may
-  still require REJECT.
-- This rule controls the model's initial decision, not only a later safety gate.
-
 12. Extract every email address found in the advertisement.
 
 13. Do NOT assume that a technical role requires prior professional experience,
@@ -3341,32 +3324,7 @@ candidate genuinely matches the stated requirements.
    REVIEW if eligibility is uncertain; do not REJECT based on an inferred
    requirement. REVIEW is safe because it cannot send an automatic email.
 
-14. Preserve the OWNER-DEFINED candidate boundaries below; they outrank broad
-    keyword overlap, company industry, or generic words such as "technical",
-    "industrial", "equipment", "energy", "production", or "hydraulic".
-
-    - Highest qualification: Licence / Bac+3 in Mechanical and Energy Engineering.
-      Treat as technician / Bac+3 level, NOT as an Ingénieur / Engineer diploma.
-      Any advertised position titled "Ingénieur", "Engineer", or "مهندس" is REJECT unless the position-specific ad explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering diploma mandatory. When that exception is explicit, evaluate the actual duties and discipline; do not reject solely because of the title.
-     - Target lanes: mechanical maintenance technician; mechanical equipment;
-       refrigeration/froid/frigoriste, HVAC and thermal technician roles; heat
-       transfer and thermodynamics-related technical work; centrifugal pumps and
-       fluid systems; junior mechanical/CAD/SolidWorks design and technical
-       drawings; closely adjacent industrial operator roles only when actual
-       duties and entry requirements fit. A Licence in Mechanical and Energy
-       Engineering includes relevant academic grounding in energy and heat
-       transfer, but does not prove professional refrigeration experience.
-       Do not exclude a cooling role solely because it says "froid" or "HVAC".
-       When the ad accepts beginners, a stage, practical test or training, assess
-       the remaining explicit requirements; keep unclear cases in REVIEW.
-      instrumentation, civil engineering, HSE engineering, laboratory chemistry/
-      biology, aircraft maintenance/aviation, stock/inventory/logistics/supply
-      chain, sales, and other unrelated roles even if the full advertisement
-      mentions maintenance, pumps, fluids, or production elsewhere.
-    - The candidate has no professional engineering experience. Knowledge,
-      study, and training do not count as professional work experience.
-
-    {{CANDIDATE_ROLE_POLICY_BLOCK}}
+{{CANDIDATE_ROLE_POLICY_BLOCK}}
 
     {{EXPERIENCE_POLICY_BLOCK}}
 
