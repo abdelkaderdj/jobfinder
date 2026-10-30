@@ -525,7 +525,13 @@ def _normalized_job_title_variants(job):
         return []
     return [
         normalize_text(job.get(field))
-        for field in ("job_title", "application_title_fr", "application_title_en")
+        for field in (
+            "job_title",
+            "application_title_fr",
+            "application_title_en",
+            "application_job_title",
+            "title",
+        )
         if str(job.get(field) or "").strip()
     ]
 
@@ -541,8 +547,10 @@ def calculate_candidate_cv_match(job, advertisement=""):
     job = job if isinstance(job, dict) else {}
     title = str(
         job.get("job_title")
+        or job.get("application_job_title")
         or job.get("application_title_fr")
         or job.get("application_title_en")
+        or job.get("title")
         or ""
     ).strip()
     normalized_title = normalize_text(title)
@@ -594,26 +602,25 @@ def calculate_candidate_cv_match(job, advertisement=""):
         r"\bمشغل\b", r"\bتقني ميكانيك\b", r"\bتقني صيانة\b",
     )
 
-    if any(re.search(pattern, normalized_title) for pattern in title_direct):
+    if any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in title_direct
+    ):
         score = 30
-    elif any(re.search(pattern, normalized_title) for pattern in title_adjacent):
+    elif any(
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
+        for pattern in title_adjacent
+    ):
         score = 20
     else:
         score = 0
 
-    # Only job-specific structured fields and the caller-provided role block
-    # may contribute. Never pass the entire multi-position Telegram post here.
-    text_parts = [title]
-    for field in (
-        "job_description", "job_summary", "job_specific_requirements",
-        "responsibilities", "duties", "requirements", "qualifications", "skills",
-    ):
-        value = job.get(field)
-        if isinstance(value, str):
-            text_parts.append(value)
-        elif isinstance(value, (list, tuple)):
-            text_parts.extend(str(item) for item in value if isinstance(item, str))
-
+    # Only source-verified title text and the caller-provided position block
+    # contribute. AI-generated requirements/skills can accidentally copy facts
+    # from sibling roles in a multi-position post and must not boost this role.
+    text_parts = [title, *normalized_title_variants]
     if isinstance(advertisement, str) and advertisement.strip():
         text_parts.append(advertisement)
 
@@ -1004,8 +1011,10 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
 
     title = str(
         job.get("job_title")
+        or job.get("application_job_title")
         or job.get("application_title_fr")
         or job.get("application_title_en")
+        or job.get("title")
         or ""
     ).strip()
     normalized_title = normalize_text(title)
@@ -1047,7 +1056,8 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         cv_match_score = 0
 
     potentially_relevant = any(
-        re.search(pattern, normalized_title)
+        re.search(pattern, candidate)
+        for candidate in normalized_title_variants
         for pattern in (*STRONG_RELEVANT_ROLE_PATTERNS, *GENERIC_TECHNICAL_ROLE_PATTERNS)
     ) or cv_match_score >= 30
 
@@ -1514,7 +1524,13 @@ def _position_title_variants(job: dict) -> list[str]:
     used only to locate a position block; they never make a role relevant.
     """
     values = []
-    for field in ("job_title", "application_title_fr", "application_title_en"):
+    for field in (
+        "job_title",
+        "application_title_fr",
+        "application_title_en",
+        "application_job_title",
+        "title",
+    ):
         value = str(job.get(field) or "").strip()
         if value and value not in values:
             values.append(value)
@@ -1731,13 +1747,19 @@ def _is_shared_global_experience_footer_line(line: str) -> bool:
 
 
 def _is_global_requirements_heading(line: str) -> bool:
-    normalized = normalize_text(line)
+    normalized = normalize_text(line).strip(" :؛-–—")
     markers = (
-        "شروط التوظيف", "شروط العمل", "الشروط المطلوبة", "متطلبات التوظيف",
+        "شروط", "الشروط", "الشروط العامة", "شروط التوظيف", "شروط العمل",
+        "الشروط المطلوبة", "متطلبات التوظيف", "متطلبات عامة",
         "recruitment conditions", "job requirements", "employment requirements",
-        "conditions de recrutement", "conditions de travail",
+        "conditions", "conditions generales", "conditions de recrutement",
+        "conditions de travail", "exigences generales",
     )
-    return any(marker in normalized for marker in markers)
+    return normalized in markers or any(
+        normalized.startswith(marker + " ")
+        for marker in markers
+        if len(marker) >= 7
+    )
 
 
 def resolve_job_position_scope(
@@ -7010,51 +7032,47 @@ def _trusted_non_vacancy_classification(result, source_text):
 
 
 def _job_title_evidence_is_grounded(job, source_text):
-    """Require source-grounded occupational evidence; allow short exact job titles."""
+    """
+    Accept any profession when its actual title is quoted verbatim from the source.
+    Do not use a fixed occupation whitelist: it silently drops valid roles such as
+    teachers, administrative assistants, commercial delegates, and infographers.
+    """
     if not isinstance(job, dict):
         return False
+
     quote = str(job.get("title_evidence") or "").strip()
     if not quote:
         return False
 
     normalized_quote = normalize_text(quote)
     normalized_source = normalize_text(source_text)
-    if not normalized_quote or normalized_quote not in normalized_source:
+    if (
+        not normalized_quote
+        or normalized_quote not in normalized_source
+        or len(normalized_quote.replace(" ", "")) < 4
+    ):
         return False
 
-    occupational_markers = (
-        "agent", "technicien", "technician", "technologist", "ingenieur", "engineer",
-        "operateur", "operator", "chef", "cheffe", "responsable", "manager",
-        "superviseur", "supervisor", "mecanicien", "mechanic", "plombier",
-        "electricien", "magasinier", "chauffeur", "cuisinier", "boulanger",
-        "pattissier", "designer", "dessinateur", "projeteur", "conducteur",
-        "comptable", "acheteur", "soudeur", "مهندس", "تقني", "فني", "رئيس",
-        "مسؤول", "عامل", "عون", "مشرف", "سائق", "محاسب", "كهربائي", "سباك", "طباخ",
+    # The evidence must contain at least one title field copied from the source.
+    # Translated display titles alone cannot ground a job; job_title is expected
+    # to preserve the employer/source wording, while application titles may translate it.
+    title_variants = [
+        normalize_text(job.get(field))
+        for field in (
+            "job_title",
+            "application_title_fr",
+            "application_title_en",
+            "application_job_title",
+            "title",
+        )
+        if str(job.get(field) or "").strip()
+    ]
+    return any(
+        variant
+        and len(variant.replace(" ", "")) >= 4
+        and variant in normalized_quote
+        for variant in title_variants
     )
-    # Normalize markers too: Arabic hamza may be decomposed by NFKD.
-    has_occupational_marker = any(
-        normalize_text(marker) in normalized_quote
-        for marker in occupational_markers
-    )
-    if not has_occupational_marker:
-        return False
-
-    if len(normalized_quote) < 8:
-        # Short evidence is accepted only when it is the exact extracted title,
-        # is at least four normalized characters long, and is visibly occupational.
-        # This preserves literal Arabic titles such as "كهربائي" without weakening
-        # the stricter eight-character rule for generic post-type evidence.
-        if len(normalized_quote.replace(" ", "")) < 4:
-            return False
-        title_variants = [
-            normalize_text(job.get(field))
-            for field in ("job_title", "application_title_fr", "application_title_en")
-            if str(job.get(field) or "").strip()
-        ]
-        if normalized_quote not in title_variants:
-            return False
-
-    return True
 
 
 def _validated_job_records(result, source_text):
