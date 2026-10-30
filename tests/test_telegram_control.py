@@ -1949,9 +1949,9 @@ Expérience pratique de 2 à 5 ans en logistique.
 
     def test_job_title_evidence_rejects_section_heading_and_preserves_real_role(self):
         source_text = (
-            "Maintenance & Technique\\n"
-            "🔹 رئيس فريق صيانة\\n"
-            "🔹 كهربائي\\n"
+            "Maintenance & Technique\n"
+            "🔹 رئيس فريق صيانة\n"
+            "🔹 كهربائي\n"
             "إرسال السيرة الذاتية إلى jobs@example.org"
         )
         fake_section_heading = {
@@ -3190,6 +3190,213 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
 
         self.assertNotIn("Ingénieur HSE", irrigation_scope)
         self.assertNotIn("Ingénieur Irrigation et Hydraulique", hse_scope)
+
+
+    def test_title_evidence_accepts_real_professions_without_a_closed_whitelist(self):
+        titles = (
+            "Chargé des Moyens Généraux - MGX",
+            "Professeur d'Espagnol",
+            "Professeur d'Allemand",
+            "Délégué(e) commercial(e) IVD",
+            "Stagiaire Assistant(e)",
+            "Délégué(e) Commercial(e)",
+            "Infographe",
+        )
+        source = "\n".join(f"🔹 {title}" for title in titles)
+        jobs = [
+            {
+                "job_title": title,
+                "application_title_en": f"Source-grounded translation: {index}",
+                "title_evidence": title,
+            }
+            for index, title in enumerate(titles)
+        ]
+
+        for job in jobs:
+            with self.subTest(title=job["job_title"]):
+                self.assertTrue(
+                    processor._job_title_evidence_is_grounded(job, source)
+                )
+
+        validated = processor._validated_job_records(
+            {"post_type": "actual_vacancy", "jobs": jobs},
+            source,
+        )
+        self.assertEqual(validated, jobs)
+
+    def test_qualification_and_section_headings_cannot_become_job_titles(self):
+        source = (
+            "Maintenance & Technique\n"
+            "Profil recherché:\n"
+            "Diplôme requis: Technicien supérieur en maintenance industrielle.\n"
+            "🔹 Chef d'équipe maintenance.\n"
+        )
+        section_heading = {
+            "job_title": "Maintenance & Technique",
+            "title_evidence": "Maintenance & Technique",
+        }
+        qualification = {
+            "job_title": "Technicien",
+            "title_evidence": "Technicien",
+        }
+        actual_role = {
+            "job_title": "Chef d'équipe maintenance",
+            "title_evidence": "Chef d'équipe maintenance",
+        }
+
+        self.assertFalse(
+            processor._job_title_evidence_is_grounded(section_heading, source)
+        )
+        self.assertFalse(
+            processor._job_title_evidence_is_grounded(qualification, source)
+        )
+        self.assertTrue(
+            processor._job_title_evidence_is_grounded(actual_role, source)
+        )
+
+    def test_kabima_six_engineer_roles_are_scoped_separately_and_hard_rejected(self):
+        advertisement = """🔴 توظيف | EURL KABIMA BTPH
+📍 الموقع: ميلينيوم، بئر الجير – ولاية وهران
+🔹 Ingénieur Électromécanique
+🔹 Ingénieur Génie Civil
+🔹 Ingénieur Électricité
+🔹 Ingénieur Irrigation et Hydraulique
+🔹 Ingénieur HSE
+🔹 Ingénieur Génie Mécanique
+📌 الشروط:
+الإقامة في ولاية وهران شرط أساسي.
+خبرة في إعداد الكشوف الكمية والتقديرية (DQE – Devis).
+إعداد دفاتر الشروط الخاصة بالمناقصات وطلبات العروض.
+خبرة ميدانية في الورشات ومواقع العمل.
+إتقان اللغة الفرنسية والإعلام الآلي والبرامج الهندسية المتخصصة.
+📩 ingenieur.entreprise.btph@gmail.com
+"""
+        titles = (
+            "Ingénieur Électromécanique",
+            "Ingénieur Génie Civil",
+            "Ingénieur Électricité",
+            "Ingénieur Irrigation et Hydraulique",
+            "Ingénieur HSE",
+            "Ingénieur Génie Mécanique",
+        )
+        jobs = [
+            {
+                "job_title": title,
+                "application_job_title": title,
+                "application_title_fr": title,
+                "score": 85,
+                "decision": "REVIEW",
+            }
+            for title in titles
+        ]
+
+        scopes = {}
+        for job in jobs:
+            with self.subTest(title=job["job_title"]):
+                scope, matched, reason = processor.resolve_job_position_scope(
+                    job, advertisement, jobs
+                )
+                self.assertTrue(matched, reason)
+                self.assertIn(job["job_title"], scope)
+                self.assertIn("الإقامة في ولاية وهران", scope)
+                self.assertIn("الكشوف الكمية والتقديرية", scope)
+                scopes[job["job_title"]] = scope
+
+                score, groups = processor.calculate_candidate_cv_match(job, scope)
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+
+                final, explanation = processor.enforce_candidate_fit_rule(
+                    job, "REVIEW", scope, cv_match_score=score
+                )
+                self.assertEqual(final, "REJECT")
+                self.assertIn("Licence/Bac+3", explanation)
+
+        hse_scope = scopes["Ingénieur HSE"]
+        self.assertNotIn("Irrigation et Hydraulique", hse_scope)
+        self.assertNotIn("Électromécanique", hse_scope)
+        self.assertNotIn("pumps", processor.normalize_text(hse_scope))
+        self.assertNotIn("hydraulique", processor.normalize_text(hse_scope))
+
+    def test_independent_apply_reviewer_cannot_borrow_evidence_from_sibling_position(self):
+        maintenance_quote = "Maintenance préventive des pompes centrifuges."
+        maintenance_scope = (
+            "Technicien de maintenance.\n"
+            "Missions: " + maintenance_quote
+        )
+        hse_scope = (
+            "Ingénieur HSE.\n"
+            "Missions: prévention des risques, sécurité au travail et audits HSE."
+        )
+        jobs = [
+            {
+                "job_title": "Technicien de maintenance",
+                "title_evidence": "Technicien de maintenance",
+                "decision": "APPLY",
+            },
+            {
+                "job_title": "Ingénieur HSE",
+                "title_evidence": "Ingénieur HSE",
+                "decision": "APPLY",
+            },
+        ]
+        contexts = [
+            {
+                "position_scope_text": maintenance_scope,
+                "position_scope_matched": True,
+            },
+            {
+                "position_scope_text": hse_scope,
+                "position_scope_matched": True,
+            },
+        ]
+        review_result = {
+            "reviews": [
+                {
+                    "job_index": 0,
+                    "job_title": "Technicien de maintenance",
+                    "verdict": "safe_to_keep_apply",
+                    "evidence_quotes": [maintenance_quote],
+                    "reason": "The position-specific maintenance duties are source-grounded.",
+                },
+                {
+                    "job_index": 1,
+                    "job_title": "Ingénieur HSE",
+                    "verdict": "safe_to_keep_apply",
+                    "evidence_quotes": [maintenance_quote],
+                    "reason": "This quote belongs to a sibling maintenance position.",
+                },
+            ]
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENAI_REVIEW_MODEL": "", "GEMINI_REVIEW_MODEL": ""},
+                clear=False,
+            ),
+            patch.object(processor, "_pace_ai_provider"),
+            patch.object(processor, "groq_json_request", return_value=review_result) as reviewer,
+        ):
+            verified = processor.verify_apply_decisions(
+                maintenance_scope + "\n" + hse_scope,
+                jobs,
+                job_contexts=contexts,
+            )
+
+        self.assertEqual(verified[0]["verification_gate"], "passed")
+        self.assertEqual(verified[1]["verification_gate"], "forced_review")
+
+        reviewer_payload = reviewer.call_args.kwargs["messages"][1]["content"]
+        marker_text = "Proposed APPLY decisions to audit:\n"
+        before, _, after = reviewer_payload.partition(marker_text)
+        payload_text, _, _tail = after.partition("\n\nFor every proposed job")
+        proposed = json.loads(payload_text)
+        self.assertEqual(proposed[0]["position_advertisement"], maintenance_scope)
+        self.assertEqual(proposed[1]["position_advertisement"], hse_scope)
+        self.assertNotIn("pumps", processor.normalize_text(proposed[1]["position_advertisement"]))
+        self.assertNotIn("requirements", proposed[0])
+        self.assertNotIn("experience", proposed[0])
 
 
 if __name__ == "__main__":
