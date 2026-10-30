@@ -1734,7 +1734,7 @@ def resolve_job_position_scope(
     location_header_re = re.compile(
         r"(?:lieu de travail|lieu du poste|site de travail|work location|"
         r"job location|worksite|place of work|مكان العمل|موقع العمل|"
-        r"مقر العمل|مكان الوظيفة|مكان المنصب|الموقع\\s*[:：])",
+        r"مقر العمل|مكان الوظيفة|مكان المنصب|الموقع)",
         flags=re.IGNORECASE,
     )
     for header_line in lines[:first_title_idx]:
@@ -6834,7 +6834,7 @@ def _job_title_evidence_is_grounded(job, source_text):
     title_matches_evidence = any(
         variant
         and len(variant.replace(" ", "")) >= 4
-        and (variant in normalized_quote or normalized_quote in variant)
+        and variant == normalized_quote
         for variant in title_variants
     )
     if not title_matches_evidence:
