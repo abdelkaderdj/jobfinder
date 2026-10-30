@@ -1234,7 +1234,7 @@ def split_advertisement_sections(advertisement: str) -> list[str]:
 
 
 _COMPACT_ROLE_PREFIXES = (
-    "chef d equipe", "gestionnaire", "acheteur", "responsable",
+    "chef d equipe", "gestionnaire", "acheteur", "responsable", "cadre",
     "electromecanicien", "electricien", "plombier", "soudeur", "peintre",
     "technicien", "technologue", "ingenieur", "operateur", "agent",
     "coordinateur", "conducteur", "assistant", "charge", "mecanicien",
@@ -1276,11 +1276,18 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
         # "08 مهندسين وتقنيين في الصيانة" or "02 مشرفين HSE".
         line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
         line = line.strip(" .;,-–—")
-        if not line or len(line) > 120 or len(line.split()) > 14:
+        if not line or len(line) > 360 or "http://" in line.lower() or "https://" in line.lower():
             continue
-        if ":" in line or "http://" in line.lower() or "https://" in line.lower():
+
+        # Qualification details frequently follow the title in parentheses.
+        # Apply title-length and role-prefix checks to the title only, while
+        # retaining the entire source line for per-position requirement parsing.
+        title_part = re.split(r"\s*\(", line, maxsplit=1)[0].strip(" .;,-–—")
+        if not title_part or len(title_part) > 120 or len(title_part.split()) > 14:
             continue
-        normalized = normalize_text(line)
+        if ":" in title_part:
+            continue
+        normalized = normalize_text(title_part)
         if not normalized or not any(
             normalized == prefix or normalized.startswith(prefix + " ")
             for prefix in _COMPACT_ROLE_PREFIXES_NORMALIZED
