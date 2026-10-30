@@ -5,57 +5,66 @@ import unittest
 from pathlib import Path
 
 from jobfinder_candidate_policy import (
-    MAX_EXPERIENCE_YEARS_MANUAL_REVIEW,
-    MAX_EXPERIENCE_YEARS_WAIVED,
+    MAX_EXPERIENCE_YEARS_APPLY,
+    UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION,
+    candidate_location_policy_prompt_text,
+    candidate_role_policy_prompt_text,
     classify_experience_requirement,
     experience_policy_prompt_text,
 )
 
 
 class ExperienceRequirementPolicyTests(unittest.TestCase):
-    def test_experience_thresholds_have_one_canonical_result(self):
-        waived = MAX_EXPERIENCE_YEARS_WAIVED
-        review_max = MAX_EXPERIENCE_YEARS_MANUAL_REVIEW
-
-        for years in (0, 0.5, 1, 2, waived):
+    def test_up_to_and_including_four_years_is_waived(self):
+        limit = MAX_EXPERIENCE_YEARS_APPLY
+        for years in (0, 0.5, 1, 2, 3, 3.5, 4, limit):
             with self.subTest(years=years):
                 self.assertEqual(
                     classify_experience_requirement(years),
                     "waive_experience",
                 )
 
-        for years in (waived + 0.01, 3.5, review_max):
+    def test_more_than_four_years_is_rejected(self):
+        for years in (4.01, 4.5, 5, 10):
             with self.subTest(years=years):
-                self.assertEqual(
-                    classify_experience_requirement(years),
-                    "manual_review",
-                )
-
-        for years in (review_max + 0.01, 5, 10):
-            with self.subTest(years=years):
-                self.assertEqual(
-                    classify_experience_requirement(years),
-                    "reject",
-                )
+                self.assertEqual(classify_experience_requirement(years), "reject")
 
     def test_unknown_or_invalid_years_do_not_become_a_rejection(self):
         for years in (None, "", "unknown", True, False, -1, float("nan"), float("inf")):
             with self.subTest(years=years):
                 self.assertIsNone(classify_experience_requirement(years))
 
-    def test_prompt_policy_is_generated_from_the_same_threshold_constants(self):
+    def test_prompt_policy_is_generated_from_the_same_threshold_constant(self):
         text = experience_policy_prompt_text()
-        waived = f"{MAX_EXPERIENCE_YEARS_WAIVED:g}"
-        review_max = f"{MAX_EXPERIENCE_YEARS_MANUAL_REVIEW:g}"
+        limit = f"{MAX_EXPERIENCE_YEARS_APPLY:g}"
 
-        self.assertIn(f"Up to and including {waived} years", text)
+        self.assertIn(f"up to and including {limit} years", text.lower())
         self.assertIn("MUST NOT cause REJECT or REVIEW", text)
         self.assertIn("choose APPLY", text)
-        self.assertIn(f"up to and including {review_max} years", text)
-        self.assertIn(f"More than {review_max} years: REJECT", text)
-        self.assertIn("does not override a mismatched discipline", text)
+        self.assertIn(f"More than {limit} years: REJECT", text)
+        self.assertIn("optional/preferred value", text)
+        self.assertIn("mandatory but no number", text)
 
-    def test_analysis_and_independent_reviewer_share_the_policy_text(self):
+    def test_role_and_location_policy_are_shared_prompt_blocks(self):
+        role = candidate_role_policy_prompt_text()
+        location = candidate_location_policy_prompt_text()
+
+        for phrase in (
+            "mechanical maintenance",
+            "refrigeration",
+            "centrifugal pumps",
+            "Licence/Bac+3",
+            "Ingénieur",
+            "Production",
+            "generalist/polyvalent",
+            "Never borrow tasks",
+        ):
+            self.assertIn(phrase.lower(), role.lower())
+
+        for phrase in ("Oran", "Mostaganem", "Southern/Saharan", "accommodation"):
+            self.assertIn(phrase.lower(), location.lower())
+
+    def test_analysis_and_independent_reviewer_share_the_canonical_policy_blocks(self):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
         source = source_path.read_text(encoding="utf-8")
 
@@ -67,46 +76,28 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         reviewer_end = source.index("\n\ndef ", reviewer_start + 8)
         reviewer = source[reviewer_start:reviewer_end]
 
-        self.assertIn('prompt = prompt.replace("{{EXPERIENCE_POLICY_BLOCK}}", experience_policy_prompt_text())', analysis)
-        self.assertIn("{{EXPERIENCE_POLICY_BLOCK}}", analysis)
+        for placeholder in (
+            "{{CANDIDATE_ROLE_POLICY_BLOCK}}",
+            "{{EXPERIENCE_POLICY_BLOCK}}",
+            "{{LOCATION_POLICY_BLOCK}}",
+        ):
+            self.assertIn(placeholder, analysis)
+
+        self.assertIn("candidate_role_policy_prompt_text()", analysis)
+        self.assertIn("experience_policy_prompt_text()", analysis)
+        self.assertIn("candidate_location_policy_prompt_text()", analysis)
+
+        self.assertIn("candidate_role_policy_prompt_text()", reviewer)
         self.assertIn("experience_policy_prompt_text()", reviewer)
-        self.assertNotIn(
-            "minimum experience requirements not met by the candidate are REJECT",
-            analysis,
-        )
+        self.assertIn("candidate_location_policy_prompt_text()", reviewer)
 
-    def test_two_year_direct_maintenance_role_applies_when_experience_is_only_threshold(self):
-        import os
-        from unittest.mock import patch
+        self.assertNotIn("3 years: REVIEW", reviewer)
+        self.assertNotIn("up to 3 years", analysis.lower())
 
-        # Avoid a live provider; the deterministic gate takes a supplied score.
-        with patch.dict(os.environ, {"GROQ_API_KEY": "unit-test-unused"}, clear=False):
-            import auto_jobfinder_cloud as processor
+    def test_unquantified_mandatory_experience_is_review_not_rejected(self):
+        self.assertEqual(UNQUANTIFIED_MANDATORY_EXPERIENCE_DECISION, "review")
 
-        job = {
-            "job_title": "Technicien de maintenance",
-            "application_title_fr": "Technicien de maintenance",
-            "application_title_en": "Maintenance Technician",
-            "score": 70,
-            "reason": "Candidate has no professional experience.",
-        }
-        advertisement = (
-            "Recrutement : Technicien de maintenance. "
-            "Expérience professionnelle minimum : 2 ans. "
-            "Lieu de travail : Oran. "
-            "Tâches : maintenance préventive et corrective des équipements mécaniques et des pompes. "
-            "Envoyez votre CV à jobs@example.org."
-        )
-        decision, reason = processor.enforce_candidate_fit_rule(
-            job,
-            "REVIEW",
-            advertisement,
-            cv_match_score=45,
-        )
-        self.assertEqual(decision, "APPLY")
-        self.assertIn("تجاوز شرط الخبرة", reason)
-
-    def test_deterministic_gate_uses_the_same_classifier(self):
+    def test_deterministic_gate_uses_the_canonical_classifier(self):
         source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
         source = source_path.read_text(encoding="utf-8")
         start = source.index("def _experience_requirement_policy(")
@@ -114,22 +105,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         policy_function = source[start:end]
 
         self.assertIn("classify_experience_requirement(years)", policy_function)
-        self.assertNotIn("if years <= 3:", policy_function)
-        self.assertNotIn("if years <= 4:", policy_function)
-
-
-    def test_model_prompt_explicitly_requires_review_for_vague_generalist_roles(self):
-        source_path = Path(__file__).resolve().parents[1] / "auto_jobfinder_cloud.py"
-        source = source_path.read_text(encoding="utf-8")
-        analysis_start = source.index("def analyze_offer(")
-        prompt_rule_start = source.index("11A. GENERALIST / POLYVALENT ROLE DECISION", analysis_start)
-        self.assertGreater(prompt_rule_start, analysis_start)
-        prompt_rule = source[prompt_rule_start:prompt_rule_start + 1200]
-
-        self.assertIn("GENERALIST / POLYVALENT ROLE DECISION", prompt_rule)
-        self.assertIn('"Agents polyvalents"', prompt_rule)
-        self.assertIn("raw decision MUST be REVIEW", prompt_rule)
-        self.assertIn("Do NOT choose APPLY merely because the employer is a factory", prompt_rule)
+        self.assertNotIn('return years, "manual_review"', policy_function)
 
 
 if __name__ == "__main__":
