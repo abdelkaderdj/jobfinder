@@ -3079,12 +3079,13 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         titles = (
             "Chargé des Moyens Généraux - MGX",
             "Professeur d'Espagnol",
+            "Professeur d'Allemand",
             "Délégué(e) commercial(e) IVD",
             "Stagiaire Assistant(e)",
             "Délégué(e) Commercial(e)",
             "Infographe",
         )
-        source = "\\n".join(f"🔹 {title}" for title in titles)
+        source = "\n".join(f"🔹 {title}" for title in titles)
         jobs = [
             {"job_title": title, "title_evidence": title}
             for title in titles
