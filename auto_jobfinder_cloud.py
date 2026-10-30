@@ -7136,13 +7136,7 @@ def _job_title_evidence_is_grounded(job, source_text):
             continue
 
         line_prefix = normalized_line.split(normalized_quote, 1)[0]
-        preceding_context = normalize_text(
-            " ".join(source_lines[max(0, line_index - 2):line_index])
-        )
-        if (
-            _JOB_TITLE_NEGATIVE_CONTEXT_RE.search(line_prefix)
-            or _JOB_TITLE_NEGATIVE_CONTEXT_RE.search(preceding_context)
-        ):
+        if _JOB_TITLE_NEGATIVE_CONTEXT_RE.search(line_prefix):
             continue
 
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
