@@ -3028,5 +3028,122 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         )
 
 
+    def test_title_evidence_accepts_real_professions_outside_old_marker_whitelist(self):
+        titles = (
+            "Chargé des Moyens Généraux - MGX",
+            "Professeur d'Espagnol",
+            "Délégué(e) commercial(e) IVD",
+            "Stagiaire Assistant(e)",
+            "Délégué(e) Commercial(e)",
+            "Infographe",
+        )
+        source = "\\n".join(f"🔹 {title}" for title in titles)
+        jobs = [
+            {"job_title": title, "title_evidence": title}
+            for title in titles
+        ]
+
+        for job in jobs:
+            with self.subTest(title=job["job_title"]):
+                self.assertTrue(
+                    processor._job_title_evidence_is_grounded(job, source)
+                )
+
+        validated = processor._validated_job_records(
+            {
+                "post_type": "actual_vacancy",
+                "jobs": jobs,
+            },
+            source,
+        )
+        self.assertEqual(validated, jobs)
+
+    def test_application_job_title_is_included_in_engineering_hard_gate(self):
+        jobs = (
+            {
+                "job_title": "Irrigation et Hydraulique",
+                "application_job_title": "Ingénieur Irrigation et Hydraulique",
+                "score": 85,
+            },
+            {
+                "job_title": "Health Safety Environment",
+                "application_job_title": "Ingénieur HSE",
+                "score": 85,
+            },
+        )
+        advertisement = (
+            "المناصب المطلوبة: Ingénieur Irrigation et Hydraulique; Ingénieur HSE. "
+            "الشروط: الإقامة في ولاية وهران. خبرة في إعداد الكشوف الكمية والتقديرية."
+        )
+
+        for job in jobs:
+            with self.subTest(title=job["application_job_title"]):
+                score, groups = processor.calculate_candidate_cv_match(
+                    job,
+                    "Hydraulique, pumps, fluids, mechanical maintenance, industrial equipment.",
+                )
+                self.assertEqual(score, 0)
+                self.assertEqual(groups, [])
+                decision, reason = processor.enforce_candidate_fit_rule(
+                    job,
+                    "REVIEW",
+                    advertisement,
+                    cv_match_score=score,
+                )
+                self.assertEqual(decision, "REJECT")
+                self.assertIn("Ingénieur/Engineer", reason)
+
+    def test_model_generated_job_requirements_cannot_borrow_sibling_role_keywords(self):
+        job = {
+            "job_title": "Assistant administratif",
+            "job_description": "Mechanical maintenance, pumps, hydraulic systems and compressors.",
+            "requirements": "Industrial maintenance and fluid systems.",
+            "skills": ["centrifugal pumps", "mechanical equipment"],
+        }
+        score, groups = processor.calculate_candidate_cv_match(job, "")
+        self.assertEqual(score, 0)
+        self.assertEqual(groups, [])
+
+    def test_plain_arabic_common_requirements_heading_is_shared_across_positions(self):
+        advertisement = """المناصب المطلوبة:
+🔹 Ingénieur Irrigation et Hydraulique
+🔹 Ingénieur HSE
+📌 الشروط:
+الإقامة في ولاية وهران شرط أساسي.
+خبرة في إعداد الكشوف الكمية والتقديرية (DQE – Devis).
+إعداد دفاتر الشروط الخاصة بالمناقصات وطلبات العروض.
+خبرة ميدانية في الورشات ومواقع العمل.
+"""
+        irrigation = {
+            "job_title": "Ingénieur Irrigation et Hydraulique",
+            "application_job_title": "Ingénieur Irrigation et Hydraulique",
+        }
+        hse = {
+            "job_title": "Ingénieur HSE",
+            "application_job_title": "Ingénieur HSE",
+        }
+        jobs = [irrigation, hse]
+
+        irrigation_scope, irrigation_ok, _ = processor.resolve_job_position_scope(
+            irrigation, advertisement, jobs
+        )
+        hse_scope, hse_ok, _ = processor.resolve_job_position_scope(
+            hse, advertisement, jobs
+        )
+
+        self.assertTrue(irrigation_ok)
+        self.assertTrue(hse_ok)
+        for required in (
+            "الإقامة في ولاية وهران",
+            "خبرة في إعداد الكشوف الكمية",
+            "دفاتر الشروط الخاصة بالمناقصات",
+        ):
+            self.assertIn(required, irrigation_scope)
+            self.assertIn(required, hse_scope)
+
+        self.assertNotIn("Ingénieur HSE", irrigation_scope)
+        self.assertNotIn("Ingénieur Irrigation et Hydraulique", hse_scope)
+
+
 if __name__ == "__main__":
     unittest.main()
