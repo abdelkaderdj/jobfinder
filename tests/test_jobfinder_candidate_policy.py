@@ -63,6 +63,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         for phrase in (
             "mechanical maintenance",
             "refrigeration",
+            "information technology/IT support/computer systems/networks/telecommunications",
             "centrifugal pumps",
             "Licence/Bac+3",
             "Ingénieur",
