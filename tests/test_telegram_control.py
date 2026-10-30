@@ -3299,6 +3299,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
                 )
                 self.assertTrue(matched, reason)
                 self.assertIn(job["job_title"], scope)
+                self.assertIn("ميلينيوم", scope)
                 self.assertIn("الإقامة في ولاية وهران", scope)
                 self.assertIn("الكشوف الكمية والتقديرية", scope)
                 scopes[job["job_title"]] = scope
