@@ -3741,6 +3741,205 @@ contacts, or requirements.
 # ============================================================
 
 
+def location_contains_any(
+    location,
+    markers
+):
+
+    normalized = normalize_text(
+        location
+    )
+
+    return any(
+        normalize_text(marker) in normalized
+        for marker in markers
+    )
+
+
+def infer_explicit_work_location(advertisement: str) -> str:
+    """Recover only an explicit workplace label or employer hiring-intro location."""
+    text = str(advertisement or "")
+    transport_line = re.compile(
+        r"(?:توفر\s+النقل|النقل\s+متوفر|transport(?:ation)?|navette|ramassage|pickup)",
+        flags=re.IGNORECASE,
+    )
+    label_pattern = re.compile(
+        r"(?:lieu\s+de\s+travail|lieu\s+du\s+poste|site\s+de\s+travail|"
+        r"work\s+location|job\s+location|worksite|"
+        r"مكان\s+العمل|موقع\s+العمل|مقر\s+العمل|مكان\s+الوظيفة|مكان\s+المنصب)"
+        r"\s*[:：\-–]?\s*(.+)$",
+        flags=re.IGNORECASE,
+    )
+    hiring_preamble = re.compile(
+        r"(?:شركة|entreprise|company).{0,80}?"
+        r"(?:\bà\b|\bau\b|\bdans\s+la\s+commune\s+de\b|في|بـ)\s*"
+        r"([^،,\n]+?)\s*(?=تبحث|تعلن|توظف|تطلب|تستقطب|recrute|recherche|cherche)",
+        flags=re.IGNORECASE,
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = label_pattern.search(line)
+        if match:
+            value = re.sub(r"^[📍\s]+", "", match.group(1)).strip(" .؛;,-–—")
+            if value and not transport_line.search(value):
+                return value[:160]
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = hiring_preamble.search(line)
+        if match:
+            value = match.group(1).strip(" .؛;:-–—")
+            if value and len(value) <= 160:
+                return value
+    return ""
+
+
+def job_location_category(job):
+
+    location = str(
+        job.get(
+            "location",
+            ""
+        ) or ""
+    ).strip()
+
+    if not location:
+
+        return "unknown"
+
+    if location_contains_any(
+        location,
+        LOCAL_LOCATION_MARKERS
+    ):
+
+        return "local"
+
+    if location_contains_any(
+        location,
+        SOUTH_LOCATION_MARKERS
+    ):
+
+        return "south"
+
+    return "other"
+
+
+def accommodation_value(job):
+
+    value = job.get(
+        "accommodation_provided",
+        "unknown"
+    )
+
+    if isinstance(
+        value,
+        bool
+    ):
+
+        return value
+
+    normalized = normalize_text(
+        value
+    )
+
+    if normalized in {
+        "true",
+        "yes",
+        "oui",
+        "1",
+        "provided",
+        "available"
+    }:
+
+        return True
+
+    if normalized in {
+        "false",
+        "no",
+        "non",
+        "0",
+        "not provided",
+        "unavailable"
+    }:
+
+        return False
+
+    return None
+
+
+def explicit_accommodation_in_ad(
+    text
+):
+
+    return accommodation_signal_in_text(text) is True
+
+
+def enforce_location_rule(
+    job,
+    decision,
+    job_section_text,
+    section_verified=True,
+):
+    category = job_location_category(job)
+    accommodation = accommodation_value(job)
+
+    if category == "local":
+        return decision, "allowed_local", "Local/nearby area accepted"
+
+    if category == "south":
+        return decision, "allowed_south", "Southern/Saharan Algeria accepted"
+
+    # Unknown geography cannot be made eligible by an accommodation claim.
+    if category == "unknown":
+        if decision == "APPLY":
+            return (
+                "REVIEW",
+                "unknown_location",
+                "Work location is not clear enough to confirm eligibility",
+            )
+        return (
+            decision,
+            "unknown_location",
+            "Work location is not clearly identified",
+        )
+
+    # A known out-of-area location is a hard exclusion unless employer-provided
+    # accommodation is positively verified for this position. An ambiguous
+    # title-to-section match is not a reason to route an ineligible location to
+    # REVIEW when no accommodation evidence exists.
+    if category == "other" and accommodation is True:
+        # If accommodation evidence exists but its link to this exact position
+        # is uncertain, keep the no-auto-send safeguard and ask for review.
+        if not section_verified:
+            if decision == "APPLY":
+                return (
+                    "REVIEW",
+                    "location_section_unverified",
+                    "Employer-provided accommodation appears in a candidate section, but its association with this exact position could not be verified; automatic sending is disabled.",
+                )
+            return (
+                decision,
+                "location_section_unverified",
+                "Accommodation evidence could not be verified against this position's own section.",
+            )
+        return decision, "allowed_housing", "Explicit employer-provided housing verified in this position's ad"
+
+    # No verified employer-provided accommodation means a known out-of-area
+    # location fails the candidate's mandatory location rule, even when the
+    # multi-position advertisement cannot be mapped to a specific title block.
+    if category == "other":
+        return (
+            "REJECT",
+            "rejected_location",
+            "Work location is outside the accepted local/Saharan area and employer-provided accommodation is not explicitly verified for this position",
+        )
+
+    return decision, "unknown_location", "Work location could not be classified"
+
+
 # ============================================================
 # LANGUAGE DETECTION
 # ============================================================
