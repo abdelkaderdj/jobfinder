@@ -1726,7 +1726,30 @@ def resolve_job_position_scope(
             if idx > last_title_idx and _is_shared_global_experience_footer_line(line)
         ]
 
-    block_lines = list(lines[target_idx:end_idx])
+    # Carry only explicit shared workplace/accommodation metadata from the
+    # section header before the first role. Do not copy company-industry prose
+    # or generic duties into every job, because that could inflate sibling CV fit.
+    first_title_idx = min(idx for idx, _item, score in matches if score >= 0.75)
+    shared_header_lines = []
+    location_header_re = re.compile(
+        r"(?:lieu de travail|lieu du poste|site de travail|work location|"
+        r"job location|worksite|place of work|مكان العمل|موقع العمل|"
+        r"مقر العمل|مكان الوظيفة|مكان المنصب|الموقع\\s*[:：])",
+        flags=re.IGNORECASE,
+    )
+    for header_line in lines[:first_title_idx]:
+        normalized_header = normalize_text(header_line)
+        if not normalized_header:
+            continue
+        explicit_location = bool(location_header_re.search(normalized_header))
+        explicit_accommodation = any(
+            normalize_text(marker) in normalized_header
+            for marker in ACCOMMODATION_MARKERS
+        )
+        if explicit_location or explicit_accommodation:
+            shared_header_lines.append(header_line)
+
+    block_lines = list(shared_header_lines) + list(lines[target_idx:end_idx])
     block_normalized = {normalize_text(line) for line in block_lines if normalize_text(line)}
     for footer_line in shared_footer_lines:
         normalized_footer = normalize_text(footer_line)
