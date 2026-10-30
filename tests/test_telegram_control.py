@@ -3400,5 +3400,96 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertNotIn("experience", proposed[0])
 
 
+    def test_compact_role_recovery_preserves_osco_company_department_and_qualifications(self):
+        advertisement = """🚨 شركة EURL OSCO Services النفطية تعلن عن حملة توظيف واسعة في عدة أقسام وتخصصات متعددة
+في إطار تعزيز وتطوير أنشطتها الميدانية والإدارية في خدمات قطاع النفط والغاز، تعلن شركة EURL OSCO – Oil Services Company عن فتح باب التوظيف المباشر واستقبال السير الذاتية لشغل المناصب التالية:
+🟢 الأقسام والمناصب المطلوبة (Postes à pourvoir) :
+1️⃣ قسم الإعلام الآلي والمواصلات (Informatique & Télécommunications) :
+Ingénieur Systèmes d’Information (Ingénieur d’État / Master en informatique, SI ou équivalent).
+Ingénieur Infrastructure & Support IT (Ingénieur d’État / Master en informatique, systèmes, réseaux ou équivalent).
+Technicien Support Informatique (TS en informatique, systèmes et réseaux ou équivalent).
+Technicien Réseaux & Télécoms (TS en télécommunications, électronique, réseaux ou équivalent).
+Agent de Communication & Standard (Niveau Terminal avec formation qualifiante en téléphonie/standard).
+2️⃣ قسم المالية والمحاسبة (Finances & Comptabilité) :
+Cadre Comptable Fin (01 poste - Licence / Master en comptabilité, finance, sciences financières).
+3️⃣ قسم المشتريات، العقود واللوجستيك (Approvisionnements, Contrats & Logistique) :
+Chargé Gestion Appros (01 poste - Licence / Master en gestion d'approvisionnement, logistique, commerce).
+Ingénieur Levage (01 poste - Ingénieur d’État / Master en mécanique, génie industriel).
+📩 contact@osco-oil.com
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        self.assertIn(
+            "Technicien Support Informatique (TS en informatique, systèmes et réseaux ou équivalent)",
+            [processor._clean_compact_role_list_line(title) for title in titles],
+        )
+        self.assertIn(
+            "Technicien Réseaux & Télécoms (TS en télécommunications, électronique, réseaux ou équivalent)",
+            [processor._clean_compact_role_list_line(title) for title in titles],
+        )
+
+        recovered, count = processor._recover_missing_compact_list_roles(
+            titles,
+            [],
+            advertisement,
+        )
+        self.assertGreaterEqual(count, 7)
+
+        by_title = {job["job_title"]: job for job in recovered}
+        support = by_title["Technicien Support Informatique"]
+        networks = by_title["Technicien Réseaux & Télécoms"]
+
+        for job in (support, networks):
+            with self.subTest(title=job["job_title"]):
+                self.assertEqual(job["company"], "EURL OSCO Services")
+                self.assertTrue(job["department"].startswith("1️⃣ قسم الإعلام الآلي"))
+                self.assertIn("TS en ", job["requirements"])
+                self.assertTrue(job["recovered_from_compact_role_list"])
+                self.assertIsNone(job["score"])
+                self.assertTrue(
+                    processor._job_title_evidence_is_grounded(
+                        job,
+                        advertisement,
+                    )
+                )
+
+                position_scope, matched, reason = processor.resolve_job_position_scope(
+                    job,
+                    advertisement,
+                    recovered,
+                )
+                self.assertTrue(matched, reason)
+                self.assertIn("Informatique & Télécommunications", position_scope)
+                self.assertIn(job["job_title"], position_scope)
+                self.assertIn(job["requirements"], position_scope)
+
+                decision, explanation = processor.enforce_candidate_fit_rule(
+                    job,
+                    "REVIEW",
+                    position_scope,
+                    cv_match_score=0,
+                )
+                self.assertEqual(decision, "REJECT")
+                self.assertIn("خارج المسارات المتفق عليها", explanation)
+
+        self.assertEqual(support["requirements"], "TS en informatique, systèmes et réseaux ou équivalent")
+        self.assertEqual(networks["requirements"], "TS en télécommunications, électronique, réseaux ou équivalent")
+
+    def test_it_role_exclusion_does_not_reject_mechanical_support_or_maintenance(self):
+        mechanical_job = {
+            "job_title": "Technicien de maintenance mécanique",
+            "decision": "REVIEW",
+            "score": None,
+            "reason": "Recovered from a compact role list.",
+        }
+        decision, _reason = processor.enforce_candidate_fit_rule(
+            mechanical_job,
+            "REVIEW",
+            "Technicien de maintenance mécanique. Maintenance des pompes et équipements.",
+            cv_match_score=45,
+        )
+        self.assertNotEqual(decision, "REJECT")
+
+
+
 if __name__ == "__main__":
     unittest.main()
