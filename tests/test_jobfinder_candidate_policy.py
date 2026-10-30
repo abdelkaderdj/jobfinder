@@ -53,7 +53,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         self.assertIn("MUST NOT cause REJECT or REVIEW", text)
         self.assertIn("choose APPLY", text)
         self.assertIn(f"More than {limit} years as an explicit minimum: REJECT", text)
-        self.assertIn("optional/preferred value", text)
+        self.assertIn("optional/preferred experience", text)
         self.assertIn("mandatory but no number", text)
 
     def test_role_and_location_policy_are_shared_prompt_blocks(self):
