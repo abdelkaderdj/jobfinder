@@ -52,7 +52,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         self.assertIn(f"up to and including {limit} years", text.lower())
         self.assertIn("MUST NOT cause REJECT or REVIEW", text)
         self.assertIn("choose APPLY", text)
-        self.assertIn(f"More than {limit} years: REJECT", text)
+        self.assertIn(f"More than {limit} years as an explicit minimum: REJECT", text)
         self.assertIn("optional/preferred value", text)
         self.assertIn("mandatory but no number", text)
 
