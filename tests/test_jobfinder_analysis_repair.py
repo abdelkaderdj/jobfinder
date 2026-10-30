@@ -113,9 +113,9 @@ class GroundedOfferRecoveryTests(unittest.TestCase):
 
     def test_short_exact_arabic_occupational_title_is_grounded_and_kept(self):
         source = (
-            "Maintenance & Technique\\n"
-            "🔹 رئيس فريق صيانة\\n"
-            "🔹 كهربائي\\n"
+            "Maintenance & Technique\n"
+            "🔹 رئيس فريق صيانة\n"
+            "🔹 كهربائي\n"
             "إرسال السيرة الذاتية إلى jobs@example.org"
         )
         job = {
@@ -132,7 +132,7 @@ class GroundedOfferRecoveryTests(unittest.TestCase):
         self.assertEqual(validated, [job])
 
     def test_short_evidence_not_matching_the_extracted_title_is_rejected(self):
-        source = "🔹 كهربائي\\nإرسال السيرة الذاتية إلى jobs@example.org"
+        source = "🔹 كهربائي\nإرسال السيرة الذاتية إلى jobs@example.org"
         job = {
             "job_title": "كهربائي",
             "title_evidence": "كهربا",
