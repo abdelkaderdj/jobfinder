@@ -7028,11 +7028,56 @@ def _trusted_non_vacancy_classification(result, source_text):
     return True
 
 
+_NON_JOB_TITLE_EVIDENCE_HEADINGS = {
+    "maintenance technique",
+    "maintenance et technique",
+    "profil recherche",
+    "profil recherche",
+    "profile recherché",
+    "missions principales",
+    "missions",
+    "conditions de recrutement",
+    "conditions de travail",
+    "recruitment conditions",
+    "job requirements",
+    "emploi et formation",
+    "المناصب المطلوبة",
+    "المناصب الشاغرة",
+    "شروط التوظيف",
+    "الشروط المطلوبة",
+    "البروفايل والشروط المطلوبة",
+    "المهام والمسؤوليات الرئيسية",
+    "طريقة التقديم",
+    "how to apply",
+}
+
+_JOB_TITLE_LABEL_CONTEXT_RE = re.compile(
+    r"(?:job title|title of the position|position title|intitule du poste|"
+    r"intitule de poste|poste a pourvoir|poste recherche|poste propose|"
+    r"job opening|vacancy|recrute|recrutement|hiring|offre d emploi|"
+    r"المسمى الوظيفي|مسمى الوظيفة|المنصب المطلوب|الوظيفة المطلوبة|"
+    r"المناصب المطلوبة|المناصب الشاغرة|منصب شاغر|توظيف|فتح باب التوظيف|"
+    r"تعلن عن توظيف|مطلوب)",
+    flags=re.IGNORECASE,
+)
+
+_JOB_TITLE_NEGATIVE_CONTEXT_RE = re.compile(
+    r"(?:diplome|diploma|degree|qualification|formation|profil recherche|"
+    r"experience|professional experience|skills|competences|specialite|"
+    r"specialization|education|niveau d etudes|exigences du candidat|"
+    r"الشهادة|المؤهل|التكوين|التخصص|الخبرة|سنوات الخبرة|"
+    r"المهارات المطلوبة|شروط المترشح|شروط الترشح)",
+    flags=re.IGNORECASE,
+)
+
+
 def _job_title_evidence_is_grounded(job, source_text):
     """
-    Accept any profession when its actual title is quoted verbatim from the source.
-    Do not use a fixed occupation whitelist: it silently drops valid roles such as
-    teachers, administrative assistants, commercial delegates, and infographers.
+    Validate an actual source-grounded title without a closed occupation list.
+
+    Translated AI title fields are allowed when the verbatim evidence is attached
+    to a clear job-title/listing line. Qualification and section-heading lines
+    are not job evidence.
     """
     if not isinstance(job, dict):
         return False
@@ -7042,17 +7087,15 @@ def _job_title_evidence_is_grounded(job, source_text):
         return False
 
     normalized_quote = normalize_text(quote)
-    normalized_source = normalize_text(source_text)
-    if (
-        not normalized_quote
-        or normalized_quote not in normalized_source
-        or len(normalized_quote.replace(" ", "")) < 4
-    ):
+    if len(normalized_quote.replace(" ", "")) < 4:
+        return False
+    if normalized_quote in _NON_JOB_TITLE_EVIDENCE_HEADINGS:
         return False
 
-    # The evidence must contain at least one title field copied from the source.
-    # Translated display titles alone cannot ground a job; job_title is expected
-    # to preserve the employer/source wording, while application titles may translate it.
+    normalized_source = normalize_text(source_text)
+    if not normalized_quote or normalized_quote not in normalized_source:
+        return False
+
     title_variants = [
         normalize_text(job.get(field))
         for field in (
@@ -7064,12 +7107,37 @@ def _job_title_evidence_is_grounded(job, source_text):
         )
         if str(job.get(field) or "").strip()
     ]
-    return any(
+    exact_title_evidence = any(
         variant
         and len(variant.replace(" ", "")) >= 4
-        and variant in normalized_quote
+        and (variant in normalized_quote or normalized_quote in variant)
         for variant in title_variants
     )
+
+    bullet_prefix = re.compile(
+        r"^\s*(?:[-*•▪●◾🔹🔸🔻🔺✅☑️]|[0-9٠-٩]+[.)\-]|[0-9٠-٩]+️⃣)\s*"
+    )
+    for raw_line in str(source_text or "").splitlines():
+        normalized_line = normalize_text(raw_line)
+        if not normalized_line or normalized_quote not in normalized_line:
+            continue
+        if _JOB_TITLE_NEGATIVE_CONTEXT_RE.search(normalized_line):
+            continue
+        if normalized_line in _NON_JOB_TITLE_EVIDENCE_HEADINGS:
+            continue
+
+        has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
+        is_listed_role_line = bool(bullet_prefix.match(raw_line))
+        if has_explicit_title_label or is_listed_role_line:
+            return True
+
+        # A model may preserve the exact source title in job_title even when the
+        # employer did not add a label or bullet. Exact title equality is enough
+        # only when the containing line is not a qualifications/skills line.
+        if exact_title_evidence:
+            return True
+
+    return False
 
 
 def _validated_job_records(result, source_text):
