@@ -7002,8 +7002,18 @@ def _job_title_evidence_is_grounded(job, source_text):
 
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
         is_listed_role_line = bool(bullet_prefix.match(raw_line))
-        suffix = normalized_line[len(normalized_quote):].lstrip() if normalized_line.startswith(normalized_quote) else ""
-        title_with_inline_qualification = suffix.startswith("(")
+        inline_requirement_match = re.match(
+            r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?(?P<title>[^()]+?)\s*\((?P<requirement>[^()]*)\)",
+            raw_line,
+        )
+        title_with_inline_qualification = bool(
+            inline_requirement_match
+            and normalize_text(inline_requirement_match.group("title").strip(" .;,-–—")) == normalized_quote
+            and re.search(
+                r"\b(?:ts|master|licence|diplome|formation|equivalent|bac\+?\d|niveau|ingenieur|technicien superieur)\b",
+                normalize_text(inline_requirement_match.group("requirement")),
+            )
+        )
         if has_explicit_title_label or is_listed_role_line or title_with_inline_qualification:
             return True
 
