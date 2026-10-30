@@ -93,7 +93,7 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     # are outside the candidate's mechanical/energy engineering target paths.
     r"\b(?:it support|support informatique|technicien support informatique|"
     r"computer support|computer technician|help ?desk|service desk|"
-    r"information technology|computer science|informatique|informaticien\\w*|"
+    r"information technology|computer science|informatique|informaticien\w*|"
     r"systemes? d information|information systems|system administrator|"
     r"systems administrator|network technician|technicien reseaux|"
     r"technicien reseaux et telecoms|reseaux informatiques|"
