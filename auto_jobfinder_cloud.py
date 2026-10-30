@@ -7276,18 +7276,11 @@ def verify_apply_decisions(source_text, jobs, job_contexts=None):
             "application_title_fr": job.get("application_title_fr", ""),
             "application_title_en": job.get("application_title_en", ""),
             "application_job_title": job.get("application_job_title", ""),
-            "company": job.get("company", ""),
-            "location": job.get("location", ""),
-            "accommodation_provided": job.get("accommodation_provided", "unknown"),
-            "location_reason": job.get("location_reason", ""),
-            "decision": job.get("decision", ""),
-            "score": job.get("score"),
-            "reason": job.get("reason", ""),
-            "requirements": job.get("requirements", ""),
-            "experience": job.get("experience", ""),
+            "decision_to_audit": "APPLY",
             "position_scope_verified": position_scope_verified,
-            # This scope contains this job's own title block and only clearly
-            # shared requirements. It excludes all sibling position blocks.
+            # This is the only job-specific evidence the reviewer may use.
+            # AI-generated requirements, reasons, skills, scores, and inferred
+            # contact/location fields are deliberately omitted to avoid leakage.
             "position_advertisement": position_source,
         })
 
