@@ -1198,7 +1198,7 @@ Expérience pratique de 2 à 5 ans en logistique.
             "La connaissance des pompes est un atout."
         )
         self.assertIsNone(processor._experience_requirement_years(advertisement))
-        self.assertIsNone(processor._experience_requirement_policy(advertisement))
+        self.assertEqual(processor._experience_requirement_policy(advertisement), (None, None))
         self.assertFalse(
             processor._advertisement_has_unquantified_mandatory_experience(advertisement)
         )
@@ -1251,7 +1251,7 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertIn("5", reason)
         self.assertIn("4", reason)
 
-    def test_four_year_requirement_not_sent_automatically(self):
+    def test_four_year_minimum_is_not_an_experience_only_blocker(self):
         job = {
             "job_title": "Technicien de maintenance",
             "score": 85,
@@ -1259,13 +1259,12 @@ Expérience pratique de 2 à 5 ans en logistique.
         }
         final, reason = processor.enforce_candidate_fit_rule(
             job,
-            "APPLY",
+            "REJECT",
             "Technicien de maintenance. Minimum 4 years of professional experience.",
             cv_match_score=60,
         )
-        self.assertEqual(final, "REVIEW")
-        self.assertIn("4", reason)
-        self.assertIn("مراجعة اليدوية", reason)
+        self.assertEqual(final, "APPLY")
+        self.assertIn("تم تجاوز شرط الخبرة", reason)
 
     def test_three_year_experience_waiver_does_not_override_degree_mismatch(self):
         job = {
