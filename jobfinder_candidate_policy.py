@@ -82,3 +82,522 @@ def candidate_location_policy_prompt_text() -> str:
         "- Unknown or ambiguous work location is REVIEW, never an automatic APPLY.\n"
         "- Do not infer accommodation, residence, transport, or worksite from unrelated lines or another position."
     )
+
+
+# Deterministic role-fit rules. Keep these patterns in the same module as the
+# natural-language policy so the model prompt and Python safety gate share one policy source.
+UNRELATED_ROLE_TITLE_PATTERNS = (
+    r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
+    r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
+    # Packaging/conditioning is not mechanical maintenance.
+    r"\bagent de conditionnement\b", r"\boperateur de conditionnement\b",
+    r"\bpackaging (?:agent|operator|worker)\b", r"\bpacking (?:agent|operator|worker)\b",
+    # Training and administrative-writing roles are outside the candidate's target paths.
+    r"\bformateur\b", r"\bformatrice\b", r"\btrainer\b", r"\btraining instructor\b",
+    r"\binstructor\b", r"\bteacher\b", r"\benseignant(?:e)?\b",
+    r"\bredaction administrative\b", r"\badministrative writing\b",
+    r"\breceptionniste\b", r"\breceptionist\b",
+    r"\bassistant(e)? de direction\b", r"\bassistant e de direction\b",
+    r"\bsecretaire\b", r"\bagent de securite\b", r"\bsecurity guard\b",
+    r"\bsecurity officer\b", r"\bgardien\b",
+    r"\btoxicologie\b", r"\btoxicologue\b", r"\btoxicology\b",
+    r"\btoxicologist\b", r"\blaborantin\b",
+    r"\btechnicien de laboratoire\b", r"\blaboratory technician\b",
+    r"\btechnologist\b.*\blaboratory\b", r"\blaboratory\b.*\btechnologist\b",
+    r"\btechnologue\b.*\blaboratoire\b", r"\blaboratoire\b.*\btechnologue\b",
+    r"\bbiologiste\b", r"\bmicrobiologiste\b", r"\bbiologist\b",
+    r"\bmicrobiologist\b", r"\bchimiste\b", r"\bchemist\b",
+    r"\bpharmacien\b", r"\binfirmier\b", r"\bnurse\b",
+    r"\bcomptable\b", r"\baccountant\b", r"\bressources humaines\b",
+    r"\bhuman resources\b", r"\bhr officer\b", r"\bassistant administratif\b",
+    r"\bserveur\b", r"\bcuisinier\b", r"\bchef de cuisine\b",
+    r"\b(electrician|electricien\w*|electricite|electrical|electrique)\b",
+    r"\b(electromechanical|electromec\w*)\b",
+    r"\b(instrumentation|instrumentiste|automation|automatisation|automatisme)\b",
+    r"\bgestionnaire des stocks\b", r"\bstock manager\b",
+    r"\binventory\b", r"\bwarehouse\b", r"\bstorekeeper\b",
+    r"\blogistics\b", r"\blogistique\b", r"\bsupply chain\b",
+    r"\baircraft\b", r"\baviation\b", r"\bairframe\b",
+    r"\bcivil engineer\b", r"\bgenie civil\b",
+    r"\bhse engineer\b", r"\bingenieur hse\b",
+    r"\bتجاري\b", r"\bمبيعات\b", r"\bتسويق\b", r"\bاستقبال\b",
+    r"\bحارس\b", r"\bامن\b", r"\bأمن\b", r"\bسموم\b",
+    r"\bمختبر\b", r"\bمخبر\b", r"\bبيولوج\b", r"\bميكروبيولوج\b",
+    r"\bكيميائي\b", r"\bمحاسب\b", r"\bموارد بشرية\b",
+    r"\bسكرتير\b", r"\bسكرتيرة\b", r"\bكهربائي\b", r"\bكهرباء\b",
+    r"\bكهروميكانيك\b", r"\bكهروميكانيكي\b", r"\bمخازن\b",
+    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
+)
+
+# Direct maintenance-technician titles can bypass an experience-only concern
+# when the CV match is strong; engineer/leadership titles remain governed separately.
+DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS = (
+    r"\btechnicien(?:ne)? de maintenance\b",
+    r"\btechnicien(?:ne)? maintenance\b",
+    r"\bmaintenance technician\b",
+    r"\btechnician in maintenance\b",
+    r"\bفني صيانة\b", r"\bتقني صيانة\b",
+)
+
+# Broad local generalist roles can be reviewed, but never auto-sent solely by title.
+# These roles are distinct from a direct mechanical-maintenance match.
+GENERALIST_ROLE_TITLE_PATTERNS = (
+    r"\bagents? polyvalents?\b",
+    r"\bpolyvalent agents?\b",
+    r"\bmulti[- ]?purpose (?:agents?|workers?)\b",
+    r"\bmultiskilled workers?\b",
+    r"\bعون متعدد المهام\b",
+    r"\bعامل متعدد المهام\b",
+    r"\bعمال متعددوا المهام\b",
+    r"\bعامل متعدد الاختصاصات\b",
+)
+
+# Production roles remain eligible for manual review, but are never auto-sent.
+# Keep these patterns separate from hard exclusions such as unrelated disciplines.
+PRODUCTION_ROLE_TITLE_PATTERNS = (
+    r"\btechnicien(?:ne)? de production\b", r"\btechnicien production\b",
+    r"\bproduction technician\b", r"\bproduction technologist\b",
+    r"\boperateur de production\b", r"\bproduction operator\b",
+    r"\bagent de production\b", r"\bproduction worker\b",
+    r"\bتقني انتاج\b", r"\bفني انتاج\b", r"\bعامل انتاج\b", r"\bمشغل انتاج\b",
+)
+
+# The candidate holds a Licence/Bac+3, not an engineering diploma.
+ENGINEERING_GRADE_ROLE_TITLE_PATTERNS = (
+    # Match singular and plural forms after normalize_text removes accents.
+    r"\bingenieur\w*\b",
+    r"\bengineer\w*\b",
+    r"\bمهندس\w*\b",
+)
+
+STRONG_RELEVANT_ROLE_PATTERNS = (
+    r"\bmechanic\w*\b", r"\bmechanical\b", r"\bmecanicien\w*\b",
+    r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
+    r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+    r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+    r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
+    r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
+    r"\bturbine\b", r"\brotating equipment\b", r"\bequipment maintenance\b",
+    r"\bequipement mecanique\b", r"\bequipements mecaniques\b",
+    r"\bsolidworks\b", r"\bconception mecanique\b", r"\bmechanical design\b",
+    r"\bdessinateur industriel\b", r"\bprojeteur mecanique\b",
+    r"\bhydraulic systems\b", r"\bsystemes fluidiques\b",
+    r"\bميكانيك\b", r"\bصيانة ميكانيكية\b", r"\bمضخات\b",
+    r"\bمعدات ميكانيكية\b", r"\bتصميم ميكانيكي\b",
+    r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+    r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
+)
+
+GENERIC_TECHNICAL_ROLE_PATTERNS = (
+    # The noun must indicate a technical role; descriptive words like "techniques"
+    # in administrative-writing courses are not evidence of candidate fit.
+    r"\btechnicien\w*\b", r"\btechnician\w*\b",
+    r"\boperateur\w*\b", r"\boperator\w*\b",
+    r"\bتقني\w*\b", r"\bفني\w*\b", r"\bمشغل\b",
+)
+
+CV_MATCH_SKILL_GROUPS = (
+    (
+        "industrial_maintenance",
+        15,
+        (
+            r"\bmaintenance\b", r"\bmainten\w*\b", r"\bpreventive maintenance\b",
+            r"\bcorrective maintenance\b", r"\bصيانة\b", r"\bالصيانة\b",
+            r"\bالصيانة الصناعية\b", r"\bصيانة صناعية\b",
+            r"\bصيانة المعدات الصناعية\b", r"\bصيانة معدات صناعية\b",
+            r"\bdiagnostic\b", r"\bdepannage\b",
+        ),
+    ),
+    (
+        "mechanical_systems_equipment",
+        12,
+        (
+            r"\bmechanical system\w*\b", r"\bsystemes mecaniques\b",
+            r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
+            r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
+            r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
+            r"\bequipement\w*\b", r"\bmechanical equipment\b",
+            r"\brotating equipment\b", r"\bequipements mecaniques\b",
+            r"\bمعدات ميكانيكية\b", r"\bأنظمة ميكانيكية\b",
+        ),
+    ),
+    (
+        "pumps_fluids_hydraulics",
+        15,
+        (
+            r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcentrifug\w*\b",
+            r"\bfluid\w*\b", r"\bhydraulic\w*\b", r"\bhydraulique\b",
+            r"\bcompresseur\w*\b", r"\bcompressor\w*\b",
+            r"\btuyauterie\b", r"\bpiping\b", r"\bمضخ\w*\b",
+            r"\bأنظمة الموائع\b", r"\bالهيدروليك\b",
+        ),
+    ),
+    (
+        "solidworks_cad_design",
+        15,
+        (
+            r"\bsolidworks\b", r"\bcad\b", r"\bconception mecanique\b",
+            r"\bmechanical design\b", r"\bmodelisation\b",
+            r"\bassemblage\w*\b", r"\bassembly\b", r"\bassemblies\b",
+            r"\bdessinateur\b", r"\bprojeteur\b", r"\bdesign industriel\b",
+            r"\bتصميم ميكانيكي\b", r"\bسوليدووركس\b",
+        ),
+    ),
+    (
+        "technical_drawings_documentation",
+        10,
+        (
+            r"\btechnical drawing\w*\b", r"\bdessin\w* technique\w*\b",
+            r"\bmise en plan\b", r"\bplan technique\w*\b",
+            r"\btechnical documentation\b", r"\bdocumentation technique\b",
+            r"\bdrawing interpretation\b", r"\blecture de plan\w*\b",
+            r"\bقراءة المخططات\b", r"\bالتوثيق الفني\b",
+        ),
+    ),
+    (
+        "industrial_production_process",
+        10,
+        (
+            r"\bindustr\w*\b", r"\bproduction\b", r"\bmanufactur\w*\b",
+            r"\bfabrication\b", r"\bprocess\w*\b", r"\busine\b",
+            r"\batelier\b", r"\bmachine\b", r"\bcnc\b", r"\bassembly line\b",
+            r"\bإنتاج\b", r"\bانتاج\b", r"\bصناعة\b", r"\bمصنع\b",
+            r"\bمعدات صناعية\b",
+        ),
+    ),
+    (
+        "troubleshooting_reliability",
+        8,
+        (
+            r"\btroubleshoot\w*\b", r"\bdiagnostic mecanique\b",
+            r"\breliability\b", r"\bfiabilite\b", r"\bdepan\w*\b",
+            r"\brepair\b", r"\bmaintenance corrective\b",
+            r"\bاستكشاف الاعطال\b", r"\bتشخيص الاعطال\b",
+        ),
+    ),
+    (
+        "energy",
+        5,
+        (
+            r"\benergy\b", r"\benergie\b", r"\benergetique\b",
+            r"\bpower plant\b", r"\bcentrale\b", r"\bطاقة\b",
+        ),
+    ),
+)
+
+
+# Location and accommodation signals consumed by the deterministic geography gate.
+LOCAL_LOCATION_MARKERS = [
+
+    # Oran
+    "oran",
+    "wahran",
+    "وهران",
+    "es senia",
+    "es-senia",
+    "السانية",
+    "bir el djir",
+    "بئر الجير",
+    "sidi chami",
+    "سيدي الشحمي",
+    "hassi bounif",
+    "حاسي بونيف",
+    "hassi ben okba",
+    "حاسي بن عقبة",
+
+    # Arzew / Bethioua
+    "ain el bia",
+    "ain el biya",
+    "عين البية",
+    "arzew",
+    "arzيو",
+    "أرزيو",
+    "bethouia",
+    "bethioua",
+    "بطيوة",
+    "mers el hadjadj",
+    "مرس الحجاج",
+
+    # Mostaganem
+    "mostaganem",
+    "مستغانم",
+    "mazagran",
+    "مزغران",
+    "hassi mameche",
+    "hassi mamèche",
+    "حاسي ماماش",
+    "sayada",
+    "صيادة",
+    "kheir eddine",
+    "خير الدين",
+    "ain nouissy",
+    "عين النويصي",
+    "fornaka",
+    "فرناكة"
+]
+
+
+SOUTH_LOCATION_MARKERS = [
+
+    "adrar",
+    "bechar",
+    "béchar",
+    "tamanrasset",
+    "tamenghasset",
+    "ouargla",
+    "el oued",
+    "ghardaia",
+    "ghardaïa",
+    "illizi",
+    "djanet",
+    "timimoun",
+    "bordj badji mokhtar",
+    "in salah",
+    "in guezzam",
+    "el meniaa",
+    "el menia",
+    "touggourt",
+    "hassi messaoud",
+    "hassi massoud",
+    "حاسي مسعود",
+    "hassi r mel",
+    "hassi r'mel",
+    "hassi r'mal",
+    "حاسي الرمل",
+    "in amenas",
+    "عين أميناس"
+]
+
+
+# These are positive evidence phrases, not generic housing/residency nouns.
+# Never treat "résidence à Alger" or "candidats résidant à Oran" as a housing benefit.
+ACCOMMODATION_MARKERS = [
+    "logement fourni",
+    "hebergement fourni",
+    "hébergement fourni",
+    "logement assure",
+    "hebergement assure",
+    "hébergement assuré",
+    "logement pris en charge",
+    "hebergement pris en charge",
+    "hébergement pris en charge",
+    "logement de fonction",
+    "residence de fonction",
+    "résidence de fonction",
+    "residence fournie",
+    "résidence fournie",
+    "accommodation provided",
+    "housing provided",
+    "lodging provided",
+    "staff housing provided",
+    "base de vie fournie",
+    "camp fourni",
+    "السكن متوفر",
+    "السكن موفر",
+    "توفير السكن",
+    "التكفل بالسكن",
+    "التكفل بالإقامة",
+    "التكفل بالاقامة",
+    "سكن وظيفي",
+    "إقامة وظيفية",
+    "اقامة وظيفية"
+]
+
+
+def location_contains_any(
+    location,
+    markers
+):
+
+    normalized = normalize_text(
+        location
+    )
+
+    return any(
+        normalize_text(marker) in normalized
+        for marker in markers
+    )
+
+
+def infer_explicit_work_location(advertisement: str) -> str:
+    """Recover only an explicit workplace label or employer hiring-intro location."""
+    text = str(advertisement or "")
+    transport_line = re.compile(
+        r"(?:توفر\s+النقل|النقل\s+متوفر|transport(?:ation)?|navette|ramassage|pickup)",
+        flags=re.IGNORECASE,
+    )
+    label_pattern = re.compile(
+        r"(?:lieu\s+de\s+travail|lieu\s+du\s+poste|site\s+de\s+travail|"
+        r"work\s+location|job\s+location|worksite|"
+        r"مكان\s+العمل|موقع\s+العمل|مقر\s+العمل|مكان\s+الوظيفة|مكان\s+المنصب)"
+        r"\s*[:：\-–]?\s*(.+)$",
+        flags=re.IGNORECASE,
+    )
+    hiring_preamble = re.compile(
+        r"(?:شركة|entreprise|company).{0,80}?"
+        r"(?:\bà\b|\bau\b|\bdans\s+la\s+commune\s+de\b|في|بـ)\s*"
+        r"([^،,\n]+?)\s*(?=تبحث|تعلن|توظف|تطلب|تستقطب|recrute|recherche|cherche)",
+        flags=re.IGNORECASE,
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = label_pattern.search(line)
+        if match:
+            value = re.sub(r"^[📍\s]+", "", match.group(1)).strip(" .؛;,-–—")
+            if value and not transport_line.search(value):
+                return value[:160]
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = hiring_preamble.search(line)
+        if match:
+            value = match.group(1).strip(" .؛;:-–—")
+            if value and len(value) <= 160:
+                return value
+    return ""
+
+
+def job_location_category(job):
+
+    location = str(
+        job.get(
+            "location",
+            ""
+        ) or ""
+    ).strip()
+
+    if not location:
+
+        return "unknown"
+
+    if location_contains_any(
+        location,
+        LOCAL_LOCATION_MARKERS
+    ):
+
+        return "local"
+
+    if location_contains_any(
+        location,
+        SOUTH_LOCATION_MARKERS
+    ):
+
+        return "south"
+
+    return "other"
+
+
+def accommodation_value(job):
+
+    value = job.get(
+        "accommodation_provided",
+        "unknown"
+    )
+
+    if isinstance(
+        value,
+        bool
+    ):
+
+        return value
+
+    normalized = normalize_text(
+        value
+    )
+
+    if normalized in {
+        "true",
+        "yes",
+        "oui",
+        "1",
+        "provided",
+        "available"
+    }:
+
+        return True
+
+    if normalized in {
+        "false",
+        "no",
+        "non",
+        "0",
+        "not provided",
+        "unavailable"
+    }:
+
+        return False
+
+    return None
+
+
+def explicit_accommodation_in_ad(
+    text
+):
+
+    return accommodation_signal_in_text(text) is True
+
+
+def enforce_location_rule(
+    job,
+    decision,
+    job_section_text,
+    section_verified=True,
+):
+    category = job_location_category(job)
+    accommodation = accommodation_value(job)
+
+    if category == "local":
+        return decision, "allowed_local", "Local/nearby area accepted"
+
+    if category == "south":
+        return decision, "allowed_south", "Southern/Saharan Algeria accepted"
+
+    # Unknown geography cannot be made eligible by an accommodation claim.
+    if category == "unknown":
+        if decision == "APPLY":
+            return (
+                "REVIEW",
+                "unknown_location",
+                "Work location is not clear enough to confirm eligibility",
+            )
+        return (
+            decision,
+            "unknown_location",
+            "Work location is not clearly identified",
+        )
+
+    # A known out-of-area location is a hard exclusion unless employer-provided
+    # accommodation is positively verified for this position. An ambiguous
+    # title-to-section match is not a reason to route an ineligible location to
+    # REVIEW when no accommodation evidence exists.
+    if category == "other" and accommodation is True:
+        # If accommodation evidence exists but its link to this exact position
+        # is uncertain, keep the no-auto-send safeguard and ask for review.
+        if not section_verified:
+            if decision == "APPLY":
+                return (
+                    "REVIEW",
+                    "location_section_unverified",
+                    "Employer-provided accommodation appears in a candidate section, but its association with this exact position could not be verified; automatic sending is disabled.",
+                )
+            return (
+                decision,
+                "location_section_unverified",
+                "Accommodation evidence could not be verified against this position's own section.",
+            )
+        return decision, "allowed_housing", "Explicit employer-provided housing verified in this position's ad"
+
+    # No verified employer-provided accommodation means a known out-of-area
+    # location fails the candidate's mandatory location rule, even when the
+    # multi-position advertisement cannot be mapped to a specific title block.
+    if category == "other":
+        return (
+            "REJECT",
+            "rejected_location",
+            "Work location is outside the accepted local/Saharan area and employer-provided accommodation is not explicitly verified for this position",
+        )
+
+    return decision, "unknown_location", "Work location could not be classified"
