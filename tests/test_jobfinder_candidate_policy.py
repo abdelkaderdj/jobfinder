@@ -125,7 +125,7 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         for name in expected_names:
             with self.subTest(name=name):
                 self.assertIn(name, source.split("from jobfinder_candidate_policy import", 1)[1].split(")", 1)[0])
-                self.assertNotRegex(source, rf"(?m)^{name}\\s*=")
+                self.assertNotRegex(source, rf"(?m)^{name}\s*=")
 
         self.assertTrue(UNRELATED_ROLE_TITLE_PATTERNS)
         self.assertTrue(DIRECT_MAINTENANCE_TECHNICIAN_ROLE_PATTERNS)
