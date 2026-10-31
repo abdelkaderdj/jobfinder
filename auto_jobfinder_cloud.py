@@ -7037,7 +7037,7 @@ def _job_title_evidence_is_grounded(job, source_text):
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
         is_numbered_compact_role_line = bool(
             re.match(
-                r"^\\s*[0-9٠-٩]{1,2}(?:\\ufe0f?\\u20e3|[.)\\-:]\\s*|\\s+)",
+                r"^\s*[0-9٠-٩]{1,2}(?:\ufe0f?\u20e3|[.)\-:]\s*|\s+)",
                 raw_line,
             )
         )
