@@ -3549,7 +3549,7 @@ recrutement.dz30@yahoo.com
 """
         two_titles = processor.extract_compact_listed_role_titles(two_role_ad)
         self.assertEqual(len(two_titles), 2)
-        self.assertIn("محاسب مؤهل", processor.normalize_text(two_titles[0]))
+        self.assertIn(processor.normalize_text("محاسب مؤهل"), processor.normalize_text(two_titles[0]))
         self.assertIn("كهروميكانيكي", processor.normalize_text(two_titles[1]))
 
         osco_rh_ad = """🚨 شركة EURL OSCO – Oil Services Company تعلن عن توظيف في قسم الموارد البشرية
