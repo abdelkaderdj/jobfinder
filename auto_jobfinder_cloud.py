@@ -1234,17 +1234,28 @@ def split_advertisement_sections(advertisement: str) -> list[str]:
 
 
 _COMPACT_ROLE_PREFIXES = (
-    "chef d equipe", "gestionnaire", "acheteur", "responsable", "cadre",
-    "electromecanicien", "electricien", "plombier", "soudeur", "peintre",
-    "technicien", "technologue", "ingenieur", "operateur", "agent",
-    "coordinateur", "conducteur", "assistant", "charge", "mecanicien",
+    "chef d equipe", "chef", "gestionnaire", "acheteur", "responsable", "cadre",
+    "electromecanicien", "electromecaniciens", "electricien", "plombier", "soudeur", "peintre",
+    "technicien", "technicienne", "technologue", "ingenieur", "operateur", "agent", "agents",
+    "coordinateur", "conducteur", "assistant", "charge", "mecanicien", "mecaniciens",
     "dessinateur", "projeteur", "controleur", "magasinier", "comptable",
     "superviseur", "chauffeur", "tourneur", "fraiseur", "programmeur",
-    "regleur", "monteur", "manoeuvre", "مهندس", "مهندسين", "مهندسي",
-    "تقني", "تقنيين", "فني", "فنيين", "مشغل", "عامل", "مسؤول",
-    "رئيس", "مدير", "مسير", "مسيري", "مشتري", "كهربائي", "سباك",
-    "لحام", "دهان", "ميكانيكي", "عون", "اعوان", "مكلف", "مراقب",
+    "regleur", "monteur", "manoeuvre", "medecin", "aide soignante", "infographe",
+    "graphiste", "designer", "infirmier", "infirmiere", "directeur", "specialiste",
+    "مهندس", "مهندسين", "مهندسي", "تقني", "تقنيين", "فني", "فنيين", "مشغل",
+    "عامل", "عمال", "مسؤول", "رئيس", "مدير", "مسير", "مسيري", "مشتري",
+    "كهربائي", "سباك", "لحام", "دهان", "ميكانيكي", "ميكانيكيي", "ميكانيكيون",
+    "ميكانيكيين", "كهروميكانيكي", "كهروميكانيكية", "محاسب", "محاسبين",
+    "محاسبة", "طبيب", "طبيبة", "ممرض", "ممرضة", "مصمم", "مصممة", "مساعد",
+    "مساعدة", "أخصائي", "اخصائي", "عون", "اعوان", "مكلف", "مراقب",
     "منسق", "مشرف", "مشرفين", "موظف", "موظفي", "سائق", "سائقا",
+)
+_COMPACT_ROLE_LIST_HEADING_MARKERS = (
+    "postes a pourvoir", "poste a pourvoir", "postes suivants",
+    "postes recherches", "positions a pourvoir", "vacancies",
+    "المناصب المطلوبة", "المناصب التالية", "المناصب الشاغرة",
+    "الشواغر التالية", "مناصب التوظيف", "الوظائف المطلوبة",
+    "وظائف شاغرة",
 )
 _COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
     normalize_text(prefix) for prefix in _COMPACT_ROLE_PREFIXES
@@ -1252,12 +1263,12 @@ _COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
-    """Extract explicit title lists, never qualifications or application instructions."""
+    """Extract explicit title lists, including Unicode-numbered Arabic/French lists."""
     found = []
     seen = set()
-    # The compact-list recovery is meant for a list of actual openings, not
-    # specialties listed under the candidate profile. Stop at the first
-    # qualifications/requirements/application section.
+    # A two-position list is accepted only after a clear vacancy-list heading.
+    # Without that heading, retain the conservative three-title threshold.
+    role_list_heading_seen = False
     role_list_end_markers = (
         "profil recherche", "profile recherche", "profil et conditions",
         "conditions de recrutement", "conditions requises", "qualifications",
@@ -1268,24 +1279,25 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
         "كيفية التقديم", "للمهتمين", "المهام المطلوبة",
     )
     for raw_line in str(advertisement or "").splitlines():
-        line = re.sub(r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)", "", raw_line).strip()
-        normalized_line = normalize_text(line)
+        cleaned_line = _clean_compact_role_list_line(raw_line)
+        normalized_line = normalize_text(cleaned_line)
+        if any(marker in normalized_line for marker in _COMPACT_ROLE_LIST_HEADING_MARKERS):
+            role_list_heading_seen = True
+            continue
         if any(marker in normalized_line for marker in role_list_end_markers):
-            break
-        # Recruitment posts often prefix Arabic titles with a headcount:
-        # "08 مهندسين وتقنيين في الصيانة" or "02 مشرفين HSE".
-        line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
-        line = line.strip(" .;,-–—")
+            if role_list_heading_seen or found:
+                break
+            continue
+
+        line = cleaned_line.strip()
         if not line or len(line) > 360 or "http://" in line.lower() or "https://" in line.lower():
             continue
 
-        # Qualification details frequently follow the title in parentheses.
-        # Apply title-length and role-prefix checks to the title only, while
-        # retaining the entire source line for per-position requirement parsing.
-        title_part = re.split(r"\s*\(", line, maxsplit=1)[0].strip(" .;,-–—")
+        # Qualification details frequently follow the title in parentheses;
+        # some Arabic/French lists put the task description after a colon.
+        title_part = re.split(r"\s+\(", line, maxsplit=1)[0].strip(" .;,-–—")
+        title_part = re.split(r"\s*[:：]\s*", title_part, maxsplit=1)[0].strip(" .;,-–—")
         if not title_part or len(title_part) > 120 or len(title_part.split()) > 14:
-            continue
-        if ":" in title_part:
             continue
         normalized = normalize_text(title_part)
         if not normalized or not any(
@@ -1295,11 +1307,14 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
             continue
         if normalized not in seen:
             seen.add(normalized)
+            # Preserve the original (un-numbered) source line for its own
+            # parenthetical qualification, department, and evidence parsing.
             found.append(line)
-    # Avoid treating an ordinary paragraph that starts with a title word as a
-    # multi-position list. This is designed for short one-title-per-line posts.
-    return found if len(found) >= 3 else []
 
+    # An explicit vacancy-list heading plus two role lines is sufficient.
+    # Otherwise require at least three recognized title lines to avoid turning
+    # ordinary paragraphs or profile specialties into synthetic vacancies.
+    return found if (role_list_heading_seen and len(found) >= 2) or len(found) >= 3 else []
 
 def _compact_list_title_matches(title: str, job: dict) -> bool:
     normalized_title = normalize_text(title)
@@ -1336,27 +1351,39 @@ def _compact_list_title_matches(title: str, job: dict) -> bool:
 
 
 def _clean_compact_role_list_line(raw_line: str) -> str:
-    """Remove list decoration/count prefixes while preserving the source wording."""
+    """Remove bullets, Unicode emoji numbering, and ordinary count prefixes."""
     line = re.sub(r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)", "", str(raw_line or "")).strip()
-    line = re.sub(r"^\s*\d{1,2}(?:[.)\-]\s*|\s+)", "", line).strip()
+    # Telegram list numbers are often rendered as keycap emoji: 1️⃣, 2️⃣, etc.
+    # Support Arabic-Indic digits and traditional 1. / 1) / 1- prefixes too.
+    line = re.sub(
+        r"^\s*[0-9٠-٩]{1,2}(?:(?:\ufe0f)?\u20e3|[.)\-:]\s*|\s+)\s*",
+        "",
+        line,
+    ).strip()
     return line.strip(" .;,-–—")
 
-
 def _split_compact_role_title_and_requirement(value: str) -> tuple[str, str]:
-    """Split a title from its parenthetical qualification without losing source wording."""
+    """Split a title from a spaced parenthetical translation/qualification.
+
+    Arabic gender suffixes such as ``طبيب(ة)`` and ``مصمم(ة)`` are part of
+    the occupational title, not a parenthetical requirement. Only a parenthesis
+    preceded by whitespace starts the trailing alias/qualification section.
+    """
     line = _clean_compact_role_list_line(value)
-    if "(" not in line or ")" not in line:
+    match = re.search(r"\s+\(", line)
+    if not match:
         return line, ""
-    left, remainder = line.split("(", 1)
-    detail, _closing, trailing = remainder.partition(")")
-    if not _closing:
+    title = line[:match.start()].strip(" .;,-–—")
+    remainder = line[match.end():]
+    detail, closing, trailing = remainder.partition(")")
+    if not closing:
         return line, ""
-    title = left.strip(" .;,-–—")
     requirement = detail.strip()
+    # Do not attach the task description after a colon to the qualification.
+    trailing = re.split(r"\s*[:：]\s*", trailing, maxsplit=1)[0]
     if trailing.strip(" .;,-–—"):
         requirement = (requirement + " " + trailing.strip(" .;,-–—")).strip()
     return title or line, requirement
-
 
 def _infer_company_name_from_advertisement(advertisement: str) -> str:
     """Recover a company name only from a legal-form/name sequence in the source."""
@@ -7008,7 +7035,13 @@ def _job_title_evidence_is_grounded(job, source_text):
             continue
 
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
-        is_listed_role_line = bool(bullet_prefix.match(raw_line))
+        is_numbered_compact_role_line = bool(
+            re.match(
+                r"^\s*[0-9٠-٩]{1,2}(?:\ufe0f?\u20e3|[.)\-:]\s*|\s+)",
+                raw_line,
+            )
+        )
+        is_listed_role_line = bool(bullet_prefix.match(raw_line)) or is_numbered_compact_role_line
         inline_requirement_match = re.match(
             r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?(?P<title>[^()]+?)\s*\((?P<requirement>[^()]*)\)",
             raw_line,
