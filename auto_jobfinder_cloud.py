@@ -7051,6 +7051,74 @@ def _validated_job_records(result, source_text):
     return valid
 
 
+_SINGLE_POSITION_TITLE_LABEL_RE = re.compile(
+    r"^\\s*(?:[-*•▪●🔹🔸📌✅➤▶]\\s*)?(?:"
+    r"job title|title of the position|position title|intitul[eé] du poste|"
+    r"intitule de poste|poste a pourvoir|poste propos[eé]|"
+    r"المسمى الوظيفي|مسمى الوظيفة|المنصب المطلوب|الوظيفة المطلوبة"
+    r")\\s*[:：]\\s*(?P<title>.+?)\\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def recover_explicit_single_position(advertisement: str) -> dict | None:
+    """
+    Recover one position only when the source explicitly labels its job title.
+
+    This is a narrow deterministic fallback for single-vacancy posts. It does
+    not guess from company/industry words or turn an unparsed multi-role post
+    into one synthetic position. The result receives no AI score and still
+    passes through the normal candidate, location, contact, and send gates.
+    """
+    source = str(advertisement or "")
+    matches = []
+    seen = set()
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        match = _SINGLE_POSITION_TITLE_LABEL_RE.match(line)
+        if not match:
+            continue
+        title_raw = match.group("title").strip()
+        title, inline_requirement = _split_compact_role_title_and_requirement(title_raw)
+        title = title.strip(" .;,-–—")
+        normalized_title = normalize_text(title)
+        if not normalized_title or len(normalized_title.replace(" ", "")) < 4:
+            continue
+        if len(title) > 120 or len(title.split()) > 14:
+            continue
+        if normalized_title in seen:
+            continue
+        seen.add(normalized_title)
+        matches.append((title, line, inline_requirement))
+
+    # More than one distinct explicitly labelled position is not a single-role
+    # recovery case. Let the multi-position path/manual fallback handle it.
+    if len(matches) != 1:
+        return None
+
+    title, source_line, inline_requirement = matches[0]
+    job = {
+        "job_title": title,
+        "application_title_fr": title,
+        "application_title_en": title,
+        "title_evidence": title,
+        "source_title_line": source_line,
+        "company": _infer_company_name_from_advertisement(source),
+        "location": infer_explicit_work_location(source),
+        "requirements": inline_requirement,
+        "decision": "REVIEW",
+        "score": None,
+        "reason": (
+            "استُعيد المسمى من حقل وظيفي صريح في الإعلان؛ لم تُحتسب درجة AI، "
+            "ويخضع المنصب الآن لقواعد الملاءمة الحتمية المعتادة."
+        ),
+        "source_recovery": "explicit_single_position_title",
+    }
+    if not _job_title_evidence_is_grounded(job, source):
+        return None
+    return job
+
+
 def emit_unparsed_vacancy_review(post, advertisement):
     """Keep a recruitment-like post visible for manual review; never auto-send it."""
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
@@ -7385,9 +7453,20 @@ def process_post(
             jobs = retry_jobs
             print(f"AI VACANCY RESCUE: extracted {len(jobs)} position(s)")
         elif not listed_role_titles:
-            # Do not discard the post silently, and never automatically apply
-            # using a synthetic/uncertain job record.
-            return emit_unparsed_vacancy_review(post, text)
+            # A single-position vacancy may have one explicit labelled title
+            # without qualifying for the compact (3+ role) list parser. Recover
+            # only that source-grounded field before using the generic fallback.
+            recovered_single = recover_explicit_single_position(contact_scope_advertisement)
+            if recovered_single:
+                jobs = [recovered_single]
+                print(
+                    "SINGLE POSITION TITLE RECOVERY: recovered one explicitly labelled title; "
+                    "no AI score or automatic-send decision was inferred"
+                )
+            else:
+                # Do not discard the post silently, and never automatically apply
+                # using a synthetic/uncertain job record.
+                return emit_unparsed_vacancy_review(post, text)
         else:
             print(
                 f"COMPACT ROLE LIST RECOVERY: found {len(listed_role_titles)} separate title lines; "
