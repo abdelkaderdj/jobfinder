@@ -7035,7 +7035,13 @@ def _job_title_evidence_is_grounded(job, source_text):
             continue
 
         has_explicit_title_label = bool(_JOB_TITLE_LABEL_CONTEXT_RE.search(normalized_line))
-        is_listed_role_line = bool(bullet_prefix.match(raw_line))
+        is_numbered_compact_role_line = bool(
+            re.match(
+                r"^\\s*[0-9٠-٩]{1,2}(?:\\ufe0f?\\u20e3|[.)\\-:]\\s*|\\s+)",
+                raw_line,
+            )
+        )
+        is_listed_role_line = bool(bullet_prefix.match(raw_line)) or is_numbered_compact_role_line
         inline_requirement_match = re.match(
             r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?(?P<title>[^()]+?)\s*\((?P<requirement>[^()]*)\)",
             raw_line,
