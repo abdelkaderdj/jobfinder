@@ -3490,6 +3490,53 @@ Ingénieur Levage (01 poste - Ingénieur d’État / Master en mécanique, géni
         self.assertNotEqual(decision, "REJECT")
 
 
+    def test_single_position_label_recovery_preserves_ledgold_fields_and_rejects_accounting(self):
+        advertisement = """🚨 شركة SPA LED GOLD SK تعلن عن فتح باب التوظيف لشغل منصب محاسب(ة) (Comptable) – حاسي عامر / وهران
+في إطار تطوير وتوسيع أنشطتها الميدانية والإدارية، تعلن شركة SPA LED GOLD SK عن فتح باب التوظيف المباشر واستقبال الترشيحات لشغل المنصب التالي:
+🔹 المسمى الوظيفي: Comptable (محاسب / محاسبة).
+📍 مكان العمل: حاسي عامر، وهران – الجزائر (Hassi Ameur, Oran – Algérie).
+🏢 القطاع: الصناعة، التجهيزات الإلكترونية والكهربائية، والمحاسبة المالية (Industrie & Finance).
+🟢 المهام والمسؤوليات الرئيسية (Missions principales) :
+تسجيل ومراقبة العمليات المحاسبية اليومية.
+معالجة ومتابعة فواتير الزبائن والموردين.
+متابعة التسويات المالية، المقبوضات، وتواريخ استحقاق الدفع.
+📩 طريقة التقديم:
+📧 البريد الإلكتروني: career@ledgoldsk.com
+"""
+        job = processor.recover_explicit_single_position(advertisement)
+        self.assertIsNotNone(job)
+        self.assertEqual(job["job_title"], "Comptable")
+        self.assertEqual(job["company"], "SPA LED GOLD SK")
+        self.assertIn("حاسي عامر", job["location"])
+        self.assertIn("وهران", job["location"])
+        self.assertEqual(job["score"], None)
+        self.assertEqual(job["source_recovery"], "explicit_single_position_title")
+        self.assertTrue(processor._job_title_evidence_is_grounded(job, advertisement))
+
+        sections = processor.split_advertisement_sections(advertisement)
+        section, section_matched, _ = processor.resolve_job_section(
+            job, advertisement, sections, 1
+        )
+        self.assertTrue(section_matched)
+        position_scope, position_matched, _ = processor.resolve_job_position_scope(
+            job, section, [job]
+        )
+        self.assertTrue(position_matched)
+        cv_match_score, _ = processor.calculate_candidate_cv_match(job, position_scope)
+        decision, _reason = processor.enforce_candidate_fit_rule(
+            job, "REVIEW", position_scope, cv_match_score=cv_match_score
+        )
+        self.assertEqual(decision, "REJECT")
+
+    def test_single_position_recovery_refuses_multiple_explicit_title_labels(self):
+        advertisement = """شركة TEST تعلن عن توظيف
+المسمى الوظيفي: Comptable
+المسمى الوظيفي: Technicien de Maintenance
+📍 مكان العمل: وهران
+"""
+        self.assertIsNone(processor.recover_explicit_single_position(advertisement))
+
+
 
 if __name__ == "__main__":
     unittest.main()
