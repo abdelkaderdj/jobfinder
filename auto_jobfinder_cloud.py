@@ -1295,7 +1295,7 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
 
         # Qualification details frequently follow the title in parentheses;
         # some Arabic/French lists put the task description after a colon.
-        title_part = re.split(r"\s*\(", line, maxsplit=1)[0].strip(" .;,-–—")
+        title_part = re.split(r"\s+\(", line, maxsplit=1)[0].strip(" .;,-–—")
         title_part = re.split(r"\s*[:：]\s*", title_part, maxsplit=1)[0].strip(" .;,-–—")
         if not title_part or len(title_part) > 120 or len(title_part.split()) > 14:
             continue
