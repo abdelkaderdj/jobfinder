@@ -1363,20 +1363,27 @@ def _clean_compact_role_list_line(raw_line: str) -> str:
     return line.strip(" .;,-–—")
 
 def _split_compact_role_title_and_requirement(value: str) -> tuple[str, str]:
-    """Split a title from its parenthetical qualification without losing source wording."""
+    """Split a title from a spaced parenthetical translation/qualification.
+
+    Arabic gender suffixes such as ``طبيب(ة)`` and ``مصمم(ة)`` are part of
+    the occupational title, not a parenthetical requirement. Only a parenthesis
+    preceded by whitespace starts the trailing alias/qualification section.
+    """
     line = _clean_compact_role_list_line(value)
-    if "(" not in line or ")" not in line:
+    match = re.search(r"\s+\(", line)
+    if not match:
         return line, ""
-    left, remainder = line.split("(", 1)
-    detail, _closing, trailing = remainder.partition(")")
-    if not _closing:
+    title = line[:match.start()].strip(" .;,-–—")
+    remainder = line[match.end():]
+    detail, closing, trailing = remainder.partition(")")
+    if not closing:
         return line, ""
-    title = left.strip(" .;,-–—")
     requirement = detail.strip()
+    # Do not attach the task description after a colon to the qualification.
+    trailing = re.split(r"\s*[:：]\s*", trailing, maxsplit=1)[0]
     if trailing.strip(" .;,-–—"):
         requirement = (requirement + " " + trailing.strip(" .;,-–—")).strip()
     return title or line, requirement
-
 
 def _infer_company_name_from_advertisement(advertisement: str) -> str:
     """Recover a company name only from a legal-form/name sequence in the source."""
