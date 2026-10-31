@@ -3537,6 +3537,112 @@ Ingénieur Levage (01 poste - Ingénieur d’État / Master en mécanique, géni
         self.assertIsNone(processor.recover_explicit_single_position(advertisement))
 
 
+    def test_multilingual_compact_role_parser_handles_numbered_arabic_and_french_lists(self):
+        two_role_ad = """🚨 شركة خاصة تقع في باب الزوار تعلن عن توظيف محاسب و إلكتروميكانيكي – الجزائر العاصمة
+في إطار تعزيز فريقها الميداني والإداري، تعلن مؤسسة خاصة كائن مقرها في باب الزوار عن فتح باب التوظيف المباشر لشغل المناصب التالية:
+🔹 المناصب المطلوبة:
+محاسب مؤهل (Comptable qualifié): إدارة الحسابات، متابعة التصريحات الجبائية وإعداد القوائم المالية.
+كهروميكانيكي (Électromécanicien): صيانة وإصلاح المعدات والأنظمة الكهروميكانيكية والتركيبات التقنية.
+📍 مكان العمل: باب الزوار، الجزائر العاصمة.
+📩 طريقة التقديم:
+recrutement.dz30@yahoo.com
+"""
+        two_titles = processor.extract_compact_listed_role_titles(two_role_ad)
+        self.assertEqual(len(two_titles), 2)
+        self.assertIn(processor.normalize_text("محاسب مؤهل"), processor.normalize_text(two_titles[0]))
+        self.assertIn("كهروميكانيكي", processor.normalize_text(two_titles[1]))
+
+        osco_rh_ad = """🚨 شركة EURL OSCO – Oil Services Company تعلن عن توظيف في قسم الموارد البشرية
+🟢 المناصب المطلوبة والشروط التعليمية (Profils recherchés) :
+1️⃣ مسؤول الرحلات والتنقلات المهنية (Gestionnaire Voyages Professionnels)
+2️⃣ مكلف بمساعدة ومرافقة العمال الأجانب (Chargé Assistance Personnel Expatrié)
+3️⃣ مسؤول إدارة بيانات الموارد البشرية (Gestionnaire Données RH)
+4️⃣ مكلف بالتطوير والتدريب في الموارد البشرية (Chargé Développement et Formation RH)
+📝 الخبرة والشروط العامة :
+الخبرة المهنية: خبرة عمل لا تقل عن 05 سنوات في وظيفة مشابهة.
+📩 contact@osco-oil.com
+"""
+        osco_titles = processor.extract_compact_listed_role_titles(osco_rh_ad)
+        self.assertEqual(len(osco_titles), 4)
+        self.assertTrue(all(
+            title.startswith(("مسؤول", "مكلف"))
+            for title in [processor._split_compact_role_title_and_requirement(item)[0] for item in osco_titles]
+        ))
+
+        setif_ad = """🚨 شركة DIGITAL TRANSPORT LOGISTIQUE تعلن عن فتح باب التوظيف في سطيف
+🔹 المناصب المطلوبة (Postes à pourvoir) :
+1️⃣ رئيس ورشة ميكانيكا (Chef d'atelier mécanique)
+2️⃣ ميكانيكيي وزن هائل / شاحنات (Mécaniciens poids lourds)
+2️⃣ عمال غسيل، تغيير الزيوت والتشحيم (Agents de lavage vidange et graissage)
+1️⃣ رئيس حظيرة / أسطول (Chef de flotte)
+📍 مكان العمل: سطيف، الجزائر.
+📧 drhsetif1919@gmail.com
+"""
+        setif_titles = processor.extract_compact_listed_role_titles(setif_ad)
+        self.assertEqual(len(setif_titles), 4)
+        self.assertIn("ميكانيكيي", processor.normalize_text(setif_titles[1]))
+        self.assertIn("عمال غسيل", processor.normalize_text(setif_titles[2]))
+
+        alrayane_ad = """🚨 Alrayane Healthcare تعلن عن توظيف واسع في برج الكيفان
+🟢 المناصب المطلوبة (Postes à pourvoir) :
+1️⃣ طبيب(ة) أخصائي(ة) في أمراض النساء والتوليد (Médecin Gynécologue)
+2️⃣ طبيب(ة) عام (Médecin Généraliste)
+3️⃣ عامل(ة) متعدد المهام (Agent Polyvalent)
+4️⃣ مصمم(ة) جرافيك / إنفوغراف (Infographe)
+5️⃣ مساعدة ممرضة (Aide-Soignante)
+6️⃣ تقني في المعلوماتية (Technicien Informatique)
+7️⃣ مكلف بالوسائل العامة (Chargé MGX - Moyens Généraux)
+8️⃣ مسؤول / رئيس الحظيرة (Chef de Parc)
+📍 مكان العمل: برج الكيفان، الجزائر العاصمة.
+📧 recrutement@alrayane-healthcare.com
+"""
+        alrayane_titles = processor.extract_compact_listed_role_titles(alrayane_ad)
+        self.assertEqual(len(alrayane_titles), 8)
+        self.assertTrue(any("informatique" in processor.normalize_text(item) for item in alrayane_titles))
+
+
+    def test_process_post_uses_single_position_recovery_instead_of_generic_ledgold_card(self):
+        advertisement = """🚨 شركة SPA LED GOLD SK تعلن عن فتح باب التوظيف لشغل منصب محاسب(ة) (Comptable) – حاسي عامر / وهران
+في إطار تطوير وتوسيع أنشطتها الميدانية والإدارية، تعلن شركة SPA LED GOLD SK عن فتح باب التوظيف المباشر واستقبال الترشيحات لشغل المنصب التالي:
+🔹 المسمى الوظيفي: Comptable (محاسب / محاسبة).
+📍 مكان العمل: حاسي عامر، وهران – الجزائر (Hassi Ameur, Oran – Algérie).
+🏢 القطاع: الصناعة، التجهيزات الإلكترونية والكهربائية، والمحاسبة المالية (Industrie & Finance).
+🟢 المهام والمسؤوليات الرئيسية (Missions principales) :
+تسجيل ومراقبة العمليات المحاسبية اليومية.
+📩 طريقة التقديم:
+📧 البريد الإلكتروني: career@ledgoldsk.com
+"""
+        post = {
+            "source": "CVDZJOBS",
+            "channel": "CVDZJOBS",
+            "message_id": 2164,
+            "text": advertisement,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer", side_effect=[{"jobs": []}, {"jobs": []}]) as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "JOB_DECISION_AUDIT_CALLBACK", new=None),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        self.assertEqual(analyze.call_count, 2)
+        analyze.assert_called_with(advertisement, vacancy_rescue=True)
+        save_result.assert_called_once()
+        self.assertEqual(len(events), 1)
+        record = events[0]["record"]
+        self.assertEqual(record["job_title"], "Comptable")
+        self.assertEqual(record["company"], "SPA LED GOLD SK")
+        self.assertIn("حاسي عامر", record["location"])
+        self.assertEqual(record["decision"], "REJECT")
+        self.assertFalse(record.get("analysis_fallback", False))
+        self.assertEqual(record["emails"], ["career@ledgoldsk.com"])
+        send_application.assert_not_called()
+
+
 
 if __name__ == "__main__":
     unittest.main()
