@@ -3599,6 +3599,22 @@ recrutement.dz30@yahoo.com
         alrayane_titles = processor.extract_compact_listed_role_titles(alrayane_ad)
         self.assertEqual(len(alrayane_titles), 8)
         self.assertTrue(any("informatique" in processor.normalize_text(item) for item in alrayane_titles))
+        alrayane_jobs, recovered_count = processor._recover_missing_compact_list_roles(
+            alrayane_titles,
+            [],
+            alrayane_ad,
+        )
+        self.assertEqual(recovered_count, 8)
+        self.assertEqual(len({processor.normalize_text(job["job_title"]) for job in alrayane_jobs}), 8)
+        for job in alrayane_jobs:
+            with self.subTest(recovered_title=job["job_title"]):
+                self.assertTrue(processor._job_title_evidence_is_grounded(job, alrayane_ad))
+        self.assertTrue(
+            any("امراض النساء" in processor.normalize_text(job["job_title"]) for job in alrayane_jobs)
+        )
+        self.assertTrue(
+            any("طبيب" in processor.normalize_text(job["job_title"]) and "عام" in processor.normalize_text(job["job_title"]) for job in alrayane_jobs)
+        )
 
 
     def test_process_post_uses_single_position_recovery_instead_of_generic_ledgold_card(self):
