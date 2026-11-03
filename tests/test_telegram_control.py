@@ -3373,7 +3373,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {"GEMINI_REVIEW_MODEL": ""},
+                {},
                 clear=False,
             ),
             patch.object(processor, "_pace_ai_provider"),
