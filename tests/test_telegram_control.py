@@ -2717,6 +2717,58 @@ Ouvrier Montage Panneaux PV
         self.assertEqual(result["status"], "duplicate")
         send.assert_not_called()
 
+    def test_manual_apply_bypasses_candidate_and_location_rejections_but_keeps_email_gate(self):
+        advertisement = (
+            "EURL Example recrute un Comptable. "
+            "Lieu de travail: Tamanrasset. "
+            "Envoyez votre CV à jobs@example.org."
+        )
+        job = {
+            "job_title": "Comptable",
+            "title_evidence": "Comptable",
+            "company": "EURL Example",
+            "location": "Tamanrasset",
+            "decision": "REJECT",
+            "score": 0,
+            "reason": "Unrelated role and location under normal candidate rules.",
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer", return_value={"jobs": [job], "post_type": "actual_vacancy"}) as analyze,
+            patch.object(processor, "_validated_job_records", return_value=[job]),
+            patch.object(processor, "resolve_job_section", return_value=(advertisement, True, "matched")),
+            patch.object(processor, "resolve_job_position_scope", return_value=(advertisement, True, "matched")),
+            patch.object(processor, "determine_application_language", return_value=("fr", "test")),
+            patch.object(processor, "get_application_job_title", return_value="Comptable"),
+            patch.object(processor, "scoped_accommodation_value", return_value="unknown"),
+            patch.object(processor, "choose_cv", return_value="/tmp/cv_ats_fr.pdf"),
+            patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_sent"),
+            patch.object(processor, "save_result"),
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "JOB_DECISION_AUDIT_CALLBACK", new=None),
+        ):
+            ok = processor.process_post(
+                {
+                    "source": "",
+                    "message_id": "manual-991",
+                    "channel": "manual_submission",
+                    "text": advertisement,
+                },
+                manual_apply=True,
+            )
+
+        self.assertTrue(ok)
+        self.assertTrue(analyze.call_args.kwargs["manual_apply"])
+        send.assert_called_once()
+        self.assertEqual(len(events), 1)
+        record = events[0]["record"]
+        self.assertEqual(record["decision"], "APPLY")
+        self.assertEqual(record["location_status"], "manual_owner_override")
+        self.assertTrue(record["manual_apply"])
+        self.assertTrue(record["sent"])
+
     def test_processor_sends_only_after_validated_approval(self):
         item = self.sample_review_item(True)
         with (
@@ -2735,6 +2787,66 @@ Ouvrier Montage Panneaux PV
 
 
 class JobIdentityAndGroqFallbackTests(unittest.TestCase):
+    def test_same_offer_content_is_duplicate_but_same_title_company_new_ad_is_not(self):
+        email = "recruitment@example.com"
+        title = "Technicien de Maintenance"
+        old_ad = (
+            "EURL Example recrute un Technicien de Maintenance. "
+            "Trois postes disponibles à Oran. Envoyez CV à recruitment@example.com."
+        )
+        new_ad = (
+            "EURL Example lance une nouvelle campagne et recrute un Technicien de Maintenance. "
+            "Cinq postes supplémentaires à Oran pour une nouvelle équipe. "
+            "Envoyez CV à recruitment@example.com."
+        )
+        old_fingerprint = processor.application_offer_fingerprint(old_ad, title, email)
+        same_fingerprint = processor.application_offer_fingerprint(old_ad, title, email)
+        new_fingerprint = processor.application_offer_fingerprint(new_ad, title, email)
+        self.assertEqual(old_fingerprint, same_fingerprint)
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+
+        old_record = {"key": "old-key", "offer_fingerprint": old_fingerprint}
+        with patch.object(processor, "load_sent_records", return_value=[old_record]):
+            duplicate_same, matched_same = processor.already_sent_same_offer(
+                "another-message-id", same_fingerprint
+            )
+            duplicate_new, matched_new = processor.already_sent_same_offer(
+                "new-campaign-message-id", new_fingerprint
+            )
+
+        self.assertTrue(duplicate_same)
+        self.assertEqual(matched_same, old_record)
+        self.assertFalse(duplicate_new)
+        self.assertIsNone(matched_new)
+
+    def test_legacy_company_and_title_match_alone_do_not_block_new_offer(self):
+        old_record = {
+            "key": "different-post",
+            "application_job_title": "Technicien de Maintenance",
+            "company": "EURL Example",
+            "email": "recruitment@example.com",
+        }
+        current_key = "new-post-same-company-title"
+        fingerprint = processor.application_offer_fingerprint(
+            "EURL Example recruits another Technicien de Maintenance for a new team.",
+            "Technicien de Maintenance",
+            "recruitment@example.com",
+        )
+        with patch.object(processor, "load_sent_records", return_value=[old_record]):
+            duplicate, matched = processor.already_sent_same_offer(current_key, fingerprint)
+        self.assertFalse(duplicate)
+        self.assertIsNone(matched)
+
+    def test_exact_telegram_application_key_is_still_a_permanent_duplicate(self):
+        post = {"source": "rcrdz1", "message_id": 22606}
+        job = {"job_title": "Technicien de Maintenance"}
+        email = "recruitment@example.com"
+        key = processor.application_key(post, job, email)
+        with patch.object(processor, "load_sent_records", return_value=[{"key": key}]):
+            duplicate, matched = processor.already_sent_same_offer(key, "")
+        self.assertTrue(duplicate)
+        self.assertEqual(matched, {"key": key})
+
     def test_singular_and_plural_technician_titles_share_identity_tokens(self):
         self.assertEqual(
             processor.canonical_title_tokens("Technicien"),
