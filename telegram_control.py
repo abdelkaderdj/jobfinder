@@ -140,8 +140,8 @@ class TelegramJobBot:
     def _send_owner(self, text: str, keyboard: dict[str, Any] | None = None) -> bool:
         if not self.owner_configured:
             return False
-        if keyboard is None:
-            keyboard = main_menu_keyboard(paused=bool(self.state.get("paused")))
+        # Do not re-attach the reply keyboard to every notification. It is
+        # shown on demand from /start and hides after a selection.
         try:
             self._send_message(self.owner_chat_id, text, keyboard)
             return True
@@ -1012,7 +1012,10 @@ class TelegramJobBot:
             return
 
         if command == "/start":
-            self._send_owner("👋 مرحبًا بك في JobFinder\n\n" + self._dashboard_text())
+            self._send_owner(
+                "👋 مرحبًا بك في JobFinder\n\n" + self._dashboard_text(),
+                main_menu_keyboard(paused=bool(self.state.get("paused"))),
+            )
         elif command == "/manual_apply":
             self._send_owner(
                 "📨 التقديم على إعلان تختاره بنفسك\n\n"
