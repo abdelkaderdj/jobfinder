@@ -1746,6 +1746,15 @@ def _is_shared_global_experience_footer_line(line: str) -> bool:
     return any(marker in normalized for marker in global_markers)
 
 
+def _is_global_benefits_heading(line: str) -> bool:
+    """Recognize explicit post-wide benefits headings."""
+    normalized = normalize_text(line).strip(" :؛-–—")
+    return normalized in {
+        "مزايا العمل", "مميزات العمل", "المزايا", "مزايا",
+        "avantages", "avantages sociaux", "benefits", "employee benefits",
+    }
+
+
 def _is_global_requirements_heading(line: str) -> bool:
     normalized = normalize_text(line).strip(" :؛-–—")
     markers = (
@@ -1880,6 +1889,20 @@ def resolve_job_position_scope(
             for idx, line in enumerate(lines)
             if idx > last_title_idx and _is_shared_global_experience_footer_line(line)
         ]
+
+    # Copy only explicit housing evidence from a clearly global benefits section.
+    benefits_headings = [
+        idx for idx, line in enumerate(lines)
+        if idx > last_title_idx and _is_global_benefits_heading(line)
+    ]
+    if benefits_headings:
+        existing_footer = {normalize_text(line) for line in shared_footer_lines}
+        for benefit_line in lines[benefits_headings[0] + 1:]:
+            if accommodation_signal_in_text(benefit_line) is not None:
+                normalized_benefit = normalize_text(benefit_line)
+                if normalized_benefit not in existing_footer:
+                    shared_footer_lines.append(benefit_line)
+                    existing_footer.add(normalized_benefit)
 
     # Carry only explicit shared workplace/accommodation metadata from the
     # section header before the first role. Do not copy company-industry prose

@@ -1407,6 +1407,44 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(decision, "REVIEW")
         self.assertEqual(status, "allowed_housing")
 
+    def test_tindouf_and_gara_djebilet_are_southern_locations(self):
+        for location in (
+            "Tindouf, Algeria",
+            "غارا جبيلات - ولاية تندوف",
+            "Gara Djebilet, Tindouf",
+            "Hassi Tiririne, South Algeria",
+            "الجنوب الجزائري",
+        ):
+            with self.subTest(location=location):
+                self.assertEqual(
+                    processor.job_location_category({"location": location}),
+                    "south",
+                )
+
+    def test_algerian_employer_paid_residence_wording_is_detected(self):
+        advertisement = "الإقامة والإطعام على عاتق الشركة بالكامل."
+        self.assertTrue(processor.accommodation_signal_in_text(advertisement))
+
+    def test_global_benefits_housing_is_shared_with_each_position(self):
+        advertisement = """تعلن الشركة عن توظيف:
+Technicien de Maintenance
+Ouvrier Montage Panneaux PV
+مزايا العمل:
+الإقامة والإطعام على عاتق الشركة بالكامل.
+"""
+        jobs = [
+            {"job_title": "Technicien de Maintenance"},
+            {"job_title": "Ouvrier Montage Panneaux PV"},
+        ]
+        for job in jobs:
+            with self.subTest(title=job["job_title"]):
+                scoped, matched, reason = processor.resolve_job_position_scope(
+                    job, advertisement, jobs
+                )
+                self.assertTrue(matched, reason)
+                self.assertIn("الإقامة والإطعام على عاتق الشركة بالكامل", scoped)
+                self.assertTrue(processor.accommodation_signal_in_text(scoped))
+
     def test_unscoped_multi_position_tipaza_without_housing_is_hard_rejected(self):
         job = {
             "location": "القليعة، ولاية تيبازة",
