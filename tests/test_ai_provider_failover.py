@@ -503,7 +503,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(first, {"route": "groq"})
         self.assertEqual(second, {"route": "groq"})
-        self.assertEqual(gemini.call_count, 2)
+        self.assertEqual(gemini.call_count, 3)
         self.assertEqual(groq.call_count, 2)
         self.assertTrue(processor._GEMINI_DISABLED_FOR_RUN)
 
@@ -579,7 +579,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
         self.assertEqual(raised.exception.retry_after_seconds, 240)
-        self.assertEqual(callbacks, [(240, "All configured Groq routes are temporarily overloaded")])
+        self.assertEqual(callbacks, [(240, "All configured Groq free-provider routes are temporarily unavailable")])
 
     def test_invalid_gemini_key_disables_gemini_models_and_uses_groq(self):
         invalid_key = RuntimeError(
@@ -724,7 +724,7 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
         self.assertEqual(raised.exception.retry_after_seconds, 180)
         self.assertEqual(callbacks, [
-            (180, "All configured Gemini/Groq routes are temporarily unavailable")
+            (180, "All configured Gemini free-provider routes are temporarily unavailable")
         ])
 
     def test_gemini_only_quota_exhaustion_persists_cooldown(self):
@@ -760,7 +760,7 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertEqual(raised.exception.retry_after_seconds, 135)
         self.assertEqual(len(callbacks), 1)
         self.assertEqual(callbacks[0][0], 135)
-        self.assertIn("Gemini/Groq routes", callbacks[0][1])
+        self.assertIn("Gemini routes", callbacks[0][1])
 
     def test_empty_gemini_key_uses_groq_without_attempting_gemini(self):
         with (
