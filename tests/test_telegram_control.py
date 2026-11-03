@@ -2782,7 +2782,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
             os.environ,
             {"GEMINI_API_KEY": "gemini-test-key", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": ""},
         ):
-            self.assertEqual(require_ai_provider(), "Gemini")
+            self.assertEqual(require_ai_provider(), "Gemini (free tier)")
 
     def test_openrouter_only_is_accepted_as_valid_runner_configuration(self):
         with patch.dict(
