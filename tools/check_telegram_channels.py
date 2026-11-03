@@ -30,8 +30,26 @@ def utc_iso(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="minutes")
 
 
+_SAFE_RUNTIME_ERROR_MESSAGES = {
+    "Required GitHub Secret is missing: TELEGRAM_API_ID",
+    "Required GitHub Secret is missing: TELEGRAM_API_HASH",
+    "Required GitHub Secret is missing: TELEGRAM_SESSION",
+    "Required GitHub Secret is missing: JOBFINDER_FERNET_KEY",
+    "JOBFINDER_FERNET_KEY is invalid",
+    "Encrypted data file is missing: cloud_private/state.enc",
+    "Could not decrypt state.enc; check JOBFINDER_FERNET_KEY",
+    "Encrypted JSON file has an invalid structure: state.enc",
+    "Encrypted channel cursor map is invalid",
+    "Telegram user session is not authorized",
+}
+
+
 def one_line_error(exc: Exception) -> str:
-    # Keep logs useful without printing message contents, session data, or secrets.
+    # Expose only exact, reviewed diagnostics. Unknown exception text may contain
+    # credentials or Telegram data, so keep those logs limited to the class name.
+    message = str(exc).strip()
+    if type(exc) is RuntimeError and message in _SAFE_RUNTIME_ERROR_MESSAGES:
+        return f"RuntimeError: {message}"
     return type(exc).__name__
 
 
@@ -284,5 +302,5 @@ if __name__ == "__main__":
         sys.exit(asyncio.run(main()))
     except Exception as exc:
         # Never print environment values, session data, or advertisement contents.
-        print(f"CHANNEL HEALTH AUDIT FAILED: {type(exc).__name__}")
+        print(f"CHANNEL HEALTH AUDIT FAILED: {one_line_error(exc)}")
         sys.exit(1)
