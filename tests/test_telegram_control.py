@@ -806,6 +806,66 @@ Kaader5881@gmail.com
         )
         self.assertEqual(processor.extract_explicit_global_application_emails(non_global), [])
 
+    def test_sinohydro_arabic_plural_operator_titles_are_recovered_with_company_and_location(self):
+        ad = (
+            "🚨 إعلان توظيف | SINOHYDRO SCL\n"
+            "تعلن الشركة الصينية 🇨🇳\n"
+            "SINOHYDRO Corporation Limited\n"
+            "(SCL)\n"
+            "عن توظيف 12 عاملًا مؤهلًا للعمل ضمن مشروع مصفاة حاسي مسعود.\n"
+            "📌 المناصب المطلوبة:\n"
+            "🔹 04 مشغلي شاحنات الرافعة (Boom Truck Operators).\n"
+            "🔹 02 مشغلي الرافعات الشوكية (Forklift Operators).\n"
+            "🔹 02 مشغلي الجرافات الحفارة (Backhoe Loader Operators).\n"
+            "🔹 02 مشغلي منصات رفع الأفراد (Manlift Operators).\n"
+            "🔹 02 مشغلي شاحنات المياه (Water Truck Operators).\n"
+            "☑️ شروط التوظيف:\n"
+            "- شهادة أو دبلوم معتمد وساري المفعول.\n"
+            "- خبرة مهنية لا تقل عن 3 سنوات في المجال.\n"
+            "📍 مكان العمل: حاسي مسعود – مشروع المصفاة.\n"
+            "📩 طريقة التقديم: إرسال السيرة الذاتية عبر البريد الإلكتروني:\n"
+            "Arabihadjer557@gmail.com"
+        )
+        titles = processor.extract_compact_listed_role_titles(ad)
+        self.assertEqual(len(titles), 5)
+        self.assertTrue(all("مشغلي" in title for title in titles))
+
+        recovered, count = processor._recover_missing_compact_list_roles(titles, [], ad)
+        self.assertEqual(count, 5)
+        self.assertEqual(len(recovered), 5)
+        self.assertEqual(recovered[0]["job_title"], "مشغلي شاحنات الرافعة")
+        self.assertTrue(all(job["company"] == "SINOHYDRO Corporation Limited" for job in recovered))
+        self.assertEqual(processor.infer_explicit_work_location(ad), "حاسي مسعود – مشروع المصفاة")
+        self.assertTrue(all(job["score"] is None for job in recovered))
+        self.assertTrue(all(job["decision"] == "REVIEW" for job in recovered))
+
+    def test_unparsed_vacancy_fallback_keeps_explicit_company_and_work_location(self):
+        ad = (
+            "تعلن الشركة الصينية 🇨🇳\n"
+            "SINOHYDRO Corporation Limited\n"
+            "عرض توظيف ضمن مشروع مصفاة حاسي مسعود.\n"
+            "مكان العمل: حاسي مسعود – مشروع المصفاة.\n"
+            "إرسال السيرة الذاتية إلى Arabihadjer557@gmail.com"
+        )
+        events = []
+        with (
+            patch.object(processor, "save_result"),
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "JOB_DECISION_AUDIT_CALLBACK", new=None),
+        ):
+            ok = processor.emit_unparsed_vacancy_review(
+                {"source": "rcrdz1", "channel": "rcrdz1", "message_id": 23229},
+                ad,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(events), 1)
+        record = events[0]["record"]
+        self.assertEqual(record["company"], "SINOHYDRO Corporation Limited")
+        self.assertEqual(record["location"], "حاسي مسعود – مشروع المصفاة")
+        self.assertIsNone(record["score"])
+        self.assertFalse(record["sent"])
+
     def test_compact_cvdzjobs_role_list_recovers_all_twelve_titles(self):
         ad = (
             "الصيانة والتقنية : (Maintenance & Technique)\n"
