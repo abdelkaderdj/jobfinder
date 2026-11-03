@@ -2462,30 +2462,23 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
-# Google routes deprecated Gemini aliases to their replacements. Canonicalize them
-# before failover so one underlying model/quota pool is never attempted twice.
-_GEMINI_MODEL_ALIASES = {
-    "gemini-3.7-flash": "gemini-3.8-flash",
-    "gemini-3.5-flash": "gemini-3.6-flash",
-}
-
-
+# Keep separately published Gemini model IDs as separate fallback routes. Remove
+# only exact duplicates so a usable model is not skipped under an assumed alias.
 def _configured_gemini_models():
     """Return unique Gemini model routes with distinct fallback quota pools."""
     primary = (
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
-    # These are currently distinct stable text-generation model endpoints.
-    # Keep aliases canonicalized even when a repository variable is customized.
+    # A customized workflow variable can override this fallback order. The code
+    # below deduplicates exact IDs only and preserves the configured order.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+        or "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = []
     for candidate in [primary, *fallback_csv.split(",")]:
         name = str(candidate or "").strip()
-        name = _GEMINI_MODEL_ALIASES.get(name, name)
         if name and name not in models:
             models.append(name)
     return tuple(models)
@@ -2623,7 +2616,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     # Route only high-reasoning calls through OpenAI by default. This covers the
     # complete vacancy analysis and its independent reviewer, while lightweight
     # helper calls keep the existing provider/cost path.
-    if openai_configured and reasoning_level == "high" and not _OPENAI_DISABLED_FOR_RUN:
+    # Prefer OpenAI for high-reasoning analysis and independent APPLY reviews.
+    # Keep lightweight helper calls on lower-cost routes unless OpenAI is the
+    # only configured provider.
+    openai_primary_for_request = (
+        reasoning_level == "high"
+        or (
+            not gemini_configured
+            and not GROQ_MODEL_FALLBACKS
+            and not openrouter_configured
+        )
+    )
+    if openai_configured and openai_primary_for_request and not _OPENAI_DISABLED_FOR_RUN:
         openai_model = os.getenv("OPENAI_MODEL", "").strip() or "gpt-6.1-sol"
         try:
             _pace_ai_provider("openai")
@@ -2779,7 +2783,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 response_format={"type": "json_object"},
             )
             result = parse_json_response(response.choices[0].message.content)
-            if gemini_configured:
+            if gemini_configured or gemini_issues:
                 reason = (
                     gemini_issues[0]
                     if gemini_issues
@@ -2788,13 +2792,19 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 _notify_ai_provider_status(
                     "groq", model_name, "degraded", reason, gemini_configured
                 )
-            else:
+            elif not openai_configured:
                 _notify_ai_provider_status(
                     "groq",
                     model_name,
                     "groq_only",
-                    "GEMINI_API_KEY is not configured.",
+                    "Neither OPENAI_API_KEY nor GEMINI_API_KEY is configured.",
                     gemini_configured,
+                )
+            else:
+                # Low-effort helpers may intentionally use Groq while OpenAI
+                # remains configured for high-reasoning vacancy decisions.
+                _notify_ai_provider_status(
+                    "groq", model_name, "healthy", "", gemini_configured
                 )
             print(f"AI PROVIDER: Groq ({model_name}) succeeded")
             return result
@@ -2878,7 +2888,9 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 reasoning_level=reasoning_level,
             )
             model_name = _configured_openrouter_model()
-            using_fallback = bool(gemini_configured or GROQ_MODEL_FALLBACKS)
+            using_fallback = bool(
+                gemini_configured or GROQ_MODEL_FALLBACKS or gemini_issues
+            )
             reason = (
                 gemini_issues[0]
                 if gemini_issues
@@ -2932,7 +2944,9 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
         not openrouter_configured or _OPENROUTER_DISABLED_FOR_RUN
     )
     all_openai_routes_exhausted = (
-        not openai_configured or _OPENAI_DISABLED_FOR_RUN or reasoning_level != "high"
+        not openai_configured
+        or not openai_primary_for_request
+        or _OPENAI_DISABLED_FOR_RUN
     )
 
     if (

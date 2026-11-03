@@ -34,21 +34,31 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(seconds, 60)  # cooldowns are clamped to at least one minute
 
-    def test_configured_gemini_fallbacks_include_distinct_stable_flash_models(self):
-        with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODELS": "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"}):
+    def test_configured_gemini_fallbacks_keep_distinct_supported_models(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_MODEL": "",
+                "GEMINI_FALLBACK_MODELS": (
+                    "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,"
+                    "gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+                ),
+            },
+        ):
             models = processor._configured_gemini_models()
 
         self.assertEqual(models[0], "gemini-3.8-flash")
-        self.assertIn("gemini-3.6-flash", models)
-        self.assertIn("gemini-3.5-flash-lite", models)
-        self.assertIn("gemini-3.1-flash-lite", models)
-        # Google aliases deprecated model IDs to newer models; keep fallback
-        # routes distinct instead of repeatedly hitting the same quota pool.
-        self.assertNotIn("gemini-3.7-flash", models)
-        self.assertNotIn("gemini-3.5-flash", models)
+        for model in (
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+        ):
+            self.assertIn(model, models)
         self.assertEqual(len(models), len(set(models)))
 
-    def test_deprecated_gemini_aliases_are_canonicalized_and_deduplicated(self):
+    def test_supported_gemini_model_ids_are_not_collapsed_into_other_routes(self):
         with patch.dict(
             os.environ,
             {
@@ -63,7 +73,13 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(
             models,
-            ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"),
+            (
+                "gemini-3.7-flash",
+                "gemini-3.8-flash",
+                "gemini-3.5-flash",
+                "gemini-3.6-flash",
+                "gemini-3.5-flash-lite",
+            ),
         )
 
     def test_provider_pacing_waits_when_requests_arrive_too_soon(self):
@@ -200,8 +216,10 @@ class AIProviderRoutingTests(unittest.TestCase):
         )
 
     def setUp(self):
+        self.original_openai_disabled = processor._OPENAI_DISABLED_FOR_RUN
         self.original_gemini_disabled = processor._GEMINI_DISABLED_FOR_RUN
         self.original_groq_disabled = processor._GROQ_DISABLED_FOR_RUN
+        processor._OPENAI_DISABLED_FOR_RUN = False
         self.original_rate_limited_models = set(processor._RATE_LIMITED_GROQ_MODELS)
         self.original_unavailable_groq_models = set(processor._UNAVAILABLE_GROQ_MODELS)
         self.original_disabled_gemini_models = set(processor._DISABLED_GEMINI_MODELS)
@@ -212,6 +230,7 @@ class AIProviderRoutingTests(unittest.TestCase):
         processor._DISABLED_GEMINI_MODELS.clear()
 
     def tearDown(self):
+        processor._OPENAI_DISABLED_FOR_RUN = self.original_openai_disabled
         processor._GEMINI_DISABLED_FOR_RUN = self.original_gemini_disabled
         processor._GROQ_DISABLED_FOR_RUN = self.original_groq_disabled
         processor._RATE_LIMITED_GROQ_MODELS.clear()
@@ -220,6 +239,95 @@ class AIProviderRoutingTests(unittest.TestCase):
         processor._UNAVAILABLE_GROQ_MODELS.update(self.original_unavailable_groq_models)
         processor._DISABLED_GEMINI_MODELS.clear()
         processor._DISABLED_GEMINI_MODELS.update(self.original_disabled_gemini_models)
+
+    def test_openai_is_primary_for_high_reasoning_calls(self):
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "openai-test-key",
+                    "OPENAI_MODEL": "gpt-6.1-sol",
+                    "GEMINI_API_KEY": "gemini-test-key",
+                    "GROQ_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "OPENAI_API_KEY", "openai-test-key"),
+            patch.object(processor, "_openai_json_request", return_value={"route": "openai"}) as openai,
+            patch.object(processor, "_gemini_json_request") as gemini,
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}],
+                reasoning_level="high",
+            )
+
+        self.assertEqual(result, {"route": "openai"})
+        openai.assert_called_once()
+        gemini.assert_not_called()
+        self.assertEqual(snapshots[-1]["provider"], "openai")
+        self.assertEqual(snapshots[-1]["status"], "healthy")
+
+    def test_openai_overload_falls_back_to_gemini_and_marks_route_degraded(self):
+        openai_overload = RuntimeError("OpenAI HTTP 503: temporary overload")
+        openai_overload.status_code = 503
+        snapshots = []
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "openai-test-key",
+                    "OPENAI_MODEL": "gpt-6.1-sol",
+                    "GEMINI_API_KEY": "gemini-test-key",
+                    "GEMINI_MODEL": "gemini-primary-test",
+                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GROQ_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "OPENAI_API_KEY", "openai-test-key"),
+            patch.object(processor, "_openai_json_request", side_effect=openai_overload),
+            patch.object(processor, "_gemini_json_request", return_value={"route": "gemini"}),
+            patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", snapshots.append),
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}],
+                reasoning_level="high",
+            )
+
+        self.assertEqual(result, {"route": "gemini"})
+        self.assertEqual(snapshots[-1]["provider"], "gemini")
+        self.assertEqual(snapshots[-1]["status"], "degraded")
+        self.assertIn("OpenAI", snapshots[-1]["reason"])
+
+    def test_openai_only_configuration_can_serve_low_effort_helper_calls(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "openai-test-key",
+                    "OPENAI_MODEL": "gpt-6.1-sol",
+                    "GEMINI_API_KEY": "",
+                    "GROQ_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "OPENAI_API_KEY", "openai-test-key"),
+            patch.object(processor, "client", None),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ()),
+            patch.object(processor, "_openai_json_request", return_value={"route": "openai"}) as openai,
+        ):
+            result = processor.groq_json_request(
+                [{"role": "user", "content": "Return JSON."}],
+                reasoning_level="low",
+            )
+
+        self.assertEqual(result, {"route": "openai"})
+        openai.assert_called_once()
 
     def test_gemini_primary_success_reports_provider_health(self):
         snapshots = []

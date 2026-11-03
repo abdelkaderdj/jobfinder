@@ -2788,6 +2788,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "OPENAI_API_KEY": "",
                 "GEMINI_API_KEY": "",
                 "GROQ_API_KEY": "",
                 "OPENROUTER_API_KEY": "openrouter-test-key",
@@ -2798,11 +2799,11 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
     def test_runner_fails_fast_when_no_ai_provider_key_is_configured(self):
         with patch.dict(
             os.environ,
-            {"GEMINI_API_KEY": "", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": ""},
+            {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": ""},
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY",
+                "OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY",
             ):
                 require_ai_provider()
 
