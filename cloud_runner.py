@@ -343,10 +343,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         allow_review_actions=not telegram_only_mode,
     )
 
-    if (
-        not os.getenv("GEMINI_API_KEY", "").strip()
-        and not os.getenv("OPENAI_API_KEY", "").strip()
-    ):
+    if not os.getenv("GEMINI_API_KEY", "").strip():
         configured_fallbacks = []
         if os.getenv("GROQ_API_KEY", "").strip():
             configured_fallbacks.append("Groq")
@@ -356,9 +353,9 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         bot._enqueue(
             "ai-config-gemini-key-missing-v2",
             "⚠️ تنبيه إعداد الذكاء الاصطناعي في JobFinder\\n\\n"
-            "لا يوجد مفتاح OpenAI أو Gemini مضبوط؛ يعتمد التحليل على المسارات الاحتياطية: "
+            "لا يوجد مفتاح Gemini مضبوط؛ يعتمد التحليل على المسارات الاحتياطية المجانية: "
             f"{fallback_text}. "
-            "أضف مفتاح OpenAI أو Gemini لتوفير مسار مستقل عالي الاستدلال. "
+            "أضف مفتاح Gemini المجاني لتوفير المسار الأساسي. "
             "المنشورات غير المكتملة تبقى محفوظة لإعادة المحاولة.",
         )
 
