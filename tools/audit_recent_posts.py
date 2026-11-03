@@ -151,7 +151,7 @@ def make_markdown(report: dict[str, Any]) -> str:
 async def run_audit() -> dict[str, Any]:
     if not any(
         os.getenv(name, "").strip()
-        for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+        for name in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
     ):
         raise RuntimeError(
             "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
