@@ -24,19 +24,6 @@ const BUTTON_COMMANDS = new Map([
   ["❓ المساعدة", "/help"],
 ]);
 
-const MAIN_KEYBOARD = {
-  keyboard: [
-    [{ text: "📨 التقديم على عرض أختاره" }],
-    [{ text: "🏠 الرئيسية" }, { text: "📥 المراجعات المعلقة" }],
-    [{ text: "📨 طلبات اليوم" }, { text: "📊 ملخص اليوم" }],
-    [{ text: "📡 حالة النظام" }, { text: "⏯ تشغيل/إيقاف" }],
-    [{ text: "❓ المساعدة" }],
-  ],
-  resize_keyboard: true,
-  one_time_keyboard: true,
-  input_field_placeholder: "أرسل إعلانًا أو اختر من القائمة…",
-};
-
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -113,7 +100,6 @@ async function sendCommandAcknowledgement(env, chatId, command) {
   await telegramApi(env, "sendMessage", {
     chat_id: chatId,
     text,
-    reply_markup: MAIN_KEYBOARD,
     disable_web_page_preview: true,
   });
 }
