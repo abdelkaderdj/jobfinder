@@ -466,6 +466,8 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
             "chat_id": os.getenv("JOBFINDER_TELEGRAM_CHAT_ID", ""),
             "user_id": os.getenv("JOBFINDER_TELEGRAM_USER_ID", ""),
             "message_id": os.getenv("JOBFINDER_TELEGRAM_MESSAGE_ID", ""),
+            "source": os.getenv("JOBFINDER_TELEGRAM_SOURCE", ""),
+            "message_text": os.getenv("JOBFINDER_TELEGRAM_MESSAGE_TEXT", ""),
         }
         bot.handle_webhook_event(event)
         state["last_run_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
