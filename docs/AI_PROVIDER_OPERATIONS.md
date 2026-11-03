@@ -6,7 +6,7 @@
 
 ترتيب التحليل والمراجعة المستقلة لقرارات APPLY:
 
-1. **Gemini API — فئة Flash المجانية:** المسار الأساسي. يختار JobFinder نماذج Flash من قائمة fallback المدمجة في الكود.
+1. **Gemini API — فئة Flash المجانية:** المسار الأساسي. يسمح الكود فقط بـ `gemini-3.8-flash` ثم `gemini-3.7-flash` ثم `gemini-3.6-flash`، وهي نماذج تظهر لها أسعار Free Tier بقيمة صفر في صفحة Google الرسمية. أي اختيار لنموذج Pro أو اسم غير موجود في القائمة يُرفض/يُتجاهل.
 2. **Groq — Free tier:** مسار احتياطي. يستخدم JobFinder واجهة Groq فقط؛ أسماء بعض النماذج تبدأ بـ `openai/` لأنها نماذج OpenAI مفتوحة الأوزان مستضافة على Groq. هذا لا يعني استخدام OpenAI API أو دفع رسوم إلى OpenAI.
 3. **OpenRouter — Free:** المسار الأخير. يضبط الكود النموذج على `openrouter/free`، ويرفض أي نموذج مدفوع. لا تمرّر متغير نموذج من GitHub Actions.
 
@@ -32,7 +32,7 @@
 | `GROQ_API_KEY` | Secret | المسار الاحتياطي على Groq Free |
 | `OPENROUTER_API_KEY` | Secret، اختياري | المسار الأخير OpenRouter Free |
 
-لا يحتاج JobFinder إلى `OPENAI_API_KEY` أو `OPENAI_MODEL` أو `OPENAI_REVIEW_MODEL` أو `GEMINI_REVIEW_MODEL` أو `GEMINI_MODEL` أو `GEMINI_FALLBACK_MODELS` أو `OPENROUTER_MODEL` في بيئة التشغيل. لا تضف هذه المتغيرات إلى ملفات Workflows.
+لا يحتاج JobFinder إلى `OPENAI_API_KEY` أو `OPENAI_MODEL` أو `OPENAI_REVIEW_MODEL` أو `GEMINI_REVIEW_MODEL` أو `GEMINI_MODEL` أو `GEMINI_FALLBACK_MODELS` أو `OPENROUTER_MODEL` في بيئة التشغيل. ولا تستطيع متغيرات النماذج تغيير قائمة Gemini المجانية المسموح بها أو اختيار نموذج OpenRouter مدفوع.
 
 **لا تضع مفاتيح API في الكود أو المحادثة أو سجلّات GitHub.**
 
