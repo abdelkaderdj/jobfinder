@@ -1260,7 +1260,7 @@ _COMPACT_ROLE_PREFIXES = (
     "superviseur", "chauffeur", "tourneur", "fraiseur", "programmeur",
     "regleur", "monteur", "manoeuvre", "medecin", "aide soignante", "infographe",
     "graphiste", "designer", "infirmier", "infirmiere", "directeur", "specialiste",
-    "مهندس", "مهندسين", "مهندسي", "تقني", "تقنيين", "فني", "فنيين", "مشغل",
+    "مهندس", "مهندسين", "مهندسي", "تقني", "تقنيين", "فني", "فنيين", "مشغل", "مشغلي", "مشغلين", "مشغلات",
     "عامل", "عمال", "مسؤول", "رئيس", "مدير", "مسير", "مسيري", "مشتري",
     "كهربائي", "سباك", "لحام", "دهان", "ميكانيكي", "ميكانيكيي", "ميكانيكيون",
     "ميكانيكيين", "كهروميكانيكي", "كهروميكانيكية", "محاسب", "محاسبين",
@@ -1415,6 +1415,11 @@ def _infer_company_name_from_advertisement(advertisement: str) -> str:
         re.compile(
             r"(?:شركة|الشركة)\s+(?P<name>(?:EURL|SARL|SPA|EPIC|SNC|SCS)\s+"
             r"[A-Za-z0-9][A-Za-z0-9&.'’\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9&.'’\-]*){0,4})",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?:شركة|الشركة|the company|company)\s+(?:الصينية|الجزائرية|الفرنسية|الأمريكية|الامريكية|البريطانية|الكورية|اليابانية|الهندية)?[^\n]*\n\s*"
+            r"(?P<name>[A-Z][A-Za-z0-9&.'’\-]*(?:\s+[A-Za-z][A-Za-z0-9&.'’\-]*){0,3}\s+(?:Corporation Limited|Corporation|Company Limited|Company|Limited|LLC|Ltd\.?|Inc\.?))",
             flags=re.IGNORECASE,
         ),
     )
@@ -7106,6 +7111,8 @@ def emit_unparsed_vacancy_review(post, advertisement):
     title = "إعلان توظيف يحتاج إلى مراجعة يدوية"
     source = str(post.get("source") or post.get("channel") or "")
     emails = extract_emails(advertisement)
+    company = _infer_company_name_from_advertisement(advertisement)
+    location = infer_explicit_work_location(advertisement)
     record = {
         "source": source,
         "channel": source,
@@ -7114,9 +7121,9 @@ def emit_unparsed_vacancy_review(post, advertisement):
         "application_job_title": title,
         "application_title_fr": "Annonce de recrutement à vérifier manuellement",
         "application_title_en": "Recruitment advertisement requiring manual review",
-        "company": "",
-        "location": "",
-        "location_status": "unknown_location",
+        "company": company,
+        "location": location,
+        "location_status": "unknown_location" if not location else "source_explicit_location",
         "location_reason": "The advertisement was not parsed reliably.",
         "accommodation_provided": "unknown",
         "language": "mixed",
@@ -7144,7 +7151,7 @@ def emit_unparsed_vacancy_review(post, advertisement):
     event = {
         "post": post,
         "record": record,
-        "job": {"job_title": title, "company": "", "location": ""},
+        "job": {"job_title": title, "company": company, "location": location},
         "advertisement": str(advertisement or ""),
     }
     try:
