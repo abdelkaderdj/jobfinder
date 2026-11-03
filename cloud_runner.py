@@ -24,7 +24,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-RUNNER_VERSION = "2026-10-21-encrypted-decision-audit-v1"
+RUNNER_VERSION = "2026-11-03-openai-routing-v1"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -60,7 +60,9 @@ def required_env(name: str) -> str:
 
 
 def require_ai_provider() -> str:
-    """Require at least one usable AI provider key, not both providers."""
+    """Require at least one configured AI route, including OpenAI-only deployments."""
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return "OpenAI (high-reasoning)"
     if os.getenv("GEMINI_API_KEY", "").strip():
         return "Gemini"
     if os.getenv("GROQ_API_KEY", "").strip():
@@ -68,7 +70,7 @@ def require_ai_provider() -> str:
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "OpenRouter (free fallback)"
     raise RuntimeError(
-        "At least one AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
+        "At least one AI provider key is required: OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
 
@@ -76,20 +78,60 @@ def ai_provider_routing_summary(
     gemini_configured: bool | None = None,
     groq_configured: bool | None = None,
     openrouter_configured: bool | None = None,
+    openai_configured: bool | None = None,
 ) -> str:
-    """Describe configured routing preference; this is not a live health check."""
+    """Describe configured routing preference; this is not a live provider health check."""
     if gemini_configured is None:
         gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     if groq_configured is None:
         groq_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
     if openrouter_configured is None:
         openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+    if openai_configured is None:
+        openai_configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
 
     openrouter_note = (
         ""
         if openrouter_configured
         else " OpenRouter free fallback is not configured (OPENROUTER_API_KEY is empty for this run)."
     )
+
+    if openai_configured:
+        openai_model = os.getenv("OPENAI_MODEL", "").strip() or "gpt-6.1-sol"
+        review_model = os.getenv("OPENAI_REVIEW_MODEL", "").strip()
+        review_route = (
+            f" Dedicated APPLY reviewer: {review_model}."
+            if review_model
+            else " APPLY reviews use the configured high-reasoning route."
+        )
+        fallback_routes = []
+        if gemini_configured:
+            fallback_routes.append("Gemini model pool")
+        if groq_configured:
+            fallback_routes.append("Groq multi-model pool")
+        if openrouter_configured:
+            fallback_routes.append("OpenRouter free")
+        if not fallback_routes:
+            return (
+                f"AI PROVIDER ROUTING (configured): OpenAI only ({openai_model}) for "
+                "high-reasoning analysis and the only configured route for helper calls."
+                + review_route
+                + " Live availability is not verified at startup."
+            )
+        helper_route = (
+            "Gemini" if gemini_configured
+            else "Groq" if groq_configured
+            else "OpenRouter free"
+        )
+        return (
+            f"AI PROVIDER ROUTING (configured): OpenAI ({openai_model}) primary for "
+            "high-reasoning analysis; fallback order: "
+            + " then ".join(fallback_routes)
+            + f". Low-effort helper calls use {helper_route} first."
+            + review_route
+            + " Live availability is not verified at startup."
+            + openrouter_note
+        )
 
     if gemini_configured:
         fallbacks = []
@@ -342,14 +384,25 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         allow_review_actions=not telegram_only_mode,
     )
 
-    if not os.getenv("GEMINI_API_KEY", "").strip():
+    if (
+        not os.getenv("GEMINI_API_KEY", "").strip()
+        and not os.getenv("OPENAI_API_KEY", "").strip()
+    ):
+        configured_fallbacks = []
+        if os.getenv("GROQ_API_KEY", "").strip():
+            configured_fallbacks.append("Groq")
+        if os.getenv("OPENROUTER_API_KEY", "").strip():
+            configured_fallbacks.append("OpenRouter Free")
+        fallback_text = " ثم ".join(configured_fallbacks) or "لا يوجد مسار احتياطي"
         bot._enqueue(
-            "ai-config-gemini-key-missing-v1",
-            "⚠️ تنبيه إعداد الذكاء الاصطناعي في JobFinder\n\n"
-            "مفتاح Gemini غير مضاف إلى GitHub Secrets؛ لذلك يعمل البوت حاليًا عبر Groq فقط، "
-            "وقد يتوقف مؤقتًا عند بلوغ حصته. أضف مفتاحًا باسم GEMINI_API_KEY من إعدادات "
-            "المستودع لتفعيل مزوّد مستقل. المنشورات غير المكتملة تبقى محفوظة لإعادة المحاولة.",
+            "ai-config-gemini-key-missing-v2",
+            "⚠️ تنبيه إعداد الذكاء الاصطناعي في JobFinder\\n\\n"
+            "لا يوجد مفتاح OpenAI أو Gemini مضبوط؛ يعتمد التحليل على المسارات الاحتياطية: "
+            f"{fallback_text}. "
+            "أضف مفتاح OpenAI أو Gemini لتوفير مسار مستقل عالي الاستدلال. "
+            "المنشورات غير المكتملة تبقى محفوظة لإعادة المحاولة.",
         )
+
     def persist_ai_provider_cooldown(retry_after_seconds: int, provider: str) -> None:
         seconds = max(60, min(86400, int(retry_after_seconds)))
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=seconds + 15)
