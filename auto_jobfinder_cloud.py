@@ -839,6 +839,34 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
 
     return False
 
+def enforce_manual_application_role_rule(job):
+    """
+    Keep hard role/discipline exclusions active in owner-directed manual mode.
+
+    Manual submission may override age, experience, degree, seniority, and
+    location rejection rules, but it must never turn an explicitly unrelated
+    discipline or general manual-labour role into an application.
+    """
+    if not isinstance(job, dict):
+        return "REJECT", "رُفض المنصب لأن بيانات المسمى الوظيفي غير صالحة."
+
+    title_variants = _normalized_job_title_variants(job)
+    if not title_variants:
+        return "REJECT", "رُفض المنصب لأن المسمى الوظيفي غير واضح."
+
+    for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
+        if any(re.search(pattern, candidate) for candidate in title_variants):
+            return (
+                "REJECT",
+                "رُفض المنصب رغم اختيارك اليدوي لأن تخصصه من الاستبعادات الصريحة في ملفك المهني، أو لأنه عمل يدوي عام خارج مساراتك التقنية.",
+            )
+
+    return (
+        "APPLY",
+        "تم تجاوز شروط السن والخبرة والمؤهل والأقدمية والموقع بناءً على اختيارك، مع الإبقاء على استبعادات التخصص والعمل اليدوي العام.",
+    )
+
+
 def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=None):
     """
     Apply the candidate's agreed rules before any Telegram review/send action.
@@ -3822,18 +3850,20 @@ contacts, or requirements.
     if manual_apply:
         prompt += """
 
-OWNER-SUBMITTED MANUAL APPLICATION MODE — OVERRIDE CANDIDATE REJECTION:
-The owner deliberately sent this advertisement to JobFinder and explicitly
-requests applications. Treat this as authorization to apply to every distinct,
-source-grounded position listed in this advertisement. Do NOT reject or omit
-a position because of the candidate's role-fit score, degree, experience,
-seniority, location, or normal candidate eligibility policies. Return decision
-APPLY for each explicitly identified position. Still extract only titles that
-actually appear in the source; never invent a title, employer, worksite,
-requirement, or recipient. Keep positions separate. Do not confuse a field or
-sector with a work location. The sender still requires a clearly associated
-email, an available CV, and confirmation that this exact offer was not
-previously sent. If there is no source-grounded position, return no jobs.
+OWNER-SUBMITTED MANUAL APPLICATION MODE — LIMITED OWNER OVERRIDE:
+The owner deliberately selected this advertisement and requests an application.
+Override age, experience-years, degree-level, seniority, and location rejection
+rules only. Do NOT override the owner's hard profession/discipline exclusions.
+In particular, never APPLY to electrical-only roles, electromechanical,
+instrumentation/automation, or general manual-labour roles such as Ouvrier,
+Manœuvre, laborer, or unskilled worker. Those positions must remain REJECT.
+For other positions, preserve every distinct source-grounded title and do not
+omit a role merely because its score is low or a normal age/experience/degree/
+seniority/location condition would reject it. Keep positions separate. Do not
+invent a title, employer, worksite, requirement, or recipient. Do not confuse a
+field or sector with a work location. The sender still requires a clearly
+associated email, an available CV, and confirmation that this exact offer was
+not previously sent. If there is no source-grounded position, return no jobs.
 Do not let an appended CV-writing/services footer become a vacancy or contact.
 """
 
@@ -7540,8 +7570,8 @@ def process_post(
         if manual_apply:
             cv_match_score = None
             cv_matched_skill_groups = []
-            role_fit_reason = "التقديم مُعتمد بناءً على اختيارك المباشر لهذا الإعلان."
-            role_fit_overrode_ai = False
+            decision, role_fit_reason = enforce_manual_application_role_rule(job)
+            role_fit_overrode_ai = decision != original_ai_decision
             verification_reason = ""
         else:
             cv_match_score, cv_matched_skill_groups = calculate_candidate_cv_match(
@@ -7590,7 +7620,10 @@ def process_post(
         )
 
         if manual_apply:
-            decision = "APPLY"
+            # Location is overridden only for roles that passed the hard
+            # profession/discipline exclusion gate above.
+            if decision != "REJECT":
+                decision = "APPLY"
             location_status = "manual_owner_override"
             location_reason = "تم تجاوز شرط الموقع لأنك أرسلت الإعلان بنفسك."
         else:
