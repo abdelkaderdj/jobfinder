@@ -3566,6 +3566,68 @@ Ingénieur Levage (01 poste - Ingénieur d’État / Master en mécanique, géni
         )
         self.assertEqual(decision, "REJECT")
 
+    def test_single_position_recovery_accepts_bare_arabic_position_label(self):
+        advertisement = """📢 فرصة توظيف | CM Manager
+تعلن شركة EURL PROTECH SERVICE عن توظيف:
+🔹 المنصب:مدير الصيانة التصحيحية
+📍 المجال: الاتصالات
+🎓 الشروط المطلوبة:
+- شهادة جامعية في الاتصالات أو الشبكات.
+- خبرة في صيانة شبكات الاتصالات.
+- خبرة في تسيير الفرق التشغيلية.
+📩 إرسال CV إلى:
+contact@protech-algerie.com
+"""
+        job = processor.recover_explicit_single_position(advertisement)
+        self.assertIsNotNone(job)
+        self.assertEqual(job["job_title"], "مدير الصيانة التصحيحية")
+        self.assertEqual(job["company"], "EURL PROTECH SERVICE")
+        self.assertEqual(job["source_recovery"], "explicit_single_position_title")
+        self.assertTrue(processor._job_title_evidence_is_grounded(job, advertisement))
+
+    def test_process_post_recovers_bare_arabic_position_label_after_empty_ai_output(self):
+        advertisement = """📢 فرصة توظيف | CM Manager
+تعلن شركة EURL PROTECH SERVICE عن توظيف:
+🔹 المنصب:مدير الصيانة التصحيحية
+📍 المجال: الاتصالات
+🎓 الشروط المطلوبة:
+- شهادة جامعية في الاتصالات أو الشبكات.
+- خبرة في صيانة شبكات الاتصالات.
+- خبرة في تسيير الفرق التشغيلية.
+📋 المهام:
+الإشراف على فرق الصيانة
+متابعة الأعطال وضمان جودة الخدمة وتحقيق مؤشرات الأداء.
+📩 إرسال CV إلى:
+contact@protech-algerie.com
+📌 الموضوع: CM Manager
+"""
+        post = {
+            "source": "RECRUTEMENT_DZ",
+            "channel": "RECRUTEMENT_DZ",
+            "message_id": 23226,
+            "text": advertisement,
+        }
+        events = []
+        with (
+            patch.object(processor, "analyze_offer", side_effect=[{"jobs": []}, {"jobs": []}]) as analyze,
+            patch.object(processor, "save_result") as save_result,
+            patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+            patch.object(processor, "JOB_DECISION_AUDIT_CALLBACK", new=None),
+            patch.object(processor, "send_application") as send_application,
+        ):
+            ok = processor.process_post(post)
+
+        self.assertTrue(ok)
+        self.assertEqual(analyze.call_count, 2)
+        self.assertEqual(len(events), 1)
+        record = events[0]["record"]
+        self.assertEqual(record["job_title"], "مدير الصيانة التصحيحية")
+        self.assertEqual(record["company"], "EURL PROTECH SERVICE")
+        self.assertFalse(record.get("analysis_fallback", False))
+        self.assertEqual(record["emails"], ["contact@protech-algerie.com"])
+        save_result.assert_called_once()
+        send_application.assert_not_called()
+
     def test_single_position_recovery_refuses_multiple_explicit_title_labels(self):
         advertisement = """شركة TEST تعلن عن توظيف
 المسمى الوظيفي: Comptable
