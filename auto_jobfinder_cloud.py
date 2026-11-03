@@ -1746,6 +1746,15 @@ def _is_shared_global_experience_footer_line(line: str) -> bool:
     return any(marker in normalized for marker in global_markers)
 
 
+def _is_global_benefits_heading(line: str) -> bool:
+    """Recognize explicit post-wide benefits headings."""
+    normalized = normalize_text(line).strip(" :؛-–—")
+    return normalized in {
+        "مزايا العمل", "مميزات العمل", "المزايا", "مزايا",
+        "avantages", "avantages sociaux", "benefits", "employee benefits",
+    }
+
+
 def _is_global_requirements_heading(line: str) -> bool:
     normalized = normalize_text(line).strip(" :؛-–—")
     markers = (
