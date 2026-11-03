@@ -1,6 +1,6 @@
 # JobFinder Telegram Webhook (Cloudflare Workers)
 
-This Worker acknowledges inline-button presses immediately, then dispatches a narrowly scoped GitHub Actions run to apply the decision using JobFinder's encrypted state. It does not read job channels or send job applications itself.
+This Worker validates owner-only Telegram messages and button presses, then dispatches a narrowly scoped GitHub Actions run. It does not read job channels or send job applications itself. Forwarded advertisements, pasted text, and message captions can be submitted directly as manual-application requests.
 
 ## Worker environment variables and secrets
 
