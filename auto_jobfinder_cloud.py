@@ -2462,16 +2462,16 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
-# Google routes deprecated Gemini aliases to their replacements. Canonicalize them
-# before failover so one underlying model/quota pool is never attempted twice.
+# Keep separately published Gemini model IDs as separate fallback routes. Remove
+# only exact duplicates so a usable model is not skipped under an assumed alias.
 def _configured_gemini_models():
     """Return unique Gemini model routes with distinct fallback quota pools."""
     primary = (
         os.getenv("GEMINI_MODEL", "").strip()
         or "gemini-3.8-flash"
     )
-    # These are currently distinct stable text-generation model endpoints.
-    # Keep aliases canonicalized even when a repository variable is customized.
+    # A customized workflow variable can override this fallback order. The code
+    # below deduplicates exact IDs only and preserves the configured order.
     fallback_csv = (
         os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
         or "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
