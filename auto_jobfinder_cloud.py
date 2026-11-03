@@ -5707,39 +5707,6 @@ def same_job_identity(
     return False
 
 
-# Cross-posts are treated as duplicates only for a short window. A genuinely
-# new repost after this window is a new opportunity, even if the role and email
-# are unchanged. Exact source/message application keys remain permanent guards.
-JOB_DUPLICATE_WINDOW_HOURS = 48
-
-
-def _sent_record_is_recent(record, now=None):
-    """Only timestamped sends from the recent duplicate window can fuzzy-block a repost."""
-    raw_timestamp = str(record.get("sent_at") or "").strip()
-    if not raw_timestamp:
-        # Legacy history without a timestamp cannot prove when the application
-        # was sent, so it must not suppress a newly published post forever.
-        return False
-
-    try:
-        sent_at = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return False
-
-    # Treat timezone-less/invalid legacy timestamps as unknown rather than
-    # guessing a date and blocking a new opportunity.
-    if sent_at.tzinfo is None or sent_at.utcoffset() is None:
-        return False
-
-    if now is None:
-        now = datetime.now(ZoneInfo("Africa/Algiers"))
-    elif now.tzinfo is None or now.utcoffset() is None:
-        now = now.replace(tzinfo=ZoneInfo("Africa/Algiers"))
-
-    age_hours = (now - sent_at.astimezone(now.tzinfo)).total_seconds() / 3600
-    return 0 <= age_hours <= JOB_DUPLICATE_WINDOW_HOURS
-
-
 def application_offer_fingerprint(advertisement, application_title, email):
     """
     Stable, content-based identity for one advertised position.
@@ -5752,10 +5719,11 @@ def application_offer_fingerprint(advertisement, application_title, email):
     body = strip_appended_service_promotion(str(advertisement or "").strip())
     normalized_body = normalize_text(body)
     normalized_title = normalize_text(application_title)
-    normalized_email = str(email or "").strip().casefold()
-    if not normalized_body or not normalized_title or not normalized_email:
+    if not normalized_body or not normalized_title:
         return ""
-    payload = "\n".join((normalized_body, normalized_title, normalized_email))
+    # Contact addresses may change when the same offer is reposted; the ad
+    # and position define the offer, not the employer's current inbox.
+    payload = "\n".join((normalized_body, normalized_title))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -5769,43 +5737,6 @@ def already_sent_same_offer(application_key_value, offer_fingerprint):
         old_fingerprint = str(old_record.get("offer_fingerprint") or "").strip()
         if offer_fingerprint and old_fingerprint and old_fingerprint == offer_fingerprint:
             return True, old_record
-    return False, None
-
-
-def already_sent_same_job(
-    current_job,
-    current_title,
-    emails
-):
-
-    sent_records = load_sent_records()
-    now = datetime.now(ZoneInfo("Africa/Algiers"))
-
-    for old_record in sent_records:
-
-        if not isinstance(old_record, dict) or not _sent_record_is_recent(old_record, now):
-            continue
-
-        old_email = old_record.get(
-            "email",
-            ""
-        )
-
-        candidate_emails = emails or [
-            old_email
-        ]
-
-        for email in candidate_emails:
-
-            if same_job_identity(
-                current_job,
-                current_title,
-                email,
-                old_record
-            ):
-
-                return True, old_record
-
     return False, None
 
 
