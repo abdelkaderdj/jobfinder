@@ -27,7 +27,7 @@ PROFILE_ENV_KEYS = ("JOBFINDER_CANDIDATE_PROFILE", "JOBFINDER_CANDIDATE_NAME")
 AI_PROVIDER_KEYS = ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
 
 _PROVIDER_SUCCESS = re.compile(
-    r"^AI PROVIDER: (Gemini|Groq|OpenRouter) 
+    r"^AI PROVIDER: (Gemini|Groq|OpenRouter) "
     r"\(([^()\r\n]{1,100})\) succeeded(?: after JSON-mode retry)?$"
 )
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_.:-]")
