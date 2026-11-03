@@ -33,7 +33,7 @@ jobs:
           auto_jobfinder_cloud.py
           jobfinder_ai_quality.py
           jobfinder_candidate_policy.py
-          jobfinder_openai_provider.py
+         
           cloud_runner.py
           decision_audit.py
           tools/evaluate_ai_quality.py

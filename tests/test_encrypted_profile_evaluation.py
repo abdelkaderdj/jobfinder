@@ -25,7 +25,6 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
             env.pop(name, None)
         env["GEMINI_API_KEY"] = "validation-dummy-key"
         env.pop("GROQ_API_KEY", None)
-        env.pop("OPENAI_API_KEY", None)
         env.pop("OPENROUTER_API_KEY", None)
         env["JOBFINDER_CANDIDATE_PROFILE"] = "Synthetic candidate profile for import test"
         env["JOBFINDER_CANDIDATE_NAME"] = "Synthetic Candidate"
@@ -111,8 +110,6 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     "predicted_titles": ["PRIVATE_TITLE_SENTINEL"],
                     "reason": "PRIVATE_REASON_SENTINEL",
                     "provider_trace": [
-                        "AI PROVIDER: OpenAI (gpt-test-safe) succeeded",
-                        "AI OPENAI REQUEST FAILED: PRIVATE_ERROR_SENTINEL",
                         "AI GEMINI PROVIDER FAILED: Gemini transport failure (TimeoutError): PRIVATE_NETWORK_SENTINEL",
                         "AI RATE LIMIT: Groq model; switching to next available model",
                     ],
@@ -153,7 +150,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
                     ],
                 }
             ],
-            "configured_model_route": {"OPENAI_MODEL": "PRIVATE_CONFIG_SENTINEL"},
+            "configured_model_route": {},
             "execution_errors": 1,
             "skipped_cases": 1,
             "start_index": 7,
@@ -162,7 +159,6 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         safe = safe_summary_from_report(report)
         rendered = json.dumps(safe, ensure_ascii=False)
 
-        self.assertIn("gpt-test-safe", rendered)
         for forbidden in (
             "PRIVATE_PROFILE_SENTINEL",
             "PRIVATE_TITLE_SENTINEL",
@@ -173,6 +169,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
             self.assertNotIn(forbidden, rendered)
         self.assertIn("private-case-1", rendered)
         self.assertIn('"error_type": "RuntimeError"', rendered)
+        self.assertIn('"successful_provider_routes": []', rendered)
         self.assertIn('"provider": "Gemini"', rendered)
         self.assertIn('"event": "transport_timeout"', rendered)
         self.assertIn('"provider": "Groq"', rendered)

@@ -376,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("the selected case range is empty")
 
     if not any(os.getenv(name, "").strip() for name in (
-        "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"
+        "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"
     )):
         parser.error("configure an AI provider key before running model evaluations")
 
@@ -434,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
             provider_trace = [
                 line for line in provider_lines
                 if line.startswith((
-                    "AI PROVIDER:", "AI OPENAI", "AI GEMINI", "AI GROQ",
+                    "AI PROVIDER:", "AI GEMINI", "AI GROQ",
                     "AI OPENROUTER", "AI RATE LIMIT", "AI MODEL RETRY",
                 ))
             ]
@@ -521,7 +521,6 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_fingerprint": prompt_fingerprint,
         "decision_code_fingerprint": decision_code_fingerprint,
         "configured_model_route": {
-            "OPENAI_MODEL": os.getenv("OPENAI_MODEL", ""),
             "GEMINI_MODEL": os.getenv("GEMINI_MODEL", ""),
             "OPENROUTER_MODEL": os.getenv("OPENROUTER_MODEL", ""),
             "route_note": "Provider routing may fail over; use the run logs to identify the actual provider per case.",

@@ -13,32 +13,31 @@ WORKFLOWS = (
 )
 
 
-class OpenRouterWorkflowConfigurationTests(unittest.TestCase):
-    def test_cloud_workflow_passes_optional_dedicated_gemini_review_model(self):
-        workflow = WORKFLOWS[0].read_text(encoding="utf-8")
-        self.assertIn("GEMINI_REVIEW_MODEL: ${{ vars.GEMINI_REVIEW_MODEL }}", workflow)
-
-    def test_all_ai_workflows_pass_openai_and_default_astra_apply_review(self):
+class FreeAIWorkflowConfigurationTests(unittest.TestCase):
+    def test_cloud_workflow_uses_no_paid_ai_keys_or_model_overrides(self):
         for path in WORKFLOWS:
             with self.subTest(workflow=path.name):
                 workflow = path.read_text(encoding="utf-8")
-                self.assertIn("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}", workflow)
-                self.assertIn("OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-6.1-sol' }}", workflow)
-                self.assertIn(
-                    "OPENAI_REVIEW_MODEL: ${{ vars.OPENAI_REVIEW_MODEL || (secrets.OPENAI_API_KEY != '' && 'gpt-6-astra') || '' }}",
-                    workflow,
-                )
-                self.assertIn(
-                    "GEMINI_FALLBACK_MODELS: ${{ vars.GEMINI_FALLBACK_MODELS || 'gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite' }}",
-                    workflow,
-                )
+                self.assertNotIn("OPENAI_API_KEY", workflow)
+                self.assertNotIn("OPENAI_MODEL", workflow)
+                self.assertNotIn("OPENAI_REVIEW_MODEL", workflow)
+                self.assertNotIn("GEMINI_MODEL:", workflow)
+                self.assertNotIn("GEMINI_REVIEW_MODEL:", workflow)
+                self.assertNotIn("GEMINI_FALLBACK_MODELS:", workflow)
 
-    def test_workflows_pass_openrouter_as_an_optional_secret(self):
+    def test_all_ai_workflows_use_gemini_groq_and_openrouter_free(self):
         for path in WORKFLOWS:
             with self.subTest(workflow=path.name):
                 workflow = path.read_text(encoding="utf-8")
+                self.assertIn("GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}", workflow)
+                self.assertIn("GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}", workflow)
                 self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", workflow)
-                self.assertIn("OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}", workflow)
+
+    def test_openrouter_model_is_not_overridden_to_a_paid_route(self):
+        for path in WORKFLOWS:
+            with self.subTest(workflow=path.name):
+                workflow = path.read_text(encoding="utf-8")
+                self.assertNotIn("OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL", workflow)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ ENCRYPTED_CVS_DIR = PRIVATE_DIR / "cvs"
 SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
-RUNNER_VERSION = "2026-11-03-openai-routing-v1"
+RUNNER_VERSION = "2026-11-03-free-ai-only-v1"
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -60,17 +60,15 @@ def required_env(name: str) -> str:
 
 
 def require_ai_provider() -> str:
-    """Require at least one configured AI route, including OpenAI-only deployments."""
-    if os.getenv("OPENAI_API_KEY", "").strip():
-        return "OpenAI (high-reasoning)"
+    """Require at least one supported free-tier AI provider."""
     if os.getenv("GEMINI_API_KEY", "").strip():
-        return "Gemini"
+        return "Gemini (free tier)"
     if os.getenv("GROQ_API_KEY", "").strip():
-        return "Groq"
+        return "Groq (free tier)"
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "OpenRouter (free fallback)"
     raise RuntimeError(
-        "At least one AI provider key is required: OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
+        "At least one free-tier AI provider key is required: GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY"
     )
 
 
@@ -78,100 +76,61 @@ def ai_provider_routing_summary(
     gemini_configured: bool | None = None,
     groq_configured: bool | None = None,
     openrouter_configured: bool | None = None,
-    openai_configured: bool | None = None,
 ) -> str:
-    """Describe configured routing preference; this is not a live provider health check."""
+    """Describe configured free-tier routes; this is not a live health check."""
     if gemini_configured is None:
         gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     if groq_configured is None:
         groq_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
     if openrouter_configured is None:
         openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
-    if openai_configured is None:
-        openai_configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
 
     openrouter_note = (
         ""
         if openrouter_configured
-        else " OpenRouter free fallback is not configured (OPENROUTER_API_KEY is empty for this run)."
+        else " OpenRouter Free fallback is not configured (OPENROUTER_API_KEY is empty for this run)."
     )
-
-    if openai_configured:
-        openai_model = os.getenv("OPENAI_MODEL", "").strip() or "gpt-6.1-sol"
-        review_model = os.getenv("OPENAI_REVIEW_MODEL", "").strip()
-        review_route = (
-            f" Dedicated APPLY reviewer: {review_model}."
-            if review_model
-            else " APPLY reviews use the configured high-reasoning route."
-        )
-        fallback_routes = []
-        if gemini_configured:
-            fallback_routes.append("Gemini model pool")
-        if groq_configured:
-            fallback_routes.append("Groq multi-model pool")
-        if openrouter_configured:
-            fallback_routes.append("OpenRouter free")
-        if not fallback_routes:
-            return (
-                f"AI PROVIDER ROUTING (configured): OpenAI only ({openai_model}) for "
-                "high-reasoning analysis and the only configured route for helper calls."
-                + review_route
-                + " Live availability is not verified at startup."
-            )
-        helper_route = (
-            "Gemini" if gemini_configured
-            else "Groq" if groq_configured
-            else "OpenRouter free"
-        )
-        return (
-            f"AI PROVIDER ROUTING (configured): OpenAI ({openai_model}) primary for "
-            "high-reasoning analysis; fallback order: "
-            + " then ".join(fallback_routes)
-            + f". Low-effort helper calls use {helper_route} first."
-            + review_route
-            + " Live availability is not verified at startup."
-            + openrouter_note
-        )
 
     if gemini_configured:
         fallbacks = []
         if groq_configured:
-            fallbacks.append("Groq multi-model")
+            fallbacks.append("Groq Free model pool")
         if openrouter_configured:
-            fallbacks.append("OpenRouter free")
+            fallbacks.append("OpenRouter Free")
         if fallbacks:
             return (
-                "AI PROVIDER ROUTING (configured): Gemini primary; "
+                "AI PROVIDER ROUTING (free-only): Gemini Flash free tier primary; "
                 + " then ".join(fallbacks)
                 + " fallback enabled. Live availability is not verified at startup."
                 + openrouter_note
             )
         return (
-            "AI PROVIDER ROUTING (configured): Gemini only; no Groq/OpenRouter "
-            "fallback is configured. Live availability is not verified at startup."
+            "AI PROVIDER ROUTING (free-only): Gemini Flash free tier only; "
+            "no Groq/OpenRouter Free fallback is configured. "
+            "Live availability is not verified at startup."
             + openrouter_note
         )
 
     if groq_configured:
         if openrouter_configured:
             return (
-                "AI PROVIDER ROUTING (configured): Groq primary; OpenRouter free "
-                "fallback enabled; Gemini fallback is not configured. "
+                "AI PROVIDER ROUTING (free-only): Groq Free primary; OpenRouter Free "
+                "fallback enabled; Gemini is not configured. "
                 "Live availability is not verified at startup."
             )
         return (
-            "AI PROVIDER ROUTING (configured): Groq only; Gemini/OpenRouter "
+            "AI PROVIDER ROUTING (free-only): Groq Free only; Gemini/OpenRouter Free "
             "fallbacks are not configured. Live availability is not verified at startup."
             + openrouter_note
         )
 
     if openrouter_configured:
         return (
-            "AI PROVIDER ROUTING (configured): OpenRouter free only; Gemini/Groq "
-            "fallbacks are not configured. Live availability is not verified at startup."
+            "AI PROVIDER ROUTING (free-only): OpenRouter Free only; Gemini/Groq "
+            "Free fallbacks are not configured. Live availability is not verified at startup."
         )
 
-    return "AI PROVIDER ROUTING: no AI provider key is configured."
+    return "AI PROVIDER ROUTING: no free-tier AI provider key is configured."
 
 
 def get_fernet() -> Fernet:
@@ -384,10 +343,7 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         allow_review_actions=not telegram_only_mode,
     )
 
-    if (
-        not os.getenv("GEMINI_API_KEY", "").strip()
-        and not os.getenv("OPENAI_API_KEY", "").strip()
-    ):
+    if not os.getenv("GEMINI_API_KEY", "").strip():
         configured_fallbacks = []
         if os.getenv("GROQ_API_KEY", "").strip():
             configured_fallbacks.append("Groq")
@@ -397,9 +353,9 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         bot._enqueue(
             "ai-config-gemini-key-missing-v2",
             "⚠️ تنبيه إعداد الذكاء الاصطناعي في JobFinder\\n\\n"
-            "لا يوجد مفتاح OpenAI أو Gemini مضبوط؛ يعتمد التحليل على المسارات الاحتياطية: "
+            "لا يوجد مفتاح Gemini مضبوط؛ يعتمد التحليل على المسارات الاحتياطية المجانية: "
             f"{fallback_text}. "
-            "أضف مفتاح OpenAI أو Gemini لتوفير مسار مستقل عالي الاستدلال. "
+            "أضف مفتاح Gemini المجاني لتوفير المسار الأساسي. "
             "المنشورات غير المكتملة تبقى محفوظة لإعادة المحاولة.",
         )
 
