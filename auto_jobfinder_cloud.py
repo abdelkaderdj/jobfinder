@@ -2385,7 +2385,7 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
-    model_name = str(model_name or os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.8-flash").strip()
+    model_name = str(model_name or "gemini-3.8-flash").strip()
     system_content = []
     conversation = []
     for message in messages or []:
@@ -2459,24 +2459,24 @@ def _gemini_json_request(messages, temperature=0, max_completion_tokens=1000, mo
     return parse_json_response(response_text)
 
 
-# Keep separately published Gemini model IDs as separate fallback routes. Remove
-# only exact duplicates so a usable model is not skipped under an assumed alias.
+# The production allowlist contains only Gemini Flash endpoints with Free-tier pricing.
+_FREE_GEMINI_FLASH_MODELS = (
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+)
+
+
 def _configured_gemini_models():
-    """Return unique Gemini model routes with distinct fallback quota pools."""
-    primary = (
-        os.getenv("GEMINI_MODEL", "").strip()
-        or "gemini-3.8-flash"
-    )
-    # A customized workflow variable can override this fallback order. The code
-    # below deduplicates exact IDs only and preserves the configured order.
-    fallback_csv = (
-        os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-        or "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
-    )
+    """Return only allowlisted Gemini Flash Free-tier model IDs."""
+    requested_primary = os.getenv("GEMINI_MODEL", "").strip()
+    primary = requested_primary if requested_primary in _FREE_GEMINI_FLASH_MODELS else _FREE_GEMINI_FLASH_MODELS[0]
+    requested_fallbacks = os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
+    fallback_candidates = requested_fallbacks.split(",") if requested_fallbacks else list(_FREE_GEMINI_FLASH_MODELS)
     models = []
-    for candidate in [primary, *fallback_csv.split(",")]:
+    for candidate in (primary, *fallback_candidates, *_FREE_GEMINI_FLASH_MODELS):
         name = str(candidate or "").strip()
-        if name and name not in models:
+        if name in _FREE_GEMINI_FLASH_MODELS and name not in models:
             models.append(name)
     return tuple(models)
 
