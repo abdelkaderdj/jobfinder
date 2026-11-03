@@ -238,7 +238,6 @@ class AIProviderRoutingTests(unittest.TestCase):
         processor._DISABLED_GEMINI_MODELS.update(self.original_disabled_gemini_models)
 
     def test_gemini_primary_success_reports_provider_health(self):
-    def test_gemini_primary_success_reports_provider_health(self):
         snapshots = []
         with (
             patch.dict(
