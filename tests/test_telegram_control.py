@@ -2717,20 +2717,21 @@ Ouvrier Montage Panneaux PV
         self.assertEqual(result["status"], "duplicate")
         send.assert_not_called()
 
-    def test_manual_apply_bypasses_candidate_and_location_rejections_but_keeps_email_gate(self):
+    def test_manual_apply_overrides_eligibility_and_location_but_keeps_hard_role_exclusions(self):
         advertisement = (
-            "EURL Example recrute un Comptable. "
+            "EURL Example recrute un Technicien de Maintenance. "
             "Lieu de travail: Tamanrasset. "
+            "Exigences: Master obligatoire, 6 ans d'expérience et âge maximum 35 ans. "
             "Envoyez votre CV à jobs@example.org."
         )
         job = {
-            "job_title": "Comptable",
-            "title_evidence": "Comptable",
+            "job_title": "Technicien de Maintenance",
+            "title_evidence": "Technicien de Maintenance",
             "company": "EURL Example",
             "location": "Tamanrasset",
             "decision": "REJECT",
             "score": 0,
-            "reason": "Unrelated role and location under normal candidate rules.",
+            "reason": "Degree, experience, age, and location fail normal candidate rules.",
         }
         events = []
         with (
@@ -2739,7 +2740,7 @@ Ouvrier Montage Panneaux PV
             patch.object(processor, "resolve_job_section", return_value=(advertisement, True, "matched")),
             patch.object(processor, "resolve_job_position_scope", return_value=(advertisement, True, "matched")),
             patch.object(processor, "determine_application_language", return_value=("fr", "test")),
-            patch.object(processor, "get_application_job_title", return_value="Comptable"),
+            patch.object(processor, "get_application_job_title", return_value="Technicien de Maintenance"),
             patch.object(processor, "scoped_accommodation_value", return_value="unknown"),
             patch.object(processor, "choose_cv", return_value="/tmp/cv_ats_fr.pdf"),
             patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
@@ -2768,6 +2769,60 @@ Ouvrier Montage Panneaux PV
         self.assertEqual(record["location_status"], "manual_owner_override")
         self.assertTrue(record["manual_apply"])
         self.assertTrue(record["sent"])
+
+    def test_manual_apply_never_sends_hard_excluded_electric_or_manual_labour_roles(self):
+        excluded_titles = ("Électriciens", "Ouvriers / Manœuvres")
+        for index, title in enumerate(excluded_titles, start=1):
+            with self.subTest(title=title):
+                advertisement = (
+                    f"EURL Example recrute {title}. "
+                    "Lieu de travail: Tamanrasset. "
+                    "Envoyez votre CV à jobs@example.org."
+                )
+                job = {
+                    "job_title": title,
+                    "title_evidence": title,
+                    "company": "EURL Example",
+                    "location": "Tamanrasset",
+                    "decision": "APPLY",
+                    "score": 95,
+                    "reason": "Owner sent the advertisement manually.",
+                }
+                events = []
+                with (
+                    patch.object(processor, "analyze_offer", return_value={"jobs": [job], "post_type": "actual_vacancy"}),
+                    patch.object(processor, "_validated_job_records", return_value=[job]),
+                    patch.object(processor, "resolve_job_section", return_value=(advertisement, True, "matched")),
+                    patch.object(processor, "resolve_job_position_scope", return_value=(advertisement, True, "matched")),
+                    patch.object(processor, "determine_application_language", return_value=("fr", "test")),
+                    patch.object(processor, "get_application_job_title", return_value=title),
+                    patch.object(processor, "scoped_accommodation_value", return_value="unknown"),
+                    patch.object(processor, "choose_cv", return_value="/tmp/cv_ats_fr.pdf"),
+                    patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
+                    patch.object(processor, "send_application") as send,
+                    patch.object(processor, "save_sent"),
+                    patch.object(processor, "save_result"),
+                    patch.object(processor, "JOB_EVENT_CALLBACK", new=events.append),
+                    patch.object(processor, "JOB_DECISION_AUDIT_CALLBACK", new=None),
+                ):
+                    ok = processor.process_post(
+                        {
+                            "source": "",
+                            "message_id": f"manual-excluded-{index}",
+                            "channel": "manual_submission",
+                            "text": advertisement,
+                        },
+                        manual_apply=True,
+                    )
+
+                self.assertTrue(ok)
+                send.assert_not_called()
+                self.assertEqual(len(events), 1)
+                record = events[0]["record"]
+                self.assertEqual(record["decision"], "REJECT")
+                self.assertFalse(record["sent"])
+                self.assertTrue(record["manual_apply"])
+                self.assertIn("استبعادات", record["reason"])
 
     def test_processor_sends_only_after_validated_approval(self):
         item = self.sample_review_item(True)
