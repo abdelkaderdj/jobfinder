@@ -10,6 +10,7 @@ on:
         options:
           - command
           - callback
+          - manual_job
       command:
         description: Validated Telegram command
         required: false
@@ -31,7 +32,15 @@ on:
         required: true
         type: string
       message_id:
-        description: Original Telegram message ID for callback editing
+        description: Original Telegram message ID for callback editing or forwarded ad identity
+        required: false
+        type: string
+      source:
+        description: Original public Telegram channel username when forwarded
+        required: false
+        type: string
+      message_text:
+        description: Owner-submitted job advertisement text
         required: false
         type: string
 
@@ -88,6 +97,8 @@ jobs:
           JOBFINDER_TELEGRAM_CHAT_ID: ${{ inputs.chat_id }}
           JOBFINDER_TELEGRAM_USER_ID: ${{ inputs.user_id }}
           JOBFINDER_TELEGRAM_MESSAGE_ID: ${{ inputs.message_id }}
+          JOBFINDER_TELEGRAM_SOURCE: ${{ inputs.source }}
+          JOBFINDER_TELEGRAM_MESSAGE_TEXT: ${{ inputs.message_text }}
         run: python cloud_runner.py
 
       - name: Commit encrypted state only
