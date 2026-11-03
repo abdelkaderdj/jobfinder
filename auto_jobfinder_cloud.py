@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 import time
 import re
 from datetime import datetime
@@ -3197,7 +3198,7 @@ def _postprocess_analysis_result(source_text: str, result: Any) -> Any:
 # AI ANALYSIS
 # ============================================================
 
-def analyze_offer(text, vacancy_rescue=False):
+def analyze_offer(text, vacancy_rescue=False, manual_apply=False):
 
     prompt = """
 
@@ -3816,6 +3817,24 @@ unsuitable roles may be REJECT; relevant roles with uncertain entry criteria
 must be REVIEW, not silently omitted. Return an empty array only when the
 text truly has no job vacancy. Never invent titles, employers, locations,
 contacts, or requirements.
+"""
+
+    if manual_apply:
+        prompt += """
+
+OWNER-SUBMITTED MANUAL APPLICATION MODE — OVERRIDE CANDIDATE REJECTION:
+The owner deliberately sent this advertisement to JobFinder and explicitly
+requests applications. Treat this as authorization to apply to every distinct,
+source-grounded position listed in this advertisement. Do NOT reject or omit
+a position because of the candidate's role-fit score, degree, experience,
+seniority, location, or normal candidate eligibility policies. Return decision
+APPLY for each explicitly identified position. Still extract only titles that
+actually appear in the source; never invent a title, employer, worksite,
+requirement, or recipient. Keep positions separate. Do not confuse a field or
+sector with a work location. The sender still requires a clearly associated
+email, an available CV, and confirmation that this exact offer was not
+previously sent. If there is no source-grounded position, return no jobs.
+Do not let an appended CV-writing/services footer become a vacancy or contact.
 """
 
     prompt = prompt.replace("{{CANDIDATE_ROLE_POLICY_BLOCK}}", candidate_role_policy_prompt_text())
@@ -5688,73 +5707,36 @@ def same_job_identity(
     return False
 
 
-# Cross-posts are treated as duplicates only for a short window. A genuinely
-# new repost after this window is a new opportunity, even if the role and email
-# are unchanged. Exact source/message application keys remain permanent guards.
-JOB_DUPLICATE_WINDOW_HOURS = 48
+def application_offer_fingerprint(advertisement, application_title, email):
+    """
+    Stable, content-based identity for one advertised position.
+
+    Company/title similarity alone is insufficient: the same employer can
+    publish a genuinely new vacancy with the same title. The normalized
+    position-scoped advertisement, title, and recipient identify the offer.
+    Exact source/message IDs are separately protected by application_key().
+    """
+    body = strip_appended_service_promotion(str(advertisement or "").strip())
+    normalized_body = normalize_text(body)
+    normalized_title = normalize_text(application_title)
+    if not normalized_body or not normalized_title:
+        return ""
+    # Contact addresses may change when the same offer is reposted; the ad
+    # and position define the offer, not the employer's current inbox.
+    payload = "\n".join((normalized_body, normalized_title))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _sent_record_is_recent(record, now=None):
-    """Only timestamped sends from the recent duplicate window can fuzzy-block a repost."""
-    raw_timestamp = str(record.get("sent_at") or "").strip()
-    if not raw_timestamp:
-        # Legacy history without a timestamp cannot prove when the application
-        # was sent, so it must not suppress a newly published post forever.
-        return False
-
-    try:
-        sent_at = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return False
-
-    # Treat timezone-less/invalid legacy timestamps as unknown rather than
-    # guessing a date and blocking a new opportunity.
-    if sent_at.tzinfo is None or sent_at.utcoffset() is None:
-        return False
-
-    if now is None:
-        now = datetime.now(ZoneInfo("Africa/Algiers"))
-    elif now.tzinfo is None or now.utcoffset() is None:
-        now = now.replace(tzinfo=ZoneInfo("Africa/Algiers"))
-
-    age_hours = (now - sent_at.astimezone(now.tzinfo)).total_seconds() / 3600
-    return 0 <= age_hours <= JOB_DUPLICATE_WINDOW_HOURS
-
-
-def already_sent_same_job(
-    current_job,
-    current_title,
-    emails
-):
-
-    sent_records = load_sent_records()
-    now = datetime.now(ZoneInfo("Africa/Algiers"))
-
-    for old_record in sent_records:
-
-        if not isinstance(old_record, dict) or not _sent_record_is_recent(old_record, now):
+def already_sent_same_offer(application_key_value, offer_fingerprint):
+    """Only block the same original Telegram post or the same offer fingerprint."""
+    for old_record in load_sent_records():
+        if not isinstance(old_record, dict):
             continue
-
-        old_email = old_record.get(
-            "email",
-            ""
-        )
-
-        candidate_emails = emails or [
-            old_email
-        ]
-
-        for email in candidate_emails:
-
-            if same_job_identity(
-                current_job,
-                current_title,
-                email,
-                old_record
-            ):
-
-                return True, old_record
-
+        if application_key_value and str(old_record.get("key") or "") == str(application_key_value):
+            return True, old_record
+        old_fingerprint = str(old_record.get("offer_fingerprint") or "").strip()
+        if offer_fingerprint and old_fingerprint and old_fingerprint == offer_fingerprint:
+            return True, old_record
     return False, None
 
 
@@ -7305,7 +7287,8 @@ def verify_apply_decisions(source_text, jobs, job_contexts=None):
 # ============================================================
 
 def process_post(
-    post
+    post,
+    manual_apply=False,
 ):
 
     text = post.get(
@@ -7319,19 +7302,19 @@ def process_post(
 
         return True
 
-    if looks_like_unconfirmed_recruitment_rumor(text):
+    if not manual_apply and looks_like_unconfirmed_recruitment_rumor(text):
         print("NON-JOB UNCONFIRMED RECRUITMENT RUMOR: no official vacancy or actionable role; ignored")
         return True
 
-    if looks_like_non_job_service_promotion(text):
+    if not manual_apply and looks_like_non_job_service_promotion(text):
         print("NON-JOB SERVICE PROMOTION FILTER: CV/career-service advertisement; ignored")
         return True
 
-    if looks_like_non_job_job_teaser(text):
+    if not manual_apply and looks_like_non_job_job_teaser(text):
         print("NON-JOB FUTURE-POST TEASER FILTER: offers are announced for later; no current vacancy details")
         return True
 
-    if looks_like_non_job_social_post(text):
+    if not manual_apply and looks_like_non_job_social_post(text):
         print("NON-JOB SOCIAL POST FILTER: obvious prayer/migration-distress content; ignored")
         return True
 
@@ -7342,7 +7325,8 @@ def process_post(
     try:
 
         result = analyze_offer(
-            text
+            text,
+            manual_apply=manual_apply,
         )
 
     except Exception as e:
@@ -7360,7 +7344,7 @@ def process_post(
 
     # Model classification is separate from job extraction. Ignore only a
     # non-vacancy label backed by an exact source quote.
-    if _trusted_non_vacancy_classification(result, text):
+    if not manual_apply and _trusted_non_vacancy_classification(result, text):
         post_type = normalize_text(result.get("post_type", "")).replace(" ", "_")
         print(f"AI POST CLASSIFICATION: {post_type}; source evidence verified; no review card created")
         return True
@@ -7380,14 +7364,14 @@ def process_post(
     # Schema-valid empty output can silently drop a real job ad. Retry once
     # with an explicit extraction prompt; retain short title lists for review if
     # the model still omits their positions.
-    if not jobs and looks_like_vacancy_ad(text):
-        if not _has_grounded_actual_vacancy_signal(text, listed_role_titles, result):
+    if not jobs and (manual_apply or looks_like_vacancy_ad(text)):
+        if not manual_apply and not _has_grounded_actual_vacancy_signal(text, listed_role_titles, result):
             print("AI EMPTY EXTRACTION: no source-grounded position found; skipping instead of creating a false review card")
             return True
         print("AI EMPTY EXTRACTION: vacancy evidence found; retrying extraction once")
         vacancy_rescue_attempted = True
         try:
-            retry_result = analyze_offer(text, vacancy_rescue=True)
+            retry_result = analyze_offer(text, vacancy_rescue=True, manual_apply=manual_apply)
             retry_jobs = _validated_job_records(retry_result, text)
         except Exception as exc:
             print("AI VACANCY RESCUE ERROR:", type(exc).__name__)
@@ -7491,7 +7475,13 @@ def process_post(
 
     # A separate high-reasoning audit gates every model-proposed APPLY. It may
     # preserve an APPLY only with evidence from that exact pre-resolved position.
-    jobs = verify_apply_decisions(text, jobs, job_contexts=job_contexts)
+    if not manual_apply:
+        jobs = verify_apply_decisions(text, jobs, job_contexts=job_contexts)
+    else:
+        for position in jobs:
+            if isinstance(position, dict):
+                position["decision"] = "APPLY"
+                position["manual_apply"] = True
     print(f"Found {len(jobs)} job position(s)")
 
     # ========================================================
@@ -7540,49 +7530,40 @@ def process_post(
         print("APPLICATION LANGUAGE:", application_language)
         print("LANGUAGE REASON: details redacted from public workflow logs")
 
-        decision = str(
-            job.get(
-                "decision",
-                "REJECT"
-            )
+        decision = "APPLY" if manual_apply else str(
+            job.get("decision", "REJECT")
         ).upper().strip()
-
-        if decision not in {
-            "APPLY",
-            "REVIEW",
-            "REJECT"
-        }:
-
+        if decision not in {"APPLY", "REVIEW", "REJECT"}:
             decision = "REJECT"
-
         original_ai_decision = decision
 
-        # Deterministic fit checks override the AI when the score is weak
-        # or the role title is clearly unrelated. A broad technical title
-        # cannot authorize an automatic application by itself.
-        cv_match_score, cv_matched_skill_groups = calculate_candidate_cv_match(
-            job,
-            position_scope_text if position_scope_matched else "",
-        )
-        decision_before_fit = decision
-        decision, role_fit_reason = enforce_candidate_fit_rule(
-            job,
-            decision,
-            position_scope_text if position_scope_matched else "",
-            cv_match_score=cv_match_score,
-        )
-        role_fit_overrode_ai = decision != decision_before_fit
-
-        # This is deliberately AFTER all fit overrides: no later exception may
-        # re-promote an unverified AI APPLY to an automatic send decision.
-        decision, verification_reason = enforce_verification_gate(
-            decision,
-            job.get("verification_gate"),
-            job.get("verification_reason"),
-        )
-        if verification_reason:
-            role_fit_reason = verification_reason
-            role_fit_overrode_ai = True
+        if manual_apply:
+            cv_match_score = None
+            cv_matched_skill_groups = []
+            role_fit_reason = "التقديم مُعتمد بناءً على اختيارك المباشر لهذا الإعلان."
+            role_fit_overrode_ai = False
+            verification_reason = ""
+        else:
+            cv_match_score, cv_matched_skill_groups = calculate_candidate_cv_match(
+                job,
+                position_scope_text if position_scope_matched else "",
+            )
+            decision_before_fit = decision
+            decision, role_fit_reason = enforce_candidate_fit_rule(
+                job,
+                decision,
+                position_scope_text if position_scope_matched else "",
+                cv_match_score=cv_match_score,
+            )
+            role_fit_overrode_ai = decision != decision_before_fit
+            decision, verification_reason = enforce_verification_gate(
+                decision,
+                job.get("verification_gate"),
+                job.get("verification_reason"),
+            )
+            if verification_reason:
+                role_fit_reason = verification_reason
+                role_fit_overrode_ai = True
 
         # ====================================================
         # LOCATION SAFETY LAYER
@@ -7608,16 +7589,22 @@ def process_post(
             has_multiple_sections,
         )
 
-        (
-            decision,
-            location_status,
-            location_reason
-        ) = enforce_location_rule(
-            scoped_job,
-            decision,
-            position_scope_text if position_scope_matched else "",
-            section_verified=(scope_matched and position_scope_matched),
-        )
+        if manual_apply:
+            decision = "APPLY"
+            location_status = "manual_owner_override"
+            location_reason = "تم تجاوز شرط الموقع لأنك أرسلت الإعلان بنفسك."
+        else:
+            (
+                decision,
+                location_status,
+                location_reason
+            ) = enforce_location_rule(
+                scoped_job,
+                decision,
+                position_scope_text if position_scope_matched else "",
+                section_verified=(scope_matched and position_scope_matched),
+            )
+
 
         # ====================================================
         # POSITION-SCOPED EMAILS ONLY
@@ -7649,13 +7636,13 @@ def process_post(
         # and exactly one email recipient are unambiguous.
         contact_review_reason = ""
         if decision == "APPLY":
-            if global_application_email:
+            if global_application_email and not manual_apply:
                 decision = "REVIEW"
                 contact_review_reason = (
                     "A global application email was recovered from the complete post, "
                     "but the position-specific section is not verified; automatic sending is disabled."
                 )
-            elif not scope_matched:
+            elif not scope_matched and not (manual_apply and global_application_email and len(emails) == 1):
                 decision = "REVIEW"
                 contact_review_reason = (
                     "Could not safely identify this position's own advertisement "
@@ -7689,7 +7676,7 @@ def process_post(
             final_reason = (
                 (final_reason + " ") if final_reason else ""
             ) + role_fit_reason
-        if decision == "REVIEW" and cv_match_score >= 30:
+        if decision == "REVIEW" and isinstance(cv_match_score, (int, float)) and cv_match_score >= 30:
             matched_text = ", ".join(cv_matched_skill_groups[:5]) or "role/title overlap"
             final_reason = (
                 (final_reason + " ") if final_reason else ""
@@ -7712,7 +7699,7 @@ def process_post(
         # Check manual rejection history before any email can be sent.
         # Fail closed if the guard fails, to prevent an unsafe application.
         pre_send_guard_reason = ""
-        if decision != "REJECT" and JOB_PRE_SEND_GUARD is not None:
+        if not manual_apply and decision != "REJECT" and JOB_PRE_SEND_GUARD is not None:
             try:
                 pre_send_guard_reason = str(
                     JOB_PRE_SEND_GUARD(job, application_title, emails, post) or ""
@@ -7879,7 +7866,10 @@ def process_post(
                 False,
 
             "job_duplicate":
-                False
+                False,
+
+            "manual_apply":
+                bool(manual_apply)
         }
 
         # ====================================================
@@ -7889,150 +7879,54 @@ def process_post(
         send_attempted = False
 
         if decision == "APPLY":
-
             if not cv:
-
-                print(
-                    "SEND SKIPPED: CV not found"
-                )
-
+                print("SEND SKIPPED: CV not found")
             elif not emails:
-
-                print(
-                    "SEND SKIPPED: No email found"
-                )
-
+                print("SEND SKIPPED: No email found")
             else:
-
-                # ------------------------------------------------
-                # FIRST CHECK:
-                # Is this the SAME REAL-WORLD JOB already sent?
-                #
-                # This catches:
-                #
-                # Channel A -> same job
-                # Channel B -> same job
-                # Same channel later -> same job
-                # Different wording -> same job
-                # ------------------------------------------------
-
-                same_job, old_record = (
-                    already_sent_same_job(
-                        job,
+                offer_advertisement = job_section_text if scope_matched else text
+                for email_address in emails:
+                    key = application_key(post, job, email_address)
+                    offer_fingerprint = application_offer_fingerprint(
+                        offer_advertisement,
                         application_title,
-                        emails
+                        email_address,
                     )
-                )
-
-                if same_job:
-
-                    record["job_duplicate"] = True
-                    record["sent"] = False
-
-                    print(
-                        "SKIPPED SAME JOB DUPLICATE:",
-                        application_title
-                    )
-
-                else:
-
-                    # ------------------------------------------------
-                    # Normal per-email sending
-                    # ------------------------------------------------
-
-                    for email_address in emails:
-
-                        key = application_key(
-                            post,
+                    duplicate, _old_record = already_sent_same_offer(key, offer_fingerprint)
+                    if duplicate:
+                        record["job_duplicate"] = True
+                        print("SKIPPED SAME OFFER DUPLICATE")
+                        continue
+                    try:
+                        send_attempted = True
+                        send_application(
+                            email_address,
                             job,
-                            email_address
+                            cv,
+                            application_language,
+                            text,
+                            application_title
                         )
-
-                        # --------------------------------------------
-                        # Exact Telegram-post duplicate
-                        # --------------------------------------------
-
-                        if already_sent(
-                            key
-                        ):
-
-                            print(
-                                "SKIPPED EXACT DUPLICATE:",
-                                email_address
-                            )
-
-                            continue
-
-                        try:
-
-                            send_attempted = True
-
-                            send_application(
-                                email_address,
-                                job,
-                                cv,
-                                application_language,
-                                text,
-                                application_title
-                            )
-
-                            save_sent(
-                                key,
-                                {
-
-                                    "source":
-                                        post.get(
-                                            "source"
-                                        ),
-
-                                    "message_id":
-                                        post.get(
-                                            "message_id"
-                                        ),
-
-                                    "job_title":
-                                        job.get(
-                                            "job_title"
-                                        ),
-
-                                    "application_job_title":
-                                        application_title,
-
-                                    "company":
-                                        job.get(
-                                            "company",
-                                            ""
-                                        ),
-
-                                    "location":
-                                        job.get(
-                                            "location",
-                                            ""
-                                        ),
-
-                                    "email":
-                                        email_address,
-
-                                    "cv":
-                                        cv,
-
-                                    "application_language":
-                                        application_language,
-
-                                    "identity_key":
-                                        identity_key
-                                }
-                            )
-
-                            record["sent"] = True
-
-                        except Exception as e:
-
-                            # Public Actions logs must not expose addresses or SMTP details.
-                            print(
-                                "GMAIL ERROR:",
-                                type(e).__name__
-                            )
+                        save_sent(
+                            key,
+                            {
+                                "source": post.get("source"),
+                                "message_id": post.get("message_id"),
+                                "job_title": job.get("job_title"),
+                                "application_job_title": application_title,
+                                "company": job.get("company", ""),
+                                "location": job.get("location", ""),
+                                "email": email_address,
+                                "cv": cv,
+                                "application_language": application_language,
+                                "identity_key": identity_key,
+                                "offer_fingerprint": offer_fingerprint,
+                                "manual_apply": bool(manual_apply),
+                            }
+                        )
+                        record["sent"] = True
+                    except Exception as exc:
+                        print("GMAIL ERROR:", type(exc).__name__)
 
         # If sending was attempted and no recipient accepted the application,
         # leave the Telegram cursor on this post so the next scheduled run retries it.
@@ -8117,8 +8011,13 @@ def send_approved_review(item):
         raise RuntimeError("Job title is missing")
     email_address = str(emails[0]).strip()
     key = application_key(post, job, email_address)
-    same_job, _old_record = already_sent_same_job(job, title, [email_address])
-    if same_job or already_sent(key):
+    offer_fingerprint = application_offer_fingerprint(
+        str(item.get("advertisement") or ""),
+        title,
+        email_address,
+    )
+    duplicate, _old_record = already_sent_same_offer(key, offer_fingerprint)
+    if duplicate:
         duplicate_record = dict(record)
         duplicate_record.update({
             "decision": "APPLY",
@@ -8148,6 +8047,7 @@ def send_approved_review(item):
         "cv": cv_path,
         "application_language": record.get("application_language"),
         "identity_key": record.get("identity_key"),
+        "offer_fingerprint": offer_fingerprint,
         "manual_approval": True,
     })
     sent_record = dict(record)
