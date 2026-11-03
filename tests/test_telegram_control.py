@@ -3841,7 +3841,7 @@ recrutement.dz30@yahoo.com
 
         self.assertTrue(ok)
         self.assertEqual(analyze.call_count, 2)
-        analyze.assert_called_with(advertisement, vacancy_rescue=True)
+        analyze.assert_called_with(advertisement, vacancy_rescue=True, manual_apply=False)
         save_result.assert_called_once()
         self.assertEqual(len(events), 1)
         record = events[0]["record"]
