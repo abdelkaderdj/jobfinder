@@ -68,6 +68,7 @@ def main() -> int:
             "language_code": "ar",
             "commands": [
                 {"command": "start", "description": "القائمة الرئيسية"},
+                {"command": "manual_apply", "description": "التقديم على إعلان تختاره بنفسك"},
                 {"command": "help", "description": "شرح استخدام البوت"},
                 {"command": "status", "description": "حالة النظام وآخر تشغيل"},
                 {"command": "today", "description": "ملخص الإحصائيات اليوم"},
@@ -79,7 +80,7 @@ def main() -> int:
         print("Arabic Telegram command menu configured.")
     except RuntimeError as exc:
         # Keep the already-configured webhook usable if the optional command menu
-        # cannot be updated; the persistent reply keyboard remains available.
+        # cannot be updated; the reply keyboard can be reopened from the Telegram composer.
         print(f"Could not update Telegram command menu: {str(exc)[:160]}")
 
     info = api(token, "getWebhookInfo", {})
