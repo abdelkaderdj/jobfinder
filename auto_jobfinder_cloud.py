@@ -7032,7 +7032,8 @@ _SINGLE_POSITION_TITLE_LABEL_RE = re.compile(
     r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?(?:"
     r"job title|title of the position|position title|intitul[eé] du poste|"
     r"intitule de poste|poste a pourvoir|poste propos[eé]|"
-    r"المسمى الوظيفي|مسمى الوظيفة|المنصب المطلوب|الوظيفة المطلوبة"
+    r"المسمى الوظيفي|مسمى الوظيفة|مسمى المنصب|اسم الوظيفة|اسم المنصب|"
+    r"المنصب المطلوب|الوظيفة المطلوبة|المنصب|الوظيفة"
     r")\s*[:：]\s*(?P<title>.+?)\s*$",
     flags=re.IGNORECASE,
 )
