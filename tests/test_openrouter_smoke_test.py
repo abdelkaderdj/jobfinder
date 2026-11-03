@@ -85,10 +85,8 @@ class OpenRouterSmokeTestTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", monitor)
-        self.assertIn(
-            "OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}",
-            monitor,
-        )
+        self.assertNotIn("OPENROUTER_MODEL:", monitor)
+        self.assertNotIn("OPENROUTER_MODEL:", smoke)
         self.assertIn("run: python tools/openrouter_smoke_test.py", smoke)
         self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", smoke)
 
