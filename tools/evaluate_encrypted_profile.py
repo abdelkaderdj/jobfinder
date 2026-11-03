@@ -24,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 DEFAULT_PROFILE_FILE = ROOT / "cloud_private" / "profile.enc"
 PROFILE_ENV_KEYS = ("JOBFINDER_CANDIDATE_PROFILE", "JOBFINDER_CANDIDATE_NAME")
-AI_PROVIDER_KEYS = ("OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+AI_PROVIDER_KEYS = ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
 
 _PROVIDER_SUCCESS = re.compile(
-    r"^AI PROVIDER: (OpenAI|Gemini|Groq|OpenRouter) "
+    r"^AI PROVIDER: (Gemini|Groq|OpenRouter) 
     r"\(([^()\r\n]{1,100})\) succeeded(?: after JSON-mode retry)?$"
 )
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_.:-]")
@@ -120,10 +120,6 @@ def _provider_diagnostics(trace: Any) -> list[dict[str, str]]:
                 event = "invalid_json_response"
             else:
                 event = "provider_failed"
-        elif text.startswith("AI OPENAI RATE LIMIT:"):
-            provider, event = "OpenAI", "rate_limited"
-        elif text.startswith("AI OPENAI TEMPORARY OUTAGE:"):
-            provider, event = "OpenAI", "temporary_overload"
         elif text.startswith("AI RATE LIMIT:") or text.startswith("AI GROQ RATE LIMIT:"):
             provider, event = "Groq", "rate_limited"
         elif text.startswith("AI PROVIDER TEMPORARILY UNAVAILABLE:"):
