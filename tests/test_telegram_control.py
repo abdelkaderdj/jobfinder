@@ -2770,13 +2770,14 @@ Ouvrier Montage Panneaux PV
         self.assertTrue(record["manual_apply"])
         self.assertTrue(record["sent"])
 
-    def test_manual_apply_never_sends_hard_excluded_electric_or_manual_labour_roles(self):
-        excluded_titles = ("Électriciens", "Ouvriers / Manœuvres")
-        for index, title in enumerate(excluded_titles, start=1):
+    def test_manual_submission_applies_to_owner_selected_electric_and_manual_labour_roles(self):
+        selected_titles = ("Électriciens", "Ouvriers / Manœuvres")
+        for index, title in enumerate(selected_titles, start=1):
             with self.subTest(title=title):
                 advertisement = (
                     f"EURL Example recrute {title}. "
                     "Lieu de travail: Tamanrasset. "
+                    "Exigences: Master obligatoire, 6 ans d'expérience et âge maximum 35 ans. "
                     "Envoyez votre CV à jobs@example.org."
                 )
                 job = {
@@ -2784,9 +2785,9 @@ Ouvrier Montage Panneaux PV
                     "title_evidence": title,
                     "company": "EURL Example",
                     "location": "Tamanrasset",
-                    "decision": "APPLY",
-                    "score": 95,
-                    "reason": "Owner sent the advertisement manually.",
+                    "decision": "REJECT",
+                    "score": 0,
+                    "reason": "Normal automatic candidate-profile rules would reject this role.",
                 }
                 events = []
                 with (
@@ -2808,7 +2809,7 @@ Ouvrier Montage Panneaux PV
                     ok = processor.process_post(
                         {
                             "source": "",
-                            "message_id": f"manual-excluded-{index}",
+                            "message_id": f"manual-selected-{index}",
                             "channel": "manual_submission",
                             "text": advertisement,
                         },
@@ -2816,13 +2817,13 @@ Ouvrier Montage Panneaux PV
                     )
 
                 self.assertTrue(ok)
-                send.assert_not_called()
+                send.assert_called_once()
                 self.assertEqual(len(events), 1)
                 record = events[0]["record"]
-                self.assertEqual(record["decision"], "REJECT")
-                self.assertFalse(record["sent"])
+                self.assertEqual(record["decision"], "APPLY")
                 self.assertTrue(record["manual_apply"])
-                self.assertIn("استبعادات", record["reason"])
+                self.assertTrue(record["sent"])
+                self.assertIn("اختيارك وإرسالك اليدوي", record["reason"])
 
     def test_processor_sends_only_after_validated_approval(self):
         item = self.sample_review_item(True)

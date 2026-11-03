@@ -841,29 +841,20 @@ def _advertisement_explicitly_requires_missing_qualification(job, advertisement:
 
 def enforce_manual_application_role_rule(job):
     """
-    Keep hard role/discipline exclusions active in owner-directed manual mode.
+    Manual submission is the owner's explicit decision that the position fits.
 
-    Manual submission may override age, experience, degree, seniority, and
-    location rejection rules, but it must never turn an explicitly unrelated
-    discipline or general manual-labour role into an application.
+    Do not re-apply candidate profile exclusions in this mode: the owner may
+    intentionally choose any source-grounded role. Keep only the data-integrity
+    requirement that the advertisement contains an identifiable position.
+    Email association, CV availability, duplicate protection, and source
+    validation remain enforced later in process_post.
     """
-    if not isinstance(job, dict):
-        return "REJECT", "رُفض المنصب لأن بيانات المسمى الوظيفي غير صالحة."
-
-    title_variants = _normalized_job_title_variants(job)
-    if not title_variants:
-        return "REJECT", "رُفض المنصب لأن المسمى الوظيفي غير واضح."
-
-    for pattern in UNRELATED_ROLE_TITLE_PATTERNS:
-        if any(re.search(pattern, candidate) for candidate in title_variants):
-            return (
-                "REJECT",
-                "رُفض المنصب رغم اختيارك اليدوي لأن تخصصه من الاستبعادات الصريحة في ملفك المهني، أو لأنه عمل يدوي عام خارج مساراتك التقنية.",
-            )
+    if not isinstance(job, dict) or not _normalized_job_title_variants(job):
+        return "REJECT", "رُفض المنصب لأن الإعلان لا يحتوي على مسمى وظيفي واضح يمكن التقديم عليه."
 
     return (
         "APPLY",
-        "تم تجاوز شروط السن والخبرة والمؤهل والأقدمية والموقع بناءً على اختيارك، مع الإبقاء على استبعادات التخصص والعمل اليدوي العام.",
+        "تم اعتماد ملاءمة هذا المنصب بناءً على اختيارك وإرسالك اليدوي للإعلان؛ لم تُطبّق عليه قواعد الرفض الخاصة بملف المرشح.",
     )
 
 
@@ -3850,21 +3841,22 @@ contacts, or requirements.
     if manual_apply:
         prompt += """
 
-OWNER-SUBMITTED MANUAL APPLICATION MODE — LIMITED OWNER OVERRIDE:
-The owner deliberately selected this advertisement and requests an application.
-Override age, experience-years, degree-level, seniority, and location rejection
-rules only. Do NOT override the owner's hard profession/discipline exclusions.
-In particular, never APPLY to electrical-only roles, electromechanical,
-instrumentation/automation, or general manual-labour roles such as Ouvrier,
-Manœuvre, laborer, or unskilled worker. Those positions must remain REJECT.
-For other positions, preserve every distinct source-grounded title and do not
-omit a role merely because its score is low or a normal age/experience/degree/
-seniority/location condition would reject it. Keep positions separate. Do not
-invent a title, employer, worksite, requirement, or recipient. Do not confuse a
-field or sector with a work location. The sender still requires a clearly
-associated email, an available CV, and confirmation that this exact offer was
-not previously sent. If there is no source-grounded position, return no jobs.
-Do not let an appended CV-writing/services footer become a vacancy or contact.
+OWNER-SUBMITTED MANUAL APPLICATION MODE — OWNER HAS ALREADY CONFIRMED FIT:
+The owner deliberately selected and sent this advertisement to JobFinder.
+Treat that action as the owner's confirmation that the listed positions meet
+the owner's personal job-selection criteria. Do NOT apply candidate-profile
+rejections in this mode: role discipline, profession, seniority, degree,
+experience, age, location, CV keyword match, or any other personal eligibility
+rule must not reject or omit a source-grounded position. Return APPLY for every
+distinct position explicitly listed in the advertisement, including roles
+that normal automatic screening would exclude. Preserve every listed title
+separately. Never invent a title, employer, worksite, requirement, or recipient.
+Do not confuse a field or sector with a work location. This owner override does
+NOT bypass data-integrity and sending safeguards: a source-grounded position,
+a clearly associated application email, an available CV, and confirmation that
+this exact offer was not previously sent are still required. If no real
+position can be extracted, return no jobs. Do not let an appended CV-writing
+or services footer become a vacancy or contact.
 """
 
     prompt = prompt.replace("{{CANDIDATE_ROLE_POLICY_BLOCK}}", candidate_role_policy_prompt_text())
