@@ -30,10 +30,15 @@ class FakeProcessor:
     def __init__(self, status="sent"):
         self.status = status
         self.calls = []
+        self.manual_calls = []
 
     def send_approved_review(self, item):
         self.calls.append(item)
         return {"status": self.status}
+
+    def process_post(self, post, manual_apply=False):
+        self.manual_calls.append((post, manual_apply))
+        return True
 
 
 def sample_event(decision="REVIEW"):
@@ -91,10 +96,12 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertIn("مرحبًا بك في JobFinder", sent[0][1])
         keyboard = sent[0][2]
-        self.assertTrue(keyboard["is_persistent"])
+        self.assertTrue(keyboard["one_time_keyboard"])
+        self.assertNotIn("is_persistent", keyboard)
         self.assertTrue(keyboard["resize_keyboard"])
         labels = [button["text"] for row in keyboard["keyboard"] for button in row]
         self.assertIn("📥 المراجعات المعلقة", labels)
+        self.assertIn("📨 التقديم على عرض أختاره", labels)
         self.assertIn("📨 طلبات اليوم", labels)
         self.assertIn("📊 ملخص اليوم", labels)
         self.assertIn("📡 حالة النظام", labels)
@@ -220,7 +227,7 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("المراجعات المعلقة", sent[0][1])
         self.assertIn("طلبات مسجلة اليوم", sent[0][1])
         self.assertIn("سجلات إرسال قديمة بلا توقيت", sent[0][1])
-        self.assertTrue(sent[0][2]["is_persistent"])
+        self.assertTrue(sent[0][2]["one_time_keyboard"])
 
     def test_main_menu_button_routes_to_status_command(self):
         bot, sent = self.build_bot()
@@ -231,7 +238,52 @@ class TelegramControlTests(unittest.TestCase):
         })
         self.assertEqual(len(sent), 1)
         self.assertIn("حالة JobFinder", sent[0][1])
-        self.assertTrue(sent[0][2]["is_persistent"])
+        self.assertIsNone(sent[0][2])
+
+    def test_manual_apply_menu_command_explains_direct_submission(self):
+        bot, sent = self.build_bot()
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "text": "/manual_apply",
+        })
+        self.assertEqual(len(sent), 1)
+        self.assertIn("أرسل نص الإعلان مباشرة", sent[0][1])
+        self.assertIn("تشابه اسم الشركة والمسمى وحده لا يعني أن العرض مكرر", sent[0][1])
+
+    def test_plain_owner_message_is_processed_as_manual_application(self):
+        fake = FakeProcessor()
+        bot, _sent = self.build_bot(fake)
+        ad = "EURL Example recrute un Technicien de maintenance — jobs@example.org"
+        bot._handle_message({
+            "chat": {"id": 12345, "type": "private"},
+            "from": {"id": 12345},
+            "message_id": 991,
+            "text": ad,
+        })
+        self.assertEqual(len(fake.manual_calls), 1)
+        post, manual_apply = fake.manual_calls[0]
+        self.assertTrue(manual_apply)
+        self.assertTrue(post["manual_submission"])
+        self.assertEqual(post["message_id"], "991")
+        self.assertEqual(post["text"], ad)
+
+    def test_webhook_manual_job_event_preserves_forwarded_origin_identity(self):
+        fake = FakeProcessor()
+        bot, _sent = self.build_bot(fake)
+        bot.handle_webhook_event({
+            "update_type": "manual_job",
+            "chat_id": "12345",
+            "user_id": "12345",
+            "message_id": "23226",
+            "source": "rcrdz1",
+            "message_text": "Technicien de maintenance — jobs@example.org",
+        })
+        self.assertEqual(len(fake.manual_calls), 1)
+        post, manual_apply = fake.manual_calls[0]
+        self.assertTrue(manual_apply)
+        self.assertEqual(post["source"], "rcrdz1")
+        self.assertEqual(post["message_id"], "23226")
 
     def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
         cases = [
@@ -2656,8 +2708,7 @@ Ouvrier Montage Panneaux PV
         item = self.sample_review_item(True)
         with (
             patch.object(processor.os.path, "isfile", return_value=True),
-            patch.object(processor, "already_sent_same_job", return_value=(True, {})),
-            patch.object(processor, "already_sent", return_value=False),
+            patch.object(processor, "already_sent_same_offer", return_value=(True, {})),
             patch.object(processor, "send_application") as send,
             patch.object(processor, "save_sent"),
             patch.object(processor, "save_result"),
@@ -2670,8 +2721,7 @@ Ouvrier Montage Panneaux PV
         item = self.sample_review_item(True)
         with (
             patch.object(processor.os.path, "isfile", return_value=True),
-            patch.object(processor, "already_sent_same_job", return_value=(False, None)),
-            patch.object(processor, "already_sent", return_value=False),
+            patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
             patch.object(processor, "send_application") as send,
             patch.object(processor, "save_sent") as save_sent,
             patch.object(processor, "save_result"),
