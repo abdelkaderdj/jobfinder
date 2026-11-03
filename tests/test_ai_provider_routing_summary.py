@@ -87,6 +87,7 @@ class AIProviderRoutingSummaryTests(unittest.TestCase):
                 "GEMINI_API_KEY": "",
                 "GROQ_API_KEY": "",
                 "OPENROUTER_API_KEY": "test-key",
+                "OPENAI_API_KEY": "",
             },
         ):
             self.assertIn("OpenRouter free only", ai_provider_routing_summary())
