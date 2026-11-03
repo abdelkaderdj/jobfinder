@@ -159,7 +159,6 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
         safe = safe_summary_from_report(report)
         rendered = json.dumps(safe, ensure_ascii=False)
 
-        self.assertIn("gpt-test-safe", rendered)
         for forbidden in (
             "PRIVATE_PROFILE_SENTINEL",
             "PRIVATE_TITLE_SENTINEL",
@@ -170,6 +169,7 @@ class EncryptedProfileEvaluationTests(unittest.TestCase):
             self.assertNotIn(forbidden, rendered)
         self.assertIn("private-case-1", rendered)
         self.assertIn('"error_type": "RuntimeError"', rendered)
+        self.assertIn('"successful_provider_routes": []', rendered)
         self.assertIn('"provider": "Gemini"', rendered)
         self.assertIn('"event": "transport_timeout"', rendered)
         self.assertIn('"provider": "Groq"', rendered)
