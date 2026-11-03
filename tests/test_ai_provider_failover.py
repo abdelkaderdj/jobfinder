@@ -34,38 +34,28 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(seconds, 60)  # cooldowns are clamped to at least one minute
 
-    def test_configured_gemini_fallbacks_keep_distinct_supported_models(self):
+    def test_configured_gemini_fallbacks_use_only_free_flash_models(self):
         with patch.dict(
             os.environ,
             {
                 "GEMINI_MODEL": "",
-                "GEMINI_FALLBACK_MODELS": (
-                    "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,"
-                    "gemini-3.5-flash-lite,gemini-3.1-flash-lite"
-                ),
+                "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash,gemini-3.6-flash",
             },
         ):
             models = processor._configured_gemini_models()
 
-        self.assertEqual(models[0], "gemini-3.8-flash")
-        for model in (
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-        ):
-            self.assertIn(model, models)
-        self.assertEqual(len(models), len(set(models)))
+        self.assertEqual(
+            models,
+            ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"),
+        )
 
-    def test_supported_gemini_model_ids_are_not_collapsed_into_other_routes(self):
+    def test_gemini_paid_or_unknown_model_overrides_are_ignored(self):
         with patch.dict(
             os.environ,
             {
-                "GEMINI_MODEL": "gemini-3.7-flash",
+                "GEMINI_MODEL": "gemini-3.1-pro",
                 "GEMINI_FALLBACK_MODELS": (
-                    "gemini-3.8-flash,gemini-3.5-flash,"
-                    "gemini-3.6-flash,gemini-3.5-flash-lite"
+                    "gemini-3.7-flash,gemini-3.8-flash,gemini-2.5-pro"
                 ),
             },
         ):
@@ -73,13 +63,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(
             models,
-            (
-                "gemini-3.7-flash",
-                "gemini-3.8-flash",
-                "gemini-3.5-flash",
-                "gemini-3.6-flash",
-                "gemini-3.5-flash-lite",
-            ),
+            ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"),
         )
 
     def test_provider_pacing_waits_when_requests_arrive_too_soon(self):
@@ -244,8 +228,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
             ),
@@ -263,7 +247,7 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertEqual(result, {"route": "gemini"})
         self.assertEqual(len(snapshots), 1)
         self.assertEqual(snapshots[0]["provider"], "gemini")
-        self.assertEqual(snapshots[0]["model"], "gemini-primary-test")
+        self.assertEqual(snapshots[0]["model"], "gemini-3.8-flash")
         self.assertEqual(snapshots[0]["status"], "healthy")
         self.assertTrue(snapshots[0]["gemini_configured"])
 
@@ -276,8 +260,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
             ),
@@ -355,8 +339,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
             ),
@@ -373,7 +357,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(result, {"route": "gemini-fallback"})
         self.assertEqual(gemini.call_count, 2)
-        self.assertIn("gemini-primary-test", processor._DISABLED_GEMINI_MODELS)
+        self.assertIn("gemini-3.8-flash", processor._DISABLED_GEMINI_MODELS)
         self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
         groq.assert_not_called()
 
@@ -387,8 +371,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                 },
             ),
             patch.object(
@@ -402,7 +386,7 @@ class AIProviderRoutingTests(unittest.TestCase):
 
         self.assertEqual(result, {"route": "gemini-fallback"})
         self.assertEqual(gemini.call_count, 2)
-        self.assertIn("gemini-primary-test", processor._DISABLED_GEMINI_MODELS)
+        self.assertIn("gemini-3.8-flash", processor._DISABLED_GEMINI_MODELS)
         self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
         groq.assert_not_called()
 
@@ -461,8 +445,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                 },
             ),
             patch.object(
@@ -480,9 +464,9 @@ class AIProviderRoutingTests(unittest.TestCase):
         self.assertEqual(gemini.call_count, 2)
         self.assertEqual(
             [call.kwargs["model_name"] for call in gemini.call_args_list],
-            ["gemini-primary-test", "gemini-fallback-test"],
+            ["gemini-3.8-flash", "gemini-3.7-flash"],
         )
-        self.assertIn("gemini-primary-test", processor._DISABLED_GEMINI_MODELS)
+        self.assertIn("gemini-3.8-flash", processor._DISABLED_GEMINI_MODELS)
         self.assertFalse(processor._GEMINI_DISABLED_FOR_RUN)
         groq.assert_not_called()
 
@@ -495,8 +479,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                 },
             ),
             patch.object(
@@ -608,8 +592,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
             ),
@@ -643,8 +627,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_CONFIG_RETRY_SECONDS": "600",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
@@ -717,8 +701,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                     "JOBFINDER_AI_OUTAGE_RETRY_SECONDS": "180",
                 },
@@ -754,8 +738,8 @@ class AIProviderRoutingTests(unittest.TestCase):
                 os.environ,
                 {
                     "GEMINI_API_KEY": "test-key",
-                    "GEMINI_MODEL": "gemini-primary-test",
-                    "GEMINI_FALLBACK_MODELS": "gemini-fallback-test",
+                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "GEMINI_FALLBACK_MODELS": "gemini-3.7-flash",
                     "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
                 },
             ),
