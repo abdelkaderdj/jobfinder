@@ -2609,7 +2609,6 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     gemini_tried = False
 
     if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
-    if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
         for model_name in configured_gemini_models:
             if model_name in _DISABLED_GEMINI_MODELS:
                 continue
@@ -2909,16 +2908,6 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 f"AI quota exhausted across {provider_names} routes; "
                 "some routes may also be temporarily overloaded"
             )
-            elif gemini_configured and (gemini_tried or _GEMINI_DISABLED_FOR_RUN):
-                provider = (
-                    "AI quota exhausted across Gemini/Groq routes; "
-                    "some routes may also be temporarily overloaded"
-                )
-            else:
-                provider = (
-                    "Groq quota exhausted; configure GEMINI_API_KEY for an independent AI provider; "
-                    "some routes may also be temporarily overloaded"
-                )
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
 
