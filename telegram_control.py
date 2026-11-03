@@ -16,6 +16,7 @@ MAX_OUTBOX_PER_RUN = 10
 
 MAIN_MENU_BUTTONS = {
     "🏠 الرئيسية": "/start",
+    "📨 التقديم على عرض أختاره": "/manual_apply",
     "📥 المراجعات المعلقة": "/pending",
     "📨 طلبات اليوم": "/sent",
     "📊 ملخص اليوم": "/today",
@@ -29,15 +30,17 @@ def main_menu_keyboard(paused: bool = False) -> dict[str, Any]:
     """Persistent Arabic navigation; one state-aware toggle avoids stale duplicate controls."""
     return {
         "keyboard": [
+            [{"text": "📨 التقديم على عرض أختاره"}],
             [{"text": "🏠 الرئيسية"}, {"text": "📥 المراجعات المعلقة"}],
             [{"text": "📨 طلبات اليوم"}, {"text": "📊 ملخص اليوم"}],
             [{"text": "📡 حالة النظام"}, {"text": "⏯ تشغيل/إيقاف"}],
             [{"text": "❓ المساعدة"}],
         ],
         "resize_keyboard": True,
-        "is_persistent": True,
-        "one_time_keyboard": False,
-        "input_field_placeholder": "اختر من القائمة…",
+        # Telegram hides a one-time keyboard after a selection. The user can
+        # reopen it from the composer keyboard toggle when needed.
+        "one_time_keyboard": True,
+        "input_field_placeholder": "أرسل إعلانًا أو اختر من القائمة…",
     }
 
 
@@ -137,8 +140,8 @@ class TelegramJobBot:
     def _send_owner(self, text: str, keyboard: dict[str, Any] | None = None) -> bool:
         if not self.owner_configured:
             return False
-        if keyboard is None:
-            keyboard = main_menu_keyboard(paused=bool(self.state.get("paused")))
+        # Do not re-attach the reply keyboard to every notification. It is
+        # shown on demand from /start and hides after a selection.
         try:
             self._send_message(self.owner_chat_id, text, keyboard)
             return True
@@ -835,7 +838,7 @@ class TelegramJobBot:
         if update_type == "command":
             command = str(event.get("command") or "").strip()
             if command.split("@")[0].lower() not in {
-                "/start", "/help", "/status", "/today", "/sent", "/pending", "/pause", "/resume", "/toggle"
+                "/start", "/help", "/status", "/today", "/sent", "/pending", "/pause", "/resume", "/toggle", "/manual_apply"
             }:
                 print("Telegram webhook command ignored: unsupported command")
                 return
@@ -845,6 +848,17 @@ class TelegramJobBot:
                 "text": command,
             })
             print(f"Telegram webhook command completed: {command.split()[0][:24]}")
+        elif update_type == "manual_job":
+            body = str(event.get("message_text") or "").strip()
+            if not body:
+                self._send_owner("⚠️ لم يصل نص الإعلان. حوّل المنشور الأصلي أو الصق نصه كاملًا.")
+                return
+            self._process_manual_job_text(
+                body,
+                source=str(event.get("source") or ""),
+                original_message_id=event.get("message_id"),
+            )
+            print("Telegram manual application event processed.")
         elif update_type == "callback":
             action = str(event.get("action") or "")
             pending_id = str(event.get("pending_id") or "")
@@ -919,12 +933,54 @@ class TelegramJobBot:
         self.flush_outbox()
         self.deliver_pending_reviews()
 
+    def _process_manual_job_text(
+        self,
+        text: str,
+        message: dict[str, Any] | None = None,
+        source: str = "",
+        original_message_id: Any = None,
+    ) -> None:
+        body = str(text or "").strip()
+        if not body:
+            return
+        if not self.allow_review_actions:
+            self._send_owner(
+                "🧪 وضع الاختبار فقط: استلمت النص، لكن لم أحلله ولم أرسل أي بريد."
+            )
+            return
+
+        message = message if isinstance(message, dict) else {}
+        forward_origin = message.get("forward_origin") or {}
+        if not source and isinstance(forward_origin, dict) and forward_origin.get("type") == "channel":
+            forwarded_chat = forward_origin.get("chat") or {}
+            source = str(forwarded_chat.get("username") or "").strip()
+            original_message_id = original_message_id or forward_origin.get("message_id")
+
+        source = str(source or "").strip().lstrip("@")
+        message_id = original_message_id or message.get("message_id") or ""
+        post = {
+            "source": source,
+            "channel": source or "manual_submission",
+            "message_id": str(message_id) if message_id else "",
+            "date": iso_now(),
+            "text": body[:12000],
+            "manual_submission": True,
+        }
+        try:
+            self.processor.process_post(post, manual_apply=True)
+        except Exception as exc:
+            print(f"Manual application processing failed: {type(exc).__name__}")
+            self._send_owner(
+                "⚠️ تعذرت معالجة الإعلان الذي أرسلته. لم أؤكد إرسال أي طلب. "
+                "راجع حالة JobFinder وسجل التشغيل."
+            )
+
     def _handle_message(self, message: dict[str, Any]) -> None:
         chat = message.get("chat") or {}
         sender = message.get("from") or {}
         chat_id = chat.get("id")
         user_id = sender.get("id")
-        text = str(message.get("text") or "").strip()
+        text = str(message.get("text") or message.get("caption") or "").strip()
         if not text:
             return
         if text in MAIN_MENU_BUTTONS:
@@ -932,7 +988,7 @@ class TelegramJobBot:
         elif text.startswith("/"):
             command = text.split()[0].split("@")[0].lower()
         else:
-            return
+            command = ""
 
         if not self.owner_chat_id:
             if chat.get("type") != "private":
@@ -951,8 +1007,25 @@ class TelegramJobBot:
         if not self._authorized(chat_id, user_id):
             return
 
+        if not command:
+            self._process_manual_job_text(text, message)
+            return
+
         if command == "/start":
-            self._send_owner("👋 مرحبًا بك في JobFinder\n\n" + self._dashboard_text())
+            self._send_owner(
+                "👋 مرحبًا بك في JobFinder\n\n" + self._dashboard_text(),
+                main_menu_keyboard(paused=bool(self.state.get("paused"))),
+            )
+        elif command == "/manual_apply":
+            self._send_owner(
+                "📨 التقديم على إعلان تختاره بنفسك\n\n"
+                "أرسل نص الإعلان مباشرة أو حوّله إليّ من قناة تيليغرام.\n"
+                "سأستخرج المناصب وأرسل طلبك للمناصب الواردة في الإعلان، "
+                "متجاوزًا قواعد رفض الملاءمة والخبرة والموقع المعتادة.\n\n"
+                "لن أكرر الإرسال لنفس الإعلان/المنصب إذا كان مسجلًا أنه أُرسل من قبل. "
+                "تشابه اسم الشركة والمسمى وحده لا يعني أن العرض مكرر.\n"
+                "يلزم بريد واضح مرتبط بالمنصب وملف CV متاح."
+            )
         elif command == "/help":
             self._send_owner(
                 "🤖 مساعدة JobFinder\n\n"
@@ -963,7 +1036,11 @@ class TelegramJobBot:
                 "⏸ إيقاف مؤقت — إيقاف فحص الإعلانات الجديدة\n"
                 "▶️ استئناف — إعادة الفحص\n"
                 "📨 طلبات اليوم — الوظائف التي سُجّل إرسالها اليوم\n"
-                "⏯ تشغيل/إيقاف — تبديل الحالة حسب وضع النظام الحالي\n\n"
+                "⏯ تشغيل/إيقاف — تبديل الحالة حسب وضع النظام الحالي\n"
+                "📨 التقديم على عرض أختاره — أرسل إعلانًا تريد التقديم عليه مباشرة.\n\n"
+                "أرسل أو حوّل إعلانًا إلى البوت للتقديم اليدوي؛ ويُتجاوز تقييم الملاءمة "
+                "والخبرة والموقع لأنك اخترت الإعلان بنفسك. يُمنع فقط تكرار نفس العرض "
+                "المسجل سابقًا، لا مجرد تشابه الشركة والمسمى.\n"
                 "أزرار قبول/رفض الوظيفة تظهر تحت رسالة الوظيفة نفسها."
             )
         elif command == "/status":
