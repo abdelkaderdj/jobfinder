@@ -8,12 +8,14 @@ const COMMANDS = new Set([
   "/pause",
   "/resume",
   "/toggle",
+  "/manual_apply",
 ]);
 
 const CALLBACK_ACTIONS = new Set(["approve", "manual", "reject", "test"]);
 
 const BUTTON_COMMANDS = new Map([
   ["🏠 الرئيسية", "/start"],
+  ["📨 التقديم على عرض أختاره", "/manual_apply"],
   ["📥 المراجعات المعلقة", "/pending"],
   ["📨 طلبات اليوم", "/sent"],
   ["📊 ملخص اليوم", "/today"],
@@ -24,15 +26,15 @@ const BUTTON_COMMANDS = new Map([
 
 const MAIN_KEYBOARD = {
   keyboard: [
+    [{ text: "📨 التقديم على عرض أختاره" }],
     [{ text: "🏠 الرئيسية" }, { text: "📥 المراجعات المعلقة" }],
     [{ text: "📨 طلبات اليوم" }, { text: "📊 ملخص اليوم" }],
     [{ text: "📡 حالة النظام" }, { text: "⏯ تشغيل/إيقاف" }],
     [{ text: "❓ المساعدة" }],
   ],
   resize_keyboard: true,
-  is_persistent: true,
-  one_time_keyboard: false,
-  input_field_placeholder: "اختر من القائمة…",
+  one_time_keyboard: true,
+  input_field_placeholder: "أرسل إعلانًا أو اختر من القائمة…",
 };
 
 function json(data, status = 200) {
@@ -98,6 +100,7 @@ async function registerBotCommands(env) {
       { command: "pause", description: "إيقاف فحص الإعلانات مؤقتًا" },
       { command: "resume", description: "استئناف فحص الإعلانات" },
       { command: "toggle", description: "تبديل حالة التشغيل الحالية" },
+      { command: "manual_apply", description: "التقديم على إعلان تختاره بنفسك" },
       { command: "help", description: "مساعدة JobFinder" },
     ],
   });
@@ -117,7 +120,7 @@ async function sendCommandAcknowledgement(env, chatId, command) {
 
 async function handleMessage(update, env) {
   const message = update.message;
-  if (!message || !message.text) return;
+  if (!message || (!message.text && !message.caption)) return;
   const chat = message.chat || {};
   const sender = message.from || {};
   const allowedChat = String(env.TELEGRAM_BOT_CHAT_ID || "");
@@ -130,10 +133,51 @@ async function handleMessage(update, env) {
     return;
   }
 
-  const messageText = message.text.trim();
+  const messageText = String(message.text || message.caption || "").trim();
   const rawCommand = BUTTON_COMMANDS.get(messageText) || messageText.split(/\s+/)[0] || "";
   const command = rawCommand.split("@")[0].toLowerCase();
-  if (!COMMANDS.has(command)) return;
+
+  // Any owner-sent plain text/forward/caption is a deliberate manual application
+  // request. Slash commands not known to this bot remain ignored.
+  if (!COMMANDS.has(command)) {
+    if (messageText.startsWith("/")) return;
+    const forwardOrigin = message.forward_origin || {};
+    const forwardedChat = forwardOrigin.chat || {};
+    const source = forwardOrigin.type === "channel"
+      ? String(forwardedChat.username || "").replace(/^@/, "")
+      : "";
+    const originalMessageId = (
+      forwardOrigin.type === "channel" && forwardOrigin.message_id
+        ? forwardOrigin.message_id
+        : message.message_id
+    );
+    try {
+      await telegramApi(env, "sendMessage", {
+        chat_id: chat.id,
+        text: "📩 استلمت الإعلان الذي اخترته. سأحلل المناصب وأتحقق من سجل إرسال العرض نفسه قبل التقديم.",
+        disable_web_page_preview: true,
+      });
+      await dispatchToGitHub(env, {
+        update_type: "manual_job",
+        command: "",
+        action: "",
+        pending_id: "",
+        chat_id: String(chat.id),
+        user_id: String(sender.id),
+        message_id: String(originalMessageId || ""),
+        source,
+        message_text: messageText.slice(0, 12000),
+      });
+    } catch (error) {
+      console.error("JobFinder manual application dispatch failed:", error.message);
+      await telegramApi(env, "sendMessage", {
+        chat_id: chat.id,
+        text: "⚠️ تعذر تشغيل JobFinder لمعالجة الإعلان. لم يتم إرسال أي طلب.",
+        disable_web_page_preview: true,
+      }).catch(() => {});
+    }
+    return;
+  }
 
   if (command === "/start") {
     try {
