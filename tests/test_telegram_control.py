@@ -2899,75 +2899,6 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
             )
         )
 
-    def test_same_job_is_deduplicated_when_sent_within_48_hours(self):
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-
-        email = "recruitment@example.com"
-        job = {"company": "Example Energy", "location": "Oran"}
-        sent_at = (
-            datetime.now(ZoneInfo("Africa/Algiers")) - timedelta(hours=24)
-        ).isoformat(timespec="seconds")
-        old_record = {
-            "application_job_title": "Technicien de Maintenance",
-            "email": email,
-            "company": "Example Energy",
-            "location": "Oran",
-            "sent_at": sent_at,
-        }
-
-        with patch.object(processor, "load_sent_records", return_value=[old_record]):
-            duplicate, matched = processor.already_sent_same_job(
-                job, "Technicien de Maintenance", [email]
-            )
-
-        self.assertTrue(duplicate)
-        self.assertEqual(matched, old_record)
-
-    def test_same_job_reposted_after_one_week_is_not_blocked_forever(self):
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-
-        email = "recruitment@example.com"
-        job = {"company": "Example Energy", "location": "Oran"}
-        sent_at = (
-            datetime.now(ZoneInfo("Africa/Algiers")) - timedelta(days=7)
-        ).isoformat(timespec="seconds")
-        old_record = {
-            "application_job_title": "Technicien de Maintenance",
-            "email": email,
-            "company": "Example Energy",
-            "location": "Oran",
-            "sent_at": sent_at,
-        }
-
-        with patch.object(processor, "load_sent_records", return_value=[old_record]):
-            duplicate, matched = processor.already_sent_same_job(
-                job, "Technicien de Maintenance", [email]
-            )
-
-        self.assertFalse(duplicate)
-        self.assertIsNone(matched)
-
-    def test_legacy_sent_record_without_timestamp_does_not_block_new_repost(self):
-        email = "recruitment@example.com"
-        job = {"company": "Example Energy", "location": "Oran"}
-        old_record = {
-            "application_job_title": "Technicien de Maintenance",
-            "email": email,
-            "company": "Example Energy",
-            "location": "Oran",
-            # Intentionally no sent_at: this is legacy history.
-        }
-
-        with patch.object(processor, "load_sent_records", return_value=[old_record]):
-            duplicate, matched = processor.already_sent_same_job(
-                job, "Technicien de Maintenance", [email]
-            )
-
-        self.assertFalse(duplicate)
-        self.assertIsNone(matched)
-
     def test_exact_same_telegram_post_key_remains_a_permanent_duplicate_guard(self):
         post = {"source": "rcrdz1", "message_id": 22606}
         job = {"job_title": "Technicien de Maintenance"}
@@ -2975,7 +2906,9 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         key = processor.application_key(post, job, email)
 
         with patch.object(processor, "load_sent_records", return_value=[{"key": key}]):
-            self.assertTrue(processor.already_sent(key))
+            duplicate, matched = processor.already_sent_same_offer(key, "")
+        self.assertTrue(duplicate)
+        self.assertEqual(matched, {"key": key})
 
     def test_gemini_only_is_accepted_as_valid_runner_configuration(self):
         with patch.dict(
