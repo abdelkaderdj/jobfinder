@@ -123,5 +123,23 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
 
 
 
+    def test_state_writer_workflows_use_shallow_checkout_without_dropping_safe_rebase(self):
+        paths = (
+            WORKFLOWS_DIR / "jobfinder-cloud.yml",
+            WORKFLOWS_DIR / "telegram-webhook-event.yml",
+            WORKFLOWS_DIR / "jobfinder-telegram-control-test.yml",
+        )
+        for path in paths:
+            with self.subTest(workflow=path.name):
+                workflow = path.read_text(encoding="utf-8")
+                self.assertIn("fetch-depth: 1", workflow)
+                self.assertNotIn("fetch-depth: 0", workflow)
+                self.assertIn(
+                    "git fetch origin +refs/heads/master:refs/remotes/origin/master",
+                    workflow,
+                )
+                self.assertIn("git rebase origin/master", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
