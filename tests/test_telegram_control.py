@@ -3243,7 +3243,7 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         self.assertIn("ai_provider_cooldown_started_at_utc", bot.state)
         self.assertEqual(len(bot.state["telegram_outbox"]), 0)
 
-    def test_successful_fallback_response_confirms_recovery_and_closes_outage(self):
+    def test_successful_fallback_requires_two_consecutive_requests_to_confirm_recovery(self):
         bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
         bot.state.update({
             "ai_provider_retry_after_utc": "2026-10-19T12:07:30+00:00",
@@ -3252,26 +3252,82 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
             "ai_provider_cooldown_alert_sent": True,
         })
 
-        record_ai_provider_status(
-            bot.state,
-            {
-                "status": "degraded",
-                "provider": "groq",
-                "model": "openai/gpt-oss-120b",
-                "reason": "Gemini remains overloaded; Groq returned valid JSON.",
-                "gemini_configured": True,
-                "checked_at_utc": "2026-10-19T12:10:00Z",
-            },
-            bot,
-        )
+        snapshot = {
+            "status": "degraded",
+            "provider": "groq",
+            "model": "openai/gpt-oss-120b",
+            "reason": "Gemini remains overloaded; Groq returned valid JSON.",
+            "gemini_configured": True,
+            "checked_at_utc": "2026-10-19T12:10:00Z",
+        }
+        record_ai_provider_status(bot.state, snapshot, bot)
+
+        # A single successful post must not announce a full recovery because
+        # the next post may fail immediately on the same fallback route.
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
+        self.assertEqual(bot.state["ai_provider_recovery_success_count"], 1)
+        self.assertIn("ai_provider_cooldown_started_at_utc", bot.state)
+        self.assertNotIn("ai_provider_retry_after_utc", bot.state)
+
+        snapshot = dict(snapshot, checked_at_utc="2026-10-19T12:12:00Z")
+        record_ai_provider_status(bot.state, snapshot, bot)
 
         self.assertEqual(len(bot.state["telegram_outbox"]), 1)
-        self.assertIn("بعد نجاح طلب فعلي", bot.state["telegram_outbox"][0]["text"])
+        self.assertIn("بعد نجاح طلبين متتاليين", bot.state["telegram_outbox"][0]["text"])
         self.assertIn("GROQ", bot.state["telegram_outbox"][0]["text"])
         self.assertNotIn("ai_provider_retry_after_utc", bot.state)
         self.assertNotIn("ai_provider_cooldown_reason", bot.state)
         self.assertNotIn("ai_provider_cooldown_started_at_utc", bot.state)
         self.assertNotIn("ai_provider_cooldown_alert_sent", bot.state)
+        self.assertNotIn("ai_provider_recovery_success_count", bot.state)
+
+    def test_new_provider_failure_resets_tentative_recovery_streak_without_duplicate_alert(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        first_now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        record_ai_provider_cooldown(bot.state, 300, "all routes exhausted", bot, now=first_now)
+        incident_id = bot.state["ai_provider_cooldown_started_at_utc"]
+
+        first_success = {
+            "status": "degraded",
+            "provider": "openrouter",
+            "model": "nvidia/nemotron-3.5-super-vl:free",
+            "reason": "Gemini/Groq rate limited; OpenRouter returned valid JSON.",
+            "gemini_configured": True,
+            "checked_at_utc": "2026-10-19T12:10:00Z",
+        }
+        record_ai_provider_status(bot.state, first_success, bot)
+        self.assertEqual(bot.state["ai_provider_recovery_success_count"], 1)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+
+        # Another exhausted request before the second success keeps the same
+        # outage incident and resets the tentative recovery streak.
+        record_ai_provider_cooldown(
+            bot.state,
+            300,
+            "OpenRouter returned malformed JSON again",
+            bot,
+            now=datetime(2026, 10, 19, 12, 11, tzinfo=timezone.utc),
+        )
+        self.assertEqual(bot.state["ai_provider_recovery_success_count"], 0)
+        self.assertEqual(bot.state["ai_provider_cooldown_started_at_utc"], incident_id)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+
+        clear_expired_ai_provider_retry_window(bot.state)
+        record_ai_provider_status(
+            bot.state,
+            dict(first_success, checked_at_utc="2026-10-19T12:20:00Z"),
+            bot,
+        )
+        self.assertEqual(bot.state["ai_provider_recovery_success_count"], 1)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        record_ai_provider_status(
+            bot.state,
+            dict(first_success, checked_at_utc="2026-10-19T12:22:00Z"),
+            bot,
+        )
+        self.assertEqual(len(bot.state["telegram_outbox"]), 2)
+        self.assertIn("بعد نجاح طلبين متتاليين", bot.state["telegram_outbox"][-1]["text"])
+
 
     def test_rate_limit_duration_parser_handles_provider_reset_headers(self):
         self.assertEqual(processor._parse_rate_limit_duration("2m59.5s"), 179.5)
