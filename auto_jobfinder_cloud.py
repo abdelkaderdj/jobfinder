@@ -2957,22 +2957,30 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             provider_names = "/".join(configured_providers) or "configured free"
 
             # Do not claim every provider was quota-limited when a later route
-            # failed for a different reason (for example, OpenRouter returned
-            # finish_reason=length with no visible JSON content).
-            if last_error is not None and not _is_rate_limit_error(last_error):
+            # returned a non-retryable failure (for example, empty/truncated JSON).
+            if (
+                last_error is not None
+                and not _is_rate_limit_error(last_error)
+                and not _is_temporary_provider_overload(last_error)
+            ):
                 final_route_error = _safe_ai_provider_error(last_error)
                 provider = (
-                    "No AI route returned usable JSON; rate limits were reached "
-                    f"on some configured routes ({provider_names}), and the final fallback failed: "
-                    f"{final_route_error}"
+                    f"Some AI routes hit rate limits ({provider_names}); "
+                    f"fallback error: {final_route_error}"
                 )
                 _notify_ai_rate_limit(retry_seconds, provider)
                 raise AIProviderUnavailable(retry_seconds, provider) from last_error
 
-            provider = (
-                f"AI quota exhausted across {provider_names} routes; "
-                "all final route responses were rate-limited"
-            )
+            if last_error is not None and _is_temporary_provider_overload(last_error):
+                provider = (
+                    f"AI quota exhausted across {provider_names} routes; "
+                    "some routes may also be temporarily overloaded"
+                )
+            else:
+                provider = (
+                    f"AI quota exhausted across {provider_names} routes; "
+                    "all final route responses were rate-limited"
+                )
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
 
