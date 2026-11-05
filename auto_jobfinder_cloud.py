@@ -2971,7 +2971,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
 
             if last_error is not None and _is_temporary_provider_overload(last_error):
                 provider = (
-                    f"AI quota exhausted on {rate_limited_provider_names}; "
+                    f"AI quota exhausted on {rate_limited_provider_names} routes; "
                     "some routes may also be temporarily overloaded"
                 )
             else:
