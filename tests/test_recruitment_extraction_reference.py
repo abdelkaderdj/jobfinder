@@ -43,6 +43,8 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
         self.assertIn("shift_pattern", prompt)
         self.assertIn("subject_instruction", prompt)
         self.assertIn("This object is descriptive metadata only", prompt)
+        self.assertIn("COMPACT OUTPUT IS REQUIRED", prompt)
+        self.assertIn("Omit recruitment_details entirely", prompt)
         self.assertNotIn("{{RECRUITMENT_EXTRACTION_LEXICON}}", prompt)
 
     def test_lexicon_reference_is_loaded_from_project_data_file(self):
