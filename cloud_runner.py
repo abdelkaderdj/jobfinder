@@ -25,6 +25,7 @@ SENT_FILE = BASE_DIR / "sent_applications.jsonl"
 CV_DIR = BASE_DIR / "cvs"
 CHANNELS = ["rcrdz1", "Jobs_dz7", "china1644", "ajob58dz", "ridkh", "CVDZJOBS"]
 RUNNER_VERSION = "2026-11-03-free-ai-only-v1"
+AI_PROVIDER_RECOVERY_SUCCESS_THRESHOLD = 2
 
 # Keep each scheduled run comfortably below the 10-minute GitHub Actions limit.
 # Both limits apply; hitting either one ends the batch cleanly and persists cursors.
@@ -234,6 +235,9 @@ def record_ai_provider_cooldown(
     state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
     reason = " ".join(str(provider_reason or "AI providers temporarily unavailable").split())[:180]
     state["ai_provider_cooldown_reason"] = reason
+    # Any new failure breaks a tentative recovery streak. Keep the same incident
+    # open until multiple real structured responses have succeeded consecutively.
+    state["ai_provider_recovery_success_count"] = 0
 
     incident_id = state.get("ai_provider_cooldown_started_at_utc")
     if _parse_provider_timestamp(incident_id) is None:
@@ -291,21 +295,44 @@ def record_ai_provider_status(
     state["ai_provider_status"] = current
 
     # A provider-status snapshot is emitted only after a real request returned
-    # usable structured output. Timer expiry alone must never announce recovery.
-    cooldown_incident_id = state.pop("ai_provider_cooldown_started_at_utc", None)
-    cooldown_alert_sent = bool(state.pop("ai_provider_cooldown_alert_sent", False))
-    state.pop("ai_provider_retry_after_utc", None)
-    state.pop("ai_provider_cooldown_reason", None)
-    cooldown_recovered = bool(cooldown_incident_id and cooldown_alert_sent)
+    # usable structured output. One isolated success is not enough to declare
+    # recovery: the next post may fail immediately on the same free fallback.
+    cooldown_incident_id = state.get("ai_provider_cooldown_started_at_utc")
+    cooldown_alert_sent = bool(state.get("ai_provider_cooldown_alert_sent"))
+    cooldown_recovered = False
+    cooldown_in_progress = bool(cooldown_incident_id and cooldown_alert_sent)
+    if cooldown_in_progress:
+        try:
+            success_count = int(state.get("ai_provider_recovery_success_count") or 0) + 1
+        except (TypeError, ValueError):
+            success_count = 1
+        if success_count >= AI_PROVIDER_RECOVERY_SUCCESS_THRESHOLD:
+            state.pop("ai_provider_cooldown_started_at_utc", None)
+            state.pop("ai_provider_cooldown_alert_sent", None)
+            state.pop("ai_provider_recovery_success_count", None)
+            state.pop("ai_provider_retry_after_utc", None)
+            state.pop("ai_provider_cooldown_reason", None)
+            cooldown_recovered = True
+            cooldown_in_progress = False
+        else:
+            state["ai_provider_recovery_success_count"] = success_count
+            # The timer already expired to permit this probe. Keep the incident
+            # open (to suppress pause/resume spam), but do not block this run's
+            # remaining queued posts while a second successful request is tested.
+            state.pop("ai_provider_retry_after_utc", None)
+            state.pop("ai_provider_cooldown_reason", None)
+    else:
+        state.pop("ai_provider_recovery_success_count", None)
+
     if cooldown_recovered:
         bot._enqueue(
             "ai-provider-recovered:" + str(cooldown_incident_id),
-            "✅ استأنف JobFinder تحليل المنشورات بعد نجاح طلب فعلي من مزوّد الذكاء الاصطناعي.\\n\\n"
+            "✅ استقر تحليل JobFinder بعد نجاح طلبين متتاليين من مزوّد الذكاء الاصطناعي.\\n\\n"
             f"المسار الذي نجح: {provider.upper()} ({model or 'النموذج النشط'}). "
             "بقيت المنشورات التي لم تُعالج محفوظة، واستؤنف فحصها.",
         )
         # If the primary route is still degraded, start a fresh observation
-        # window from this successful fallback response.
+        # window from this confirmed recovery.
         if status == "degraded":
             state["ai_provider_degraded_since_utc"] = checked_at_dt.isoformat(timespec="seconds")
             state["ai_provider_degraded_alert_sent"] = False
@@ -342,20 +369,20 @@ def record_ai_provider_status(
     state.pop("ai_provider_degraded_since_utc", None)
     state.pop("ai_provider_degraded_alert_sent", None)
 
-    if not cooldown_recovered and status == "healthy" and previous_status == "degraded":
+    if not cooldown_recovered and not cooldown_in_progress and status == "healthy" and previous_status == "degraded":
         if previous_degraded_alert_sent:
             message = (
                 "✅ استقر مسار الذكاء الاصطناعي في JobFinder\\n\\n"
                 f"عاد المسار إلى حالة مستقرة: {provider.upper()} ({model or 'النموذج النشط'})."
             )
             bot._enqueue("ai-provider-recovered:" + checked_at, message)
-    elif not cooldown_recovered and status == "healthy" and previous_status == "groq_only" and provider == "gemini":
+    elif not cooldown_recovered and not cooldown_in_progress and status == "healthy" and previous_status == "groq_only" and provider == "gemini":
         message = (
             "✅ تم تفعيل Gemini بنجاح في JobFinder\\n\\n"
             f"استجاب المسار الأساسي: {model or 'Gemini'}؛ لم يعد البوت مضطرًا للاعتماد على Groq وحده."
         )
         bot._enqueue("ai-provider-gemini-activated:" + checked_at, message)
-    elif not cooldown_recovered and status == "groq_only" and previous_provider == "gemini":
+    elif not cooldown_recovered and not cooldown_in_progress and status == "groq_only" and previous_provider == "gemini":
         message = (
             "⚠️ أصبح JobFinder يعمل عبر Groq فقط\\n\\n"
             "لم يعد مفتاح Gemini متاحًا في إعداد التشغيل؛ تحقق من GitHub Secrets."

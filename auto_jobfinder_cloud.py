@@ -2549,12 +2549,23 @@ def _configured_gemini_models():
 
 
 
+DEFAULT_OPENROUTER_FREE_MODEL = "nvidia/nemotron-3.5-super-vl:free"
+
+
 def _configured_openrouter_model() -> str:
-    """Restrict the optional tertiary route to free OpenRouter model IDs."""
-    model = os.getenv("OPENROUTER_MODEL", "").strip() or "openrouter/free"
-    if model != "openrouter/free" and not model.endswith(":free"):
+    """Use a fixed free model so reasoning controls and JSON mode are enforceable."""
+    requested = os.getenv("OPENROUTER_MODEL", "").strip()
+    # The dynamic openrouter/free router does not expose model-specific reasoning
+    # controls. Map the legacy/default setting to a free NVIDIA endpoint which
+    # supports structured JSON and can explicitly disable reasoning.
+    model = (
+        DEFAULT_OPENROUTER_FREE_MODEL
+        if not requested or requested == "openrouter/free"
+        else requested
+    )
+    if not model.endswith(":free"):
         raise RuntimeError(
-            "OPENROUTER_MODEL must be openrouter/free or a model ID ending in :free; paid models are blocked"
+            "OPENROUTER_MODEL must be a free model ID ending in :free; paid models are blocked"
         )
     return model
 
@@ -2576,8 +2587,14 @@ def _openrouter_json_request(messages, temperature=0, max_completion_tokens=1000
         # This is the tertiary free fallback. Keep reasoning minimal regardless of
         # the primary route's requested effort so hidden thinking cannot consume
         # the entire completion budget and leave the JSON body empty.
-        "reasoning": {"effort": "minimal", "exclude": True},
+        # Do not rely on a "minimal" budget: free reasoning models can still
+        # consume the full completion allowance. The selected Nemotron endpoint
+        # supports reasoning.enabled=false and structured JSON responses.
+        "reasoning": {"enabled": False, "exclude": True},
         "response_format": {"type": "json_object"},
+        # Repair syntax-level JSON defects before the application parser sees
+        # the response. This cannot repair an empty response caused by truncation.
+        "plugins": [{"id": "response-healing"}],
     }
     request = urllib.request.Request(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -2980,13 +2997,26 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 and not _is_rate_limit_error(last_error)
                 and not _is_temporary_provider_overload(last_error)
             ):
+                # A 429 Retry-After belongs to the provider that returned it.
+                # It must not globally suspend a different fallback route that
+                # failed for another reason (e.g. malformed JSON or empty output).
+                # Re-probe the free fallback on the normal short cadence instead
+                # of inheriting a potentially hour-long primary-provider reset.
+                try:
+                    mixed_retry_seconds = int(
+                        os.getenv("JOBFINDER_AI_MIXED_FAILURE_RETRY_SECONDS", "300").strip()
+                    )
+                except (TypeError, ValueError):
+                    mixed_retry_seconds = 300
+                mixed_retry_seconds = max(60, min(1800, mixed_retry_seconds))
                 final_route_error = _safe_ai_provider_error(last_error)
                 provider = (
                     f"Some AI routes hit rate limits ({rate_limited_provider_names}); "
-                    f"fallback error: {final_route_error}"
+                    f"fallback error: {final_route_error}; "
+                    f"retrying the free fallback in {mixed_retry_seconds}s"
                 )
-                _notify_ai_rate_limit(retry_seconds, provider)
-                raise AIProviderUnavailable(retry_seconds, provider) from last_error
+                _notify_ai_rate_limit(mixed_retry_seconds, provider)
+                raise AIProviderUnavailable(mixed_retry_seconds, provider) from last_error
 
             if last_error is not None and _is_temporary_provider_overload(last_error):
                 provider = (
@@ -3809,6 +3839,15 @@ recruitment information for EACH position inside a "recruitment_details" object.
 This object is descriptive metadata only: it MUST NOT change APPLY / REVIEW / REJECT,
 the candidate-location policy, manual-application behavior, email/contact safety gates,
 or duplicate prevention.
+
+COMPACT OUTPUT IS REQUIRED:
+- Extract only facts explicitly present in the source and scoped to this position.
+- Omit recruitment_details entirely when the source provides no useful details beyond the title.
+- Inside recruitment_details, OMIT keys that are unknown, unspecified, empty, or not mentioned.
+  Do not emit empty placeholder objects, empty strings, nulls, or empty arrays just to match
+  the illustrative schema.
+- Keep evidence and responsibilities short. Do not repeat the complete advertisement.
+- In multi-position posts, keep each position concise and return only its own requirements.
 
 Use the multilingual phrase reference below as examples of wording, not as exhaustive
 rules. Understand spelling variations, Arabic/French/English mixtures, abbreviations,
