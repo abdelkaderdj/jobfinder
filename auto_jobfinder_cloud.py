@@ -2976,7 +2976,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 )
             else:
                 provider = (
-                    f"AI quota exhausted across {provider_names} routes; "
+                    f"AI quota exhausted on {rate_limited_provider_names}; "
                     "all final route responses were rate-limited"
                 )
             _notify_ai_rate_limit(retry_seconds, provider)
