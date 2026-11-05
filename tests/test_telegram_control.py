@@ -18,7 +18,9 @@ os.environ["TELEGRAM_BOT_CHAT_ID"] = "12345"
 
 from telegram_control import TelegramJobBot, event_key, main_menu_keyboard, now_local
 from cloud_runner import (
+    clear_expired_ai_provider_retry_window,
     provider_cooldown_remaining_seconds,
+    record_ai_provider_cooldown,
     record_ai_provider_status,
     require_ai_provider,
 )
@@ -3194,6 +3196,82 @@ class JobIdentityAndGroqFallbackTests(unittest.TestCase):
         state = {"ai_provider_retry_after_utc": "2026-10-19T12:07:30+00:00"}
         self.assertEqual(provider_cooldown_remaining_seconds(state, now), 450)
         self.assertEqual(provider_cooldown_remaining_seconds(state, now + timedelta(minutes=8)), 0)
+
+    def test_provider_outage_alert_is_sent_once_across_retry_extensions(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        first_now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        first_retry = record_ai_provider_cooldown(
+            bot.state,
+            300,
+            "Gemini/Groq rate limits; OpenRouter returned empty JSON content",
+            bot,
+            now=first_now,
+        )
+        incident_id = bot.state["ai_provider_cooldown_started_at_utc"]
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        self.assertIn("لن تتكرر هذه الرسالة", bot.state["telegram_outbox"][0]["text"])
+
+        second_retry = record_ai_provider_cooldown(
+            bot.state,
+            900,
+            "The same routes are still unavailable",
+            bot,
+            now=first_now + timedelta(minutes=10),
+        )
+        self.assertGreater(second_retry, first_retry)
+        self.assertEqual(bot.state["ai_provider_cooldown_started_at_utc"], incident_id)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        self.assertEqual(
+            bot.state["ai_provider_retry_after_utc"],
+            second_retry.isoformat(timespec="seconds"),
+        )
+
+    def test_cooldown_expiry_does_not_claim_recovery_before_a_provider_succeeds(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        bot.state.update({
+            "ai_provider_retry_after_utc": "2026-10-19T12:07:30+00:00",
+            "ai_provider_cooldown_reason": "quota exhausted",
+            "ai_provider_cooldown_started_at_utc": "2026-10-19T12:00:00+00:00",
+            "ai_provider_cooldown_alert_sent": True,
+        })
+
+        expired = clear_expired_ai_provider_retry_window(bot.state)
+
+        self.assertEqual(expired, "2026-10-19T12:07:30+00:00")
+        self.assertNotIn("ai_provider_retry_after_utc", bot.state)
+        self.assertNotIn("ai_provider_cooldown_reason", bot.state)
+        self.assertIn("ai_provider_cooldown_started_at_utc", bot.state)
+        self.assertEqual(len(bot.state["telegram_outbox"]), 0)
+
+    def test_successful_fallback_response_confirms_recovery_and_closes_outage(self):
+        bot = TelegramJobBot({}, FakeProcessor(), lambda _reason: None)
+        bot.state.update({
+            "ai_provider_retry_after_utc": "2026-10-19T12:07:30+00:00",
+            "ai_provider_cooldown_reason": "quota exhausted",
+            "ai_provider_cooldown_started_at_utc": "2026-10-19T12:00:00+00:00",
+            "ai_provider_cooldown_alert_sent": True,
+        })
+
+        record_ai_provider_status(
+            bot.state,
+            {
+                "status": "degraded",
+                "provider": "groq",
+                "model": "openai/gpt-oss-120b",
+                "reason": "Gemini remains overloaded; Groq returned valid JSON.",
+                "gemini_configured": True,
+                "checked_at_utc": "2026-10-19T12:10:00Z",
+            },
+            bot,
+        )
+
+        self.assertEqual(len(bot.state["telegram_outbox"]), 1)
+        self.assertIn("بعد نجاح طلب فعلي", bot.state["telegram_outbox"][0]["text"])
+        self.assertIn("GROQ", bot.state["telegram_outbox"][0]["text"])
+        self.assertNotIn("ai_provider_retry_after_utc", bot.state)
+        self.assertNotIn("ai_provider_cooldown_reason", bot.state)
+        self.assertNotIn("ai_provider_cooldown_started_at_utc", bot.state)
+        self.assertNotIn("ai_provider_cooldown_alert_sent", bot.state)
 
     def test_rate_limit_duration_parser_handles_provider_reset_headers(self):
         self.assertEqual(processor._parse_rate_limit_duration("2m59.5s"), 179.5)
