@@ -333,6 +333,25 @@ def normalize_text(text):
 
 
 
+
+def recruitment_extraction_reference_text() -> str:
+    """Load the curated multilingual phrase lexicon derived from real job posts."""
+    lexicon_path = os.path.join(
+        PROJECT_DIR,
+        "data",
+        "recruitment_extraction_lexicon.json",
+    )
+    try:
+        with open(lexicon_path, "r", encoding="utf-8") as lexicon_file:
+            lexicon = json.load(lexicon_file)
+    except (OSError, json.JSONDecodeError):
+        return "{}"
+    if not isinstance(lexicon, dict):
+        return "{}"
+    return json.dumps(lexicon, ensure_ascii=False, separators=(",", ":"))
+
+
+
 def _normalized_job_title_variants(job):
     """Normalize every model/localized title consistently across decision gates."""
     if not isinstance(job, dict):
@@ -3782,6 +3801,83 @@ Never describe the candidate as:
 "recent graduate"
 
 ============================================================
+STRUCTURED RECRUITMENT DATA EXTRACTION
+============================================================
+
+In addition to the candidate decision fields, extract the following source-grounded
+recruitment information for EACH position inside a "recruitment_details" object.
+This object is descriptive metadata only: it MUST NOT change APPLY / REVIEW / REJECT,
+the candidate-location policy, manual-application behavior, email/contact safety gates,
+or duplicate prevention.
+
+Use the multilingual phrase reference below as examples of wording, not as exhaustive
+rules. Understand spelling variations, Arabic/French/English mixtures, abbreviations,
+local place names, and informal wording. Do not require an exact phrase match.
+
+EXPERIENCE:
+- status must be required, preferred, advantage, not_required, or unspecified.
+- Extract minimum and maximum years ONLY when explicitly stated.
+- "Expérience exigée / obligatoire", "minimum", "au moins", "لا تقل عن", "يشترط"
+  indicate required when they govern this position.
+- "souhaitée", "appréciée", "un atout", "ميزة إضافية", "يفضل" indicate preferred
+  or advantage, not mandatory.
+- "Débutant accepté", "sans expérience", "بدون خبرة", "لا يشترط الخبرة" indicate
+  not_required unless another explicit condition for the same role requires experience.
+- Preserve the experience domain: same position, industrial, maintenance, oil & gas,
+  catering, pharmaceutical, field, etc.
+- A range such as "2 à 3 ans" means min=2 and max=3. "5 ans et plus" means min=5
+  and max=null. "up to 4 years" is a maximum only. Do not turn a vague "experience
+  required" into a guessed number.
+
+LOCATION:
+- Separate actual worksite from employer headquarters, project site, candidate residence,
+  preferred residence, travel scope, and transport pickup routes.
+- A company address is NOT automatically the workplace.
+- Labels include "Lieu de travail", "مكان العمل", "site", "chantier", "zone industrielle",
+  "poste basé à", "مقر الشركة", "الكائن مقرها".
+- Candidate residence conditions include "Résider à", "القاطنين في", "الإقامة في",
+  "الأولوية لسكان". Record them separately from workplace.
+- For multi-site, national, project, remote, or location-to-be-assigned roles, identify
+  that type and preserve the wording; do not invent a single town.
+- Do not confuse offered accommodation with a requirement to reside locally.
+
+QUALIFICATIONS AND OTHER CONDITIONS:
+- Extract diploma/level, field of study, and whether mandatory, preferred, not required,
+  or unspecified.
+- Extract explicit technical skills, software, languages and required proficiency,
+  age range, gender, driving licence class, ANEM registration, nationality, and
+  immediate availability when stated.
+- Extract contract type, working hours/days, shift/rotation pattern (3x8, 2x8, 4x4,
+  6x2, 45/15, etc.), salary and currency/period, and benefits.
+- Benefits must distinguish provided, explicitly not provided, and unspecified for
+  accommodation, transport, meals, and social insurance. Absence of a mention means
+  unspecified, never "not provided".
+- Preserve role-specific requirements separately. Never copy a requirement from one
+  position to another unless the source explicitly states it is common to all roles.
+
+APPLICATION:
+- Capture application channels (email, WhatsApp, phone, website/platform, direct message,
+  in-person or file deposit), phone/WhatsApp numbers, application URLs, required documents,
+  and instructions for the email/message subject.
+- The existing top-level "emails" field remains authoritative for contact-scope and
+  sending safeguards; do not broaden it using an unrelated post section.
+- A phone shown for questions only is not necessarily an application channel.
+
+EVIDENCE AND UNCERTAINTY:
+- Keep extracted values concise and source-grounded. Put a short verbatim phrase in the
+  relevant evidence field when possible.
+- Use empty strings, null, empty arrays, or "unspecified" when not stated.
+- The lexicon is a guide. Do not classify educational/advice posts, discussion questions,
+  job-search services, or product advertisements as vacancies merely because they contain
+  related words.
+- A post may contain multiple separate recruitment announcements and many positions.
+  Scope company, workplace, requirements, conditions, and application details to the
+  correct announcement and position.
+
+CURATED MULTILINGUAL PHRASE REFERENCE (derived from the supplied job-post sample):
+{{RECRUITMENT_EXTRACTION_LEXICON}}
+
+============================================================
 OUTPUT FORMAT
 ============================================================
 
@@ -3801,6 +3897,61 @@ Return ONLY valid JSON using this schema:
       "accommodation_provided": "true|false|unknown",
       "location_reason": "",
       "language": "fr|en|ar|mixed",
+      "recruitment_details": {
+        "experience": {
+          "status": "required|preferred|advantage|not_required|unspecified",
+          "minimum_years": null,
+          "maximum_years": null,
+          "domain": "",
+          "evidence": ""
+        },
+        "education": {
+          "status": "required|preferred|not_required|unspecified",
+          "level": "",
+          "field": "",
+          "evidence": ""
+        },
+        "skills": [],
+        "languages": [],
+        "workplace": {
+          "type": "fixed|multiple_sites|project_site|remote|national|to_be_assigned|unspecified",
+          "worksite": "",
+          "employer_headquarters": "",
+          "required_candidate_residence": "",
+          "preferred_candidate_residence": "",
+          "travel_scope": "",
+          "evidence": ""
+        },
+        "conditions": {
+          "contract_type": "",
+          "work_schedule": "",
+          "shift_pattern": "",
+          "salary": "",
+          "salary_period": "",
+          "age_min": null,
+          "age_max": null,
+          "gender": "",
+          "driving_license": "",
+          "anem_registration": "",
+          "nationality": "",
+          "availability": "",
+          "benefits": {
+            "accommodation": "provided|not_provided|unspecified",
+            "transport": "provided|not_provided|unspecified",
+            "meals": "provided|not_provided|unspecified",
+            "social_insurance": "provided|not_provided|unspecified"
+          }
+        },
+        "application": {
+          "channels": [],
+          "phones": [],
+          "whatsapp": [],
+          "urls": [],
+          "subject_instruction": "",
+          "required_documents": []
+        },
+        "responsibilities": []
+      },
       "decision": "APPLY|REVIEW|REJECT",
       "score": 0,
       "reason": "short factual explanation",
@@ -3890,6 +4041,10 @@ or services footer become a vacancy or contact.
     prompt = prompt.replace("{{CANDIDATE_ROLE_POLICY_BLOCK}}", candidate_role_policy_prompt_text())
     prompt = prompt.replace("{{EXPERIENCE_POLICY_BLOCK}}", experience_policy_prompt_text())
     prompt = prompt.replace("{{LOCATION_POLICY_BLOCK}}", candidate_location_policy_prompt_text())
+    prompt = prompt.replace(
+        "{{RECRUITMENT_EXTRACTION_LEXICON}}",
+        recruitment_extraction_reference_text(),
+    )
 
     messages = [
 
@@ -7857,6 +8012,13 @@ def process_post(
 
             "location_reason":
                 location_reason,
+
+            # Source-grounded descriptive metadata extracted from this role.
+            # It is retained for review/learning only and never drives eligibility or sending.
+            "recruitment_details":
+                job.get("recruitment_details")
+                if isinstance(job.get("recruitment_details"), dict)
+                else {},
 
             "language":
                 job.get(
