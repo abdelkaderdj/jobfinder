@@ -209,6 +209,14 @@ def _parse_provider_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def clear_expired_ai_provider_retry_window(state: dict[str, Any]) -> str | None:
+    """Clear only the timer; keep the outage incident open until a provider succeeds."""
+    expired_at = state.pop("ai_provider_retry_after_utc", None)
+    if expired_at is not None:
+        state.pop("ai_provider_cooldown_reason", None)
+    return str(expired_at) if expired_at is not None else None
+
+
 def record_ai_provider_cooldown(
     state: dict[str, Any],
     retry_after_seconds: int,
@@ -559,9 +567,8 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
             "All unprocessed message cursors are preserved."
         )
         return
-    expired_cooldown_at = state.pop("ai_provider_retry_after_utc", None)
+    expired_cooldown_at = clear_expired_ai_provider_retry_window(state)
     if expired_cooldown_at is not None:
-        state.pop("ai_provider_cooldown_reason", None)
         # Expiry only permits a new probe. Recovery is announced later,
         # exclusively after a provider returns valid structured output.
         persist_checkpoint(state, fernet, "AI provider retry window elapsed", checkpoint_cache)
