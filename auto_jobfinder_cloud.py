@@ -2652,6 +2652,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     }
     last_error = None
     rate_limit_errors = []
+    rate_limited_providers: list[str] = []
     gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
     configured_gemini_models = _configured_gemini_models() if gemini_configured else ()
@@ -2698,6 +2699,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 if _is_rate_limit_error(gemini_error):
                     _DISABLED_GEMINI_MODELS.add(model_name)
                     rate_limit_errors.append(gemini_error)
+                    rate_limited_providers.append("Gemini")
                     print(
                         f"AI RATE LIMIT: Gemini ({model_name}); "
                         "switching to the next Gemini model"
@@ -2807,6 +2809,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             if _is_rate_limit_error(first_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
                 rate_limit_errors.append(first_error)
+                rate_limited_providers.append("Groq")
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
                 continue
             if _is_temporary_provider_overload(first_error):
@@ -2851,6 +2854,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             if _is_rate_limit_error(second_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
                 rate_limit_errors.append(second_error)
+                rate_limited_providers.append("Groq")
                 print(f"AI RATE LIMIT: {model_name}; switching to the next available model")
             elif _is_temporary_provider_overload(second_error):
                 _UNAVAILABLE_GROQ_MODELS.add(model_name)
@@ -2904,6 +2908,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             _OPENROUTER_DISABLED_FOR_RUN = True
             if _is_rate_limit_error(openrouter_error):
                 rate_limit_errors.append(openrouter_error)
+                rate_limited_providers.append("OpenRouter")
                 print(
                     "AI OPENROUTER RATE LIMIT: "
                     f"{_safe_ai_provider_error(openrouter_error)}; disabled for this run"
@@ -2947,14 +2952,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 (_rate_limit_retry_seconds(error) for error in rate_limit_errors),
                 default=3600,
             )
-            configured_providers = []
-            if gemini_configured:
-                configured_providers.append("Gemini")
-            if GROQ_MODEL_FALLBACKS:
-                configured_providers.append("Groq")
-            if openrouter_configured:
-                configured_providers.append("OpenRouter")
-            provider_names = "/".join(configured_providers) or "configured free"
+            rate_limited_provider_names = "/".join(dict.fromkeys(rate_limited_providers)) or "unknown providers"
 
             # Do not claim every provider was quota-limited when a later route
             # returned a non-retryable failure (for example, empty/truncated JSON).
@@ -2965,7 +2963,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             ):
                 final_route_error = _safe_ai_provider_error(last_error)
                 provider = (
-                    f"Some AI routes hit rate limits ({provider_names}); "
+                    f"Some AI routes hit rate limits ({rate_limited_provider_names}); "
                     f"fallback error: {final_route_error}"
                 )
                 _notify_ai_rate_limit(retry_seconds, provider)
@@ -2973,7 +2971,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
 
             if last_error is not None and _is_temporary_provider_overload(last_error):
                 provider = (
-                    f"AI quota exhausted across {provider_names} routes; "
+                    f"AI quota exhausted on {rate_limited_provider_names}; "
                     "some routes may also be temporarily overloaded"
                 )
             else:
