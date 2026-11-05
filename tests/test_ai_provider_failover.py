@@ -977,7 +977,7 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
                 )
 
         self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
-        self.assertIn("No AI route returned usable JSON", str(raised.exception))
+        self.assertIn("Some AI routes hit rate limits", str(raised.exception))
         self.assertIn("rate limits were reached on some configured routes", str(raised.exception))
         self.assertIn("OpenRouter returned empty content", str(raised.exception))
         self.assertEqual(len(callbacks), 1)
