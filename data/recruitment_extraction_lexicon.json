@@ -1,0 +1,743 @@
+{
+  "source_basis": "Curated multilingual wording observed in the owner-provided Algerian and international recruitment-post sample. Examples guide extraction; they are not standalone proof of a vacancy or mandatory condition.",
+  "recruitment_signals": {
+    "strong": [
+      "إعلان توظيف",
+      "اعلان عن توظيف",
+      "توظيف فوري",
+      "فتح باب التوظيف",
+      "فتح مناصب شغل",
+      "تعلن عن حاجتها إلى توظيف",
+      "تعلن عن توظيف",
+      "نبحث عن عامل",
+      "نبحث عن شخص للعمل",
+      "عرض عمل",
+      "عرض توظيف",
+      "مناصب شاغرة",
+      "مناصب متاحة",
+      "Recrutement",
+      "Offre d'emploi",
+      "Nous recrutons",
+      "On recrute",
+      "recrute",
+      "recrutons",
+      "poste à pourvoir",
+      "postes à pourvoir",
+      "poste vacant",
+      "besoin de personnel",
+      "recrutement urgent",
+      "campagne de recrutement",
+      "hiring",
+      "we are hiring",
+      "we are looking for",
+      "job opening"
+    ],
+    "contextual": [
+      "تدعيم مصالحها",
+      "تعزيز فريق العمل",
+      "توسيع نشاطها",
+      "تطوير نشاطها",
+      "الانضمام إلى فريقنا",
+      "فرصة مهنية",
+      "فرصة عمل",
+      "إطار تعزيز الفرق",
+      "renforcer notre équipe",
+      "dans le cadre de son développement",
+      "rejoindre notre équipe",
+      "join our team"
+    ],
+    "non_vacancy_context": [
+      "نصائح للباحثين عن العمل",
+      "كيف تنشئ سيرة ذاتية",
+      "طريقة إنشاء سيرة ذاتية",
+      "CV professionnel",
+      "ATS",
+      "سؤال اليوم",
+      "من واقع العمل",
+      "نبحث عن متربصين",
+      "نصائح مهنية",
+      "خدمات إعداد السيرة الذاتية",
+      "بيع منتجات",
+      "للاستفسار عن الأسعار",
+      "career advice",
+      "CV writing service",
+      "how to create a CV",
+      "we sell",
+      "product for sale"
+    ]
+  },
+  "title_families": [
+    {
+      "family": "maintenance_industrial",
+      "examples": [
+        "Technicien Maintenance",
+        "Technicien de Maintenance Industrielle",
+        "Ingénieur Maintenance",
+        "Responsable Maintenance",
+        "Chef de Service Maintenance",
+        "Maintenance Coordinator",
+        "Mécanicien Industriel",
+        "Électromécanicien",
+        "Technicien Utilités",
+        "Technicien Équipements Process",
+        "Technicien d'alignement",
+        "Frigoriste",
+        "Opérateur Utilités",
+        "تقني صيانة",
+        "تقني صيانة صناعية",
+        "مهندس صيانة",
+        "مسؤول الصيانة",
+        "ميكانيكي صناعي",
+        "كهروميكانيكي",
+        "تقني تبريد"
+      ]
+    },
+    {
+      "family": "production_operations",
+      "examples": [
+        "Agent de Production",
+        "Opérateur de Production",
+        "Opérateur sur machine",
+        "Conducteur de Machine",
+        "Aide opérateur",
+        "Agent de Fabrication",
+        "Agent de conditionnement",
+        "Ouvrier de production",
+        "عامل إنتاج",
+        "مشغل آلة",
+        "عامل تشغيل آلة",
+        "عامل تصنيع",
+        "عامل تغليف",
+        "عامل تعليب"
+      ]
+    },
+    {
+      "family": "quality_hse",
+      "examples": [
+        "Contrôleur Qualité",
+        "Ingénieur Qualité",
+        "Contrôleur Qualité LABO",
+        "QA/QC Engineer",
+        "QA/QC Inspector",
+        "Responsable Qualité",
+        "Agent HSE",
+        "Ingénieur HSE",
+        "Superviseur QHSE",
+        "Inspecteur HSE",
+        "مهندس جودة",
+        "مراقب جودة",
+        "مراقب جودة مخبري",
+        "مشرف HSE"
+      ]
+    },
+    {
+      "family": "warehouse_logistics",
+      "examples": [
+        "Magasinier",
+        "Agent de Stock",
+        "Gestionnaire de Stock",
+        "Responsable GDS",
+        "Material Controller",
+        "Responsable Logistique",
+        "Supply Chain Manager",
+        "Chargé Approvisionnement",
+        "Agent Dépôt",
+        "Storekeeper",
+        "أمين مخزن",
+        "مسير مخزون",
+        "مسؤول مخزون",
+        "عون مخزن",
+        "مسؤول لوجستيك",
+        "مكلف بالتموين"
+      ]
+    },
+    {
+      "family": "procurement",
+      "examples": [
+        "Acheteur",
+        "Aide Acheteur",
+        "Assistant Achats",
+        "Responsable Achats",
+        "Chargé Achats & Approvisionnement",
+        "Procurement Engineer",
+        "Procurement & Logistics Officer",
+        "مساعد مشتري",
+        "مساعد مشتريات",
+        "مكلف بالمشتريات",
+        "مسؤول المشتريات",
+        "مهندس مشتريات"
+      ]
+    },
+    {
+      "family": "hr_admin",
+      "examples": [
+        "Assistant RH",
+        "Gestionnaire RH",
+        "Responsable RH",
+        "Coordinateur RH",
+        "HRBP",
+        "Chargé de Recrutement",
+        "Assistant Administratif",
+        "Agent Administratif",
+        "Secrétaire",
+        "Gestionnaire de Service Client",
+        "مساعد موارد بشرية",
+        "مسير موارد بشرية",
+        "مسؤول موارد بشرية",
+        "مساعد إداري",
+        "عون إداري",
+        "سكرتير"
+      ]
+    },
+    {
+      "family": "engineering_project",
+      "examples": [
+        "Project Engineer",
+        "Design Engineer",
+        "Site Engineer",
+        "Planning Engineer",
+        "Lead Planner",
+        "Technical & Engineering Manager",
+        "Ingénieur Génie Civil",
+        "Ingénieur Hydraulique",
+        "Ingénieur Process",
+        "Project Manager",
+        "مهندس مشاريع",
+        "مهندس موقع",
+        "مهندس تخطيط",
+        "مهندس مدني",
+        "مهندس هيدروليك"
+      ]
+    },
+    {
+      "family": "electrical_automation",
+      "examples": [
+        "Électricien",
+        "Ingénieur CFO",
+        "Electrical Supervisor",
+        "Automaticien",
+        "Instrumentation Engineer",
+        "Instrumentiste",
+        "PLC Engineer",
+        "مهندس كهرباء",
+        "كهربائي",
+        "تقني كهرباء",
+        "مهندس أجهزة وتحكم",
+        "مهندس أتمتة"
+      ]
+    },
+    {
+      "family": "welding_piping_fabrication",
+      "examples": [
+        "Soudeur",
+        "Welding Engineer",
+        "Welding Supervisor",
+        "Tuyauteur",
+        "Piping Engineer",
+        "Piping Supervisor",
+        "Charpentier métallique",
+        "Tôlier",
+        "لحام",
+        "مهندس تلحيم",
+        "مركب أنابيب",
+        "عامل صفائح معدنية"
+      ]
+    },
+    {
+      "family": "sales_customer_service",
+      "examples": [
+        "Commercial",
+        "Agent Commercial",
+        "Assistant Commercial",
+        "Technico-commercial",
+        "Téléopérateur",
+        "Téléopératrice",
+        "Réceptionniste",
+        "Agent Service Client",
+        "Prévendeur",
+        "عون تجاري",
+        "ممثل مبيعات",
+        "موظف استقبال",
+        "مسير خدمة الزبائن",
+        "مكلف بالعلاقات الخارجية"
+      ]
+    },
+    {
+      "family": "catering_hospitality",
+      "examples": [
+        "Chef de Cuisine",
+        "Chef de Partie",
+        "Cuisinier",
+        "Aide-Cuisinier",
+        "Commis de Cuisine",
+        "Serveur",
+        "Maître d'Hôtel",
+        "Valet de Chambre",
+        "Buandière",
+        "طباخ",
+        "مساعد طباخ",
+        "عامل غرف",
+        "عامل مغسلة",
+        "نادل"
+      ]
+    },
+    {
+      "family": "drivers_equipment",
+      "examples": [
+        "Cariste",
+        "Forklift Operator",
+        "Boom Truck Operator",
+        "Crane Operator",
+        "Chauffeur Semi-Remorque",
+        "Chauffeur Permis B",
+        "Pompiste",
+        "Manœuvre",
+        "سائق رافعة شوكية",
+        "سائق شاحنة",
+        "سائق نصف مقطورة",
+        "مشغل رافعة",
+        "مناور"
+      ]
+    }
+  ],
+  "location_wording": {
+    "work_location_labels": [
+      "مكان العمل",
+      "موقع العمل",
+      "Lieu de travail",
+      "Lieu du poste",
+      "Site de travail",
+      "Work location",
+      "Job location",
+      "Worksite",
+      "Poste basé à",
+      "Basé à",
+      "مقر التعيين",
+      "مواقع العمل",
+      "الموقع"
+    ],
+    "worksite_types": [
+      "المنطقة الصناعية",
+      "Zone industrielle",
+      "Z.I",
+      "Zone d'activité",
+      "مصنع",
+      "Usine",
+      "ورشة",
+      "Atelier",
+      "موقع المشروع",
+      "Site du projet",
+      "Chantier",
+      "مقر الشركة",
+      "Siège social",
+      "مقر المؤسسة",
+      "مقر العمل",
+      "مواقع العملاء",
+      "Sites clients"
+    ],
+    "candidate_residence_labels": [
+      "الإقامة في",
+      "يجب أن يكون المترشح من المقيمين",
+      "القاطنين في",
+      "الأولوية لسكان",
+      "يشترط السكن في",
+      "Résider à",
+      "Résidant à",
+      "Habiter à",
+      "Habiter dans les environs",
+      "Résidence obligatoire",
+      "Candidats résidant",
+      "Based in",
+      "residents of"
+    ],
+    "preferred_residence_labels": [
+      "الأفضلية للمترشحين القاطنين",
+      "الأولوية لسكان",
+      "يفضل أن يكون مقيما",
+      "يُفضّل المقيمون",
+      "Résidence souhaitée",
+      "De préférence résidant",
+      "Résider de préférence"
+    ],
+    "multiple_site_labels": [
+      "عدة مواقع",
+      "مواقع مختلفة",
+      "مختلف الولايات",
+      "كامل التراب الوطني",
+      "selon le secteur géographique",
+      "selon le lieu de résidence",
+      "Alger / Blida",
+      "Hetatba / Koléa",
+      "multi-sites",
+      "national coverage"
+    ],
+    "headquarters_labels": [
+      "مقر الشركة",
+      "المقر الاجتماعي",
+      "Siège social",
+      "société basée à",
+      "basée à",
+      "الكائن مقرها",
+      "située à",
+      "whose headquarters are"
+    ],
+    "project_location_labels": [
+      "مشروع",
+      "Projet",
+      "Project",
+      "chantier",
+      "site du projet",
+      "حاسي مسعود – مشروع",
+      "mission sur site"
+    ]
+  },
+  "experience_wording": {
+    "mandatory": [
+      "خبرة مطلوبة",
+      "خبرة إجبارية",
+      "يشترط توفر خبرة",
+      "الخبرة شرط إلزامي",
+      "خبرة لا تقل عن",
+      "لا تقل عن",
+      "على الأقل",
+      "خبرة مثبتة",
+      "خبرة مؤكدة",
+      "Expérience exigée",
+      "Expérience obligatoire",
+      "expérience requise",
+      "Minimum",
+      "au moins",
+      "X ans minimum",
+      "confirmed experience",
+      "proven experience"
+    ],
+    "preferred": [
+      "الخبرة مفضلة",
+      "الخبرة تعتبر ميزة",
+      "تعتبر ميزة إضافية",
+      "يفضل أصحاب الخبرة",
+      "خبرة مرغوبة",
+      "Expérience souhaitée",
+      "Expérience souhaitable",
+      "souhaitée",
+      "de préférence",
+      "un atout",
+      "appréciée",
+      "preferred",
+      "desirable"
+    ],
+    "not_required": [
+      "الخبرة غير مطلوبة",
+      "لا يشترط وجود خبرة",
+      "بدون خبرة",
+      "مع أو بدون خبرة",
+      "لا تتطلب خبرة",
+      "Débutant accepté",
+      "Sans expérience",
+      "Avec ou sans expérience",
+      "aucune expérience exigée",
+      "no experience required",
+      "entry level"
+    ],
+    "general_or_unspecified": [
+      "خبرة في المجال",
+      "خبرة مهنية",
+      "خبرة سابقة",
+      "Expérience dans le domaine",
+      "expérience professionnelle",
+      "expérience dans un poste similaire",
+      "experience in the field"
+    ],
+    "numeric_forms": [
+      "1 سنة",
+      "سنة واحدة",
+      "سنتين",
+      "3 سنوات",
+      "5 سنوات",
+      "من 2 إلى 3 سنوات",
+      "2 à 3 ans",
+      "1 à 2 ans",
+      "5 ans et plus",
+      "plus de 5 ans",
+      "minimum 3 ans",
+      "jusqu'à 4 ans",
+      "up to 4 years",
+      "at least 5 years"
+    ],
+    "scope_forms": [
+      "في نفس المنصب",
+      "في منصب مماثل",
+      "في المجال الصناعي",
+      "في الصيانة الصناعية",
+      "في قطاع النفط والغاز",
+      "في المجال الفندقي",
+      "في Catering",
+      "في المجال الصيدلاني",
+      "dans un poste similaire",
+      "dans le secteur industriel",
+      "Oil & Gas experience",
+      "field experience",
+      "experience in catering"
+    ]
+  },
+  "qualification_wording": {
+    "levels": [
+      "Ingénieur",
+      "Master",
+      "Licence",
+      "Bachelor",
+      "Bac+3",
+      "Bac+5",
+      "TS",
+      "Technicien Supérieur",
+      "Diplôme",
+      "Formation professionnelle",
+      "Niveau terminal",
+      "Baccalauréat",
+      "شهادة مهندس",
+      "ماستر",
+      "ليسانس",
+      "تقني سامي",
+      "شهادة تكوين مهني",
+      "مستوى السنة الثانية ثانوي"
+    ],
+    "mandatory": [
+      "شهادة إجبارية",
+      "يشترط شهادة",
+      "لازم شهادة",
+      "Diplôme exigé",
+      "Diplôme obligatoire",
+      "formation obligatoire",
+      "required degree",
+      "must hold"
+    ],
+    "preferred": [
+      "شهادة مفضلة",
+      "تكوين يفضل",
+      "Diplôme souhaité",
+      "formation souhaitée",
+      "de préférence"
+    ],
+    "not_required": [
+      "الشهادة غير مطلوبة",
+      "لا يشترط شهادة",
+      "Diplôme non exigé",
+      "degree not required"
+    ]
+  },
+  "candidate_conditions": {
+    "age": [
+      "السن",
+      "العمر",
+      "من 22 إلى 40 سنة",
+      "أقل من 40 سنة",
+      "25 سنة فما فوق",
+      "Âge",
+      "moins de 40 ans",
+      "entre 25 et 30 ans"
+    ],
+    "gender": [
+      "رجال فقط",
+      "للرجال",
+      "نساء فقط",
+      "عاملات",
+      "Homme",
+      "Femme",
+      "H/F",
+      "masculin",
+      "féminin"
+    ],
+    "driving_license": [
+      "رخصة سياقة",
+      "رخصة صنف B",
+      "رخصة صنف D",
+      "Permis B",
+      "Permis D",
+      "Permis moto",
+      "permis de conduire obligatoire"
+    ],
+    "languages": [
+      "إتقان الفرنسية",
+      "الفرنسية بطلاقة",
+      "إتقان الإنجليزية",
+      "Maîtrise parfaite du français",
+      "francophone",
+      "anglais courant",
+      "English proficiency"
+    ],
+    "anem": [
+      "التسجيل لدى وكالة التشغيل",
+      "ANEM",
+      "inscription ANEM",
+      "inscrit à l'ANEM"
+    ],
+    "availability": [
+      "التحاق فوري",
+      "العمل فورًا",
+      "متاح فورًا",
+      "Disponibilité immédiate",
+      "à pourvoir rapidement",
+      "disponible immédiatement"
+    ],
+    "nationality": [
+      "جزائريون",
+      "مغتربون",
+      "Algériens",
+      "expatriés",
+      "nationals"
+    ]
+  },
+  "work_conditions": {
+    "contract": [
+      "CDI",
+      "CDD",
+      "عقد محدد المدة",
+      "عقد دائم",
+      "contrat temporaire",
+      "contrat d'apprentissage",
+      "stage",
+      "contrat renouvelable"
+    ],
+    "schedule": [
+      "Temps plein",
+      "Temps partiel",
+      "دوام كامل",
+      "دوام جزئي",
+      "08:00–16:00",
+      "09:00–17:00",
+      "travail de nuit",
+      "travail posté",
+      "remote",
+      "Télétravail",
+      "عن بعد"
+    ],
+    "shift_patterns": [
+      "3×8",
+      "2×8",
+      "2×8",
+      "4×4",
+      "6×2",
+      "6/2",
+      "6 jours / 3 jours",
+      "45 jours / 15 jours",
+      "6 semaines / 2 semaines",
+      "régime famille"
+    ],
+    "benefits": {
+      "accommodation": [
+        "الإقامة متوفرة",
+        "السكن متوفر",
+        "المبيت متوفر",
+        "التكفل بالإقامة",
+        "hébergement assuré",
+        "logement fourni",
+        "hébergement pris en charge",
+        "résidence fournie"
+      ],
+      "accommodation_not_provided": [
+        "الإقامة غير متوفرة",
+        "السكن غير متوفر",
+        "لا توفر السكن",
+        "hébergement non fourni",
+        "pas de logement"
+      ],
+      "transport": [
+        "النقل متوفر",
+        "النقل متكفل به",
+        "transport assuré",
+        "transport disponible",
+        "navette disponible"
+      ],
+      "transport_not_provided": [
+        "النقل غير متوفر",
+        "لا يوجد نقل",
+        "transport non disponible"
+      ],
+      "meals": [
+        "الإطعام متوفر",
+        "الوجبة متوفرة",
+        "التكفل بالإطعام",
+        "repas fourni",
+        "restauration assurée"
+      ],
+      "insurance": [
+        "الضمان الاجتماعي",
+        "التأمين الاجتماعي",
+        "CNAS",
+        "assurance sociale",
+        "assurance"
+      ],
+      "salary": [
+        "راتب شهري",
+        "أجر محفز",
+        "حسب الخبرة",
+        "Salaire fixe",
+        "Salaire négociable",
+        "Salaire attractif",
+        "primes",
+        "commission",
+        "prime de rendement"
+      ]
+    }
+  },
+  "application_wording": {
+    "email": [
+      "إرسال السيرة الذاتية إلى البريد الإلكتروني",
+      "Envoyez votre CV à",
+      "Merci d'envoyer votre CV",
+      "Pour postuler",
+      "Candidature par email"
+    ],
+    "whatsapp": [
+      "عبر الواتساب",
+      "إرسال CV عبر WhatsApp",
+      "WhatsApp uniquement",
+      "par WhatsApp"
+    ],
+    "phone": [
+      "للتواصل والاستفسار",
+      "للاتصال",
+      "Pour plus d'informations",
+      "contactez-nous"
+    ],
+    "website": [
+      "رابط التقديم",
+      "التقديم عبر الرابط",
+      "lien de candidature",
+      "postuler directement",
+      "careers page"
+    ],
+    "in_person": [
+      "التقرب من مقر الشركة",
+      "إيداع الملف",
+      "الحضور مباشرة",
+      "déposer votre candidature",
+      "dépôt du dossier"
+    ],
+    "subject": [
+      "موضوع البريد",
+      "عنوان البريد الإلكتروني",
+      "ذكر اسم المنصب في الموضوع",
+      "Objet du mail",
+      "Objet obligatoire",
+      "Subject",
+      "mentionner l'intitulé du poste"
+    ],
+    "documents": [
+      "CV",
+      "lettre de motivation",
+      "شهادة العمل",
+      "نسخة رخصة السياقة",
+      "dossier de candidature",
+      "required documents"
+    ]
+  },
+  "false_positive_examples": [
+    "سؤال اليوم للناس ديال Maintenance",
+    "من واقع العمل | متى يكون مهندس PLC جاهز لأول وظيفة؟",
+    "طريقة إنشاء سيرة ذاتية احترافية ATS",
+    "شاليهات ومحلات وغرف جاهزة للبيع",
+    "خدمات إعداد وتحسين السيرة الذاتية",
+    "منشور يعلن عن عروض قادمة دون وظيفة محددة أو طريقة تقديم"
+  ]
+}
