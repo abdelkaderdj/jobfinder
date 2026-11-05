@@ -2554,7 +2554,10 @@ def _openrouter_json_request(messages, temperature=0, max_completion_tokens=1000
         # The free router may select a reasoning model. Reasoning consumes the
         # same output-token budget and can otherwise leave visible content empty.
         "max_tokens": max(512, int(max_completion_tokens or 0)),
-        "reasoning": {"effort": normalize_reasoning_level(reasoning_level, default="low"), "exclude": True},
+        # This is the tertiary free fallback. Keep reasoning minimal regardless of
+        # the primary route's requested effort so hidden thinking cannot consume
+        # the entire completion budget and leave the JSON body empty.
+        "reasoning": {"effort": "minimal", "exclude": True},
         "response_format": {"type": "json_object"},
     }
     request = urllib.request.Request(
@@ -2952,9 +2955,23 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             if openrouter_configured:
                 configured_providers.append("OpenRouter")
             provider_names = "/".join(configured_providers) or "configured free"
+
+            # Do not claim every provider was quota-limited when a later route
+            # failed for a different reason (for example, OpenRouter returned
+            # finish_reason=length with no visible JSON content).
+            if last_error is not None and not _is_rate_limit_error(last_error):
+                final_route_error = _safe_ai_provider_error(last_error)
+                provider = (
+                    "No AI route returned usable JSON; rate limits were reached "
+                    f"on some configured routes ({provider_names}), and the final fallback failed: "
+                    f"{final_route_error}"
+                )
+                _notify_ai_rate_limit(retry_seconds, provider)
+                raise AIProviderUnavailable(retry_seconds, provider) from last_error
+
             provider = (
                 f"AI quota exhausted across {provider_names} routes; "
-                "some routes may also be temporarily overloaded"
+                "all final route responses were rate-limited"
             )
             _notify_ai_rate_limit(retry_seconds, provider)
             raise AIProviderRateLimited(retry_seconds) from last_error
