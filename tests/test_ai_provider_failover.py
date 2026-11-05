@@ -798,6 +798,7 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
             result = processor._openrouter_json_request(
                 [{"role": "user", "content": "Return a JSON object."}],
                 max_completion_tokens=64,
+                reasoning_level="high",
             )
 
         self.assertEqual(result, {"route": "openrouter"})
@@ -807,7 +808,7 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer openrouter-test-key")
         self.assertEqual(payload["model"], "openrouter/free")
         self.assertEqual(payload["max_tokens"], 512)
-        self.assertEqual(payload["reasoning"], {"effort": "low", "exclude": True})
+        self.assertEqual(payload["reasoning"], {"effort": "minimal", "exclude": True})
         self.assertEqual(payload["response_format"], {"type": "json_object"})
 
     def test_openrouter_empty_content_reports_model_and_token_budget_diagnostics(self):
@@ -933,6 +934,53 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
             self.assertEqual(callbacks[0][0], 135)
         finally:
             processor._OPENROUTER_DISABLED_FOR_RUN = original_openrouter_disabled
+
+
+    def test_mixed_rate_limits_and_openrouter_empty_json_are_reported_accurately(self):
+        rate_limit = RuntimeError("429 rate limit exceeded")
+        rate_limit.status_code = 429
+        invalid_fallback = ValueError(
+            "OpenRouter returned empty content (finish_reason=length, reasoning_tokens=8192)"
+        )
+        callbacks = []
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GEMINI_API_KEY": "gemini-test-key",
+                    "OPENROUTER_API_KEY": "openrouter-test-key",
+                    "OPENROUTER_MODEL": "openrouter/free",
+                    "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                },
+            ),
+            patch.object(processor, "_configured_gemini_models", return_value=("gemini-test",)),
+            patch.object(processor, "_gemini_json_request", side_effect=rate_limit),
+            patch.object(processor, "GROQ_MODEL_FALLBACKS", ("test/groq-model",)),
+            patch.object(processor.client.chat.completions, "create", side_effect=rate_limit),
+            patch.object(processor, "_openrouter_json_request", side_effect=invalid_fallback),
+            patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
+            patch.object(processor, "_DISABLED_GEMINI_MODELS", set()),
+            patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+            patch.object(processor, "_UNAVAILABLE_GROQ_MODELS", set()),
+            patch.object(
+                processor,
+                "JOB_AI_RATE_LIMIT_CALLBACK",
+                lambda seconds, reason: callbacks.append((seconds, reason)),
+            ),
+        ):
+            with self.assertRaises(processor.AIProviderUnavailable) as raised:
+                processor.groq_json_request(
+                    [{"role": "user", "content": "Return a JSON object."}]
+                )
+
+        self.assertNotIsInstance(raised.exception, processor.AIProviderRateLimited)
+        self.assertIn("Some AI routes hit rate limits (Gemini/Groq)", str(raised.exception))
+        self.assertNotIn("Gemini/Groq/OpenRouter", str(raised.exception))
+        self.assertIn("OpenRouter returned empty content", str(raised.exception))
+        self.assertEqual(len(callbacks), 1)
 
 
 if __name__ == "__main__":

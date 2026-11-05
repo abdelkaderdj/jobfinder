@@ -209,6 +209,52 @@ def _parse_provider_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def clear_expired_ai_provider_retry_window(state: dict[str, Any]) -> str | None:
+    """Clear only the timer; keep the outage incident open until a provider succeeds."""
+    expired_at = state.pop("ai_provider_retry_after_utc", None)
+    if expired_at is not None:
+        state.pop("ai_provider_cooldown_reason", None)
+    return str(expired_at) if expired_at is not None else None
+
+
+def record_ai_provider_cooldown(
+    state: dict[str, Any],
+    retry_after_seconds: int,
+    provider_reason: str,
+    bot: Any,
+    now: datetime | None = None,
+) -> datetime:
+    """Persist a provider-outage window and notify only once until real recovery."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now = now.astimezone(timezone.utc)
+    seconds = max(60, min(86400, int(retry_after_seconds)))
+    retry_at = now + timedelta(seconds=seconds + 15)
+    state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
+    reason = " ".join(str(provider_reason or "AI providers temporarily unavailable").split())[:180]
+    state["ai_provider_cooldown_reason"] = reason
+
+    incident_id = state.get("ai_provider_cooldown_started_at_utc")
+    if _parse_provider_timestamp(incident_id) is None:
+        incident_id = now.isoformat(timespec="seconds")
+        state["ai_provider_cooldown_started_at_utc"] = incident_id
+        state["ai_provider_cooldown_alert_sent"] = False
+
+    if not bool(state.get("ai_provider_cooldown_alert_sent")):
+        bot._enqueue(
+            "ai-provider-cooldown:" + str(incident_id),
+            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا لأن مسارات الذكاء الاصطناعي "
+            "المتاحة لم تتمكن من إكمال التحليل.\\n\\n"
+            f"التشخيص الفني: {reason}.\\n"
+            "لم يُحرّك البوت مؤشر قراءة المنشور المتعثر، وستبقى المنشورات اللاحقة محفوظة. "
+            "سيعيد JobFinder المحاولة تلقائيًا؛ لن تتكرر هذه الرسالة خلال العطل نفسه.",
+        )
+        state["ai_provider_cooldown_alert_sent"] = True
+
+    return retry_at
+
+
 def record_ai_provider_status(
     state: dict[str, Any],
     snapshot: dict[str, Any],
@@ -244,6 +290,26 @@ def record_ai_provider_status(
     }
     state["ai_provider_status"] = current
 
+    # A provider-status snapshot is emitted only after a real request returned
+    # usable structured output. Timer expiry alone must never announce recovery.
+    cooldown_incident_id = state.pop("ai_provider_cooldown_started_at_utc", None)
+    cooldown_alert_sent = bool(state.pop("ai_provider_cooldown_alert_sent", False))
+    state.pop("ai_provider_retry_after_utc", None)
+    state.pop("ai_provider_cooldown_reason", None)
+    cooldown_recovered = bool(cooldown_incident_id and cooldown_alert_sent)
+    if cooldown_recovered:
+        bot._enqueue(
+            "ai-provider-recovered:" + str(cooldown_incident_id),
+            "✅ استأنف JobFinder تحليل المنشورات بعد نجاح طلب فعلي من مزوّد الذكاء الاصطناعي.\\n\\n"
+            f"المسار الذي نجح: {provider.upper()} ({model or 'النموذج النشط'}). "
+            "بقيت المنشورات التي لم تُعالج محفوظة، واستؤنف فحصها.",
+        )
+        # If the primary route is still degraded, start a fresh observation
+        # window from this successful fallback response.
+        if status == "degraded":
+            state["ai_provider_degraded_since_utc"] = checked_at_dt.isoformat(timespec="seconds")
+            state["ai_provider_degraded_alert_sent"] = False
+
     if status == "degraded":
         degraded_since = _parse_provider_timestamp(state.get("ai_provider_degraded_since_utc"))
         if previous_status != "degraded" or degraded_since is None:
@@ -276,20 +342,20 @@ def record_ai_provider_status(
     state.pop("ai_provider_degraded_since_utc", None)
     state.pop("ai_provider_degraded_alert_sent", None)
 
-    if status == "healthy" and previous_status == "degraded":
+    if not cooldown_recovered and status == "healthy" and previous_status == "degraded":
         if previous_degraded_alert_sent:
             message = (
                 "✅ استقر مسار الذكاء الاصطناعي في JobFinder\\n\\n"
                 f"عاد المسار إلى حالة مستقرة: {provider.upper()} ({model or 'النموذج النشط'})."
             )
             bot._enqueue("ai-provider-recovered:" + checked_at, message)
-    elif status == "healthy" and previous_status == "groq_only" and provider == "gemini":
+    elif not cooldown_recovered and status == "healthy" and previous_status == "groq_only" and provider == "gemini":
         message = (
             "✅ تم تفعيل Gemini بنجاح في JobFinder\\n\\n"
             f"استجاب المسار الأساسي: {model or 'Gemini'}؛ لم يعد البوت مضطرًا للاعتماد على Groq وحده."
         )
         bot._enqueue("ai-provider-gemini-activated:" + checked_at, message)
-    elif status == "groq_only" and previous_provider == "gemini":
+    elif not cooldown_recovered and status == "groq_only" and previous_provider == "gemini":
         message = (
             "⚠️ أصبح JobFinder يعمل عبر Groq فقط\\n\\n"
             "لم يعد مفتاح Gemini متاحًا في إعداد التشغيل؛ تحقق من GitHub Secrets."
@@ -360,19 +426,16 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
         )
 
     def persist_ai_provider_cooldown(retry_after_seconds: int, provider: str) -> None:
-        seconds = max(60, min(86400, int(retry_after_seconds)))
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=seconds + 15)
-        state["ai_provider_retry_after_utc"] = retry_at.isoformat(timespec="seconds")
-        state["ai_provider_cooldown_reason"] = str(provider or "AI providers temporarily unavailable")[:80]
-        bot._enqueue(
-            "ai-provider-cooldown:" + retry_at.isoformat(timespec="seconds"),
-            "⏸️ أوقف JobFinder تحليل المنشورات مؤقتًا لأن مسارات الذكاء الاصطناعي غير متاحة "
-            "(حدود استخدام، ضغط مؤقت، أو رفض مفتاح/صلاحيات/إعداد نموذج).\n\n"
-            f"سيُعاد التحليل بعد {retry_at.strftime('%Y-%m-%d %H:%M UTC')}. "
-            "لم يُحرّك البوت مؤشر قراءة المنشور المتعثر، وستبقى المنشورات اللاحقة في الانتظار.\n"
-            f"الحالة الفنية: {str(provider or 'quota')[:120]}",
+        retry_at = record_ai_provider_cooldown(
+            state, retry_after_seconds, provider, bot
         )
-        print("AI PROVIDER COOLDOWN SAVED: " + str(provider or "unavailable")[:120] + "; retry after " + state["ai_provider_retry_after_utc"] + " UTC")
+        print(
+            "AI PROVIDER COOLDOWN SAVED: "
+            + str(provider or "unavailable")[:120]
+            + "; retry after "
+            + state["ai_provider_retry_after_utc"]
+            + " UTC"
+        )
         persist_checkpoint(state, fernet, "AI provider cooldown saved", checkpoint_cache)
 
     processor.set_job_event_callback(bot.on_job_event)
@@ -504,17 +567,12 @@ async def poll_and_process(state: dict[str, Any], fernet: Fernet) -> None:
             "All unprocessed message cursors are preserved."
         )
         return
-    expired_cooldown_at = state.pop("ai_provider_retry_after_utc", None)
+    expired_cooldown_at = clear_expired_ai_provider_retry_window(state)
     if expired_cooldown_at is not None:
-        state.pop("ai_provider_cooldown_reason", None)
-        bot._enqueue(
-            "ai-provider-resumed:" + str(expired_cooldown_at),
-            "✅ انتهت فترة انتظار مزوّد الذكاء الاصطناعي. استأنف JobFinder فحص المنشورات "
-            "المحفوظة وإعادة محاولة التحليل.",
-        )
-        persist_checkpoint(state, fernet, "AI provider cooldown expired", checkpoint_cache)
-        bot.flush_outbox()
-        print("AI provider cooldown expired; resuming queued Telegram messages.")
+        # Expiry only permits a new probe. Recovery is announced later,
+        # exclusively after a provider returns valid structured output.
+        persist_checkpoint(state, fernet, "AI provider retry window elapsed", checkpoint_cache)
+        print("AI provider retry window elapsed; probing routes before reporting recovery.")
 
     started = time.monotonic()
     messages_seen = 0
