@@ -806,10 +806,11 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
         self.assertEqual(request.get_header("Authorization"), "Bearer openrouter-test-key")
-        self.assertEqual(payload["model"], "openrouter/free")
+        self.assertEqual(payload["model"], "nvidia/nemotron-3.5-super-vl:free")
         self.assertEqual(payload["max_tokens"], 512)
-        self.assertEqual(payload["reasoning"], {"effort": "minimal", "exclude": True})
+        self.assertEqual(payload["reasoning"], {"enabled": False, "exclude": True})
         self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["plugins"], [{"id": "response-healing"}])
 
     def test_openrouter_empty_content_reports_model_and_token_budget_diagnostics(self):
         response = MagicMock()
@@ -939,6 +940,9 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
     def test_mixed_rate_limits_and_openrouter_empty_json_are_reported_accurately(self):
         rate_limit = RuntimeError("429 rate limit exceeded")
         rate_limit.status_code = 429
+        # A primary-provider reset can be much longer than the retry interval
+        # needed to re-probe an independent JSON fallback.
+        rate_limit.headers = {"retry-after": "3900"}
         invalid_fallback = ValueError(
             "OpenRouter returned empty content (finish_reason=length, reasoning_tokens=8192)"
         )
@@ -980,7 +984,10 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         self.assertIn("Some AI routes hit rate limits (Gemini/Groq)", str(raised.exception))
         self.assertNotIn("Gemini/Groq/OpenRouter", str(raised.exception))
         self.assertIn("OpenRouter returned empty content", str(raised.exception))
+        self.assertEqual(raised.exception.retry_after_seconds, 300)
         self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0][0], 300)
+        self.assertIn("retrying the free fallback in 300s", callbacks[0][1])
 
 
 if __name__ == "__main__":
