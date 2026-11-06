@@ -215,8 +215,12 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
             "مسؤول منتج",
             "عون مصلحة ما بعد البيع",
         ):
+            normalized_expected = processor.normalize_text(expected)
             with self.subTest(title=expected):
-                self.assertTrue(any(expected in title for title in normalized))
+                self.assertTrue(
+                    any(normalized_expected in title for title in normalized),
+                    f"Missing normalized title: {normalized_expected}; extracted={normalized}",
+                )
 
     def test_uploaded_corpus_includes_non_vacancy_context_separately(self):
         lexicon = json.loads(processor.recruitment_extraction_reference_text())
