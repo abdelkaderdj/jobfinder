@@ -393,9 +393,8 @@ Précision, honnêteté et maîtrise des opérations de caisse.
 
         self.assertIn("20 et 30", pre_details["conditions"]["age"])
         self.assertIn("permis moto", processor.normalize_text(pre_details["conditions"]["driving_license"]))
-        self.assertNotIn("conditions", supervisor_details) or self.assertNotIn(
-            "age", supervisor_details.get("conditions", {})
-        )
+        self.assertNotIn("age", supervisor_details.get("conditions", {}))
+        self.assertNotIn("driving_license", supervisor_details.get("conditions", {}))
         self.assertNotIn("20 et 30", supervisor_details.get("conditions", {}).get("age", ""))
         self.assertIn("25 et 30", stock_details["conditions"]["age"])
         self.assertIn("Lieu de résidence", stock_details["candidate_residence"]["evidence"])
