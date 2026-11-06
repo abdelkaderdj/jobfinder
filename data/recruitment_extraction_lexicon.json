@@ -296,7 +296,21 @@
         "سائق شاحنة",
         "سائق نصف مقطورة",
         "مشغل رافعة",
-        "مناور"
+        "مناور",
+        "Backhoe Loader Operator",
+        "Backhoe Operator",
+        "Loader Operator",
+        "Manlift Operator",
+        "MEWP Operator",
+        "Aerial Lift Operator",
+        "Water Truck Operator",
+        "Water Truck Driver",
+        "Heavy Equipment Operator",
+        "مشغل حفارة",
+        "مشغل لودر",
+        "مشغل منصات رفع الأفراد",
+        "مشغل شاحنة مياه",
+        "سائق شاحنة مياه"
       ]
     }
   ],
@@ -499,7 +513,10 @@
       "ليسانس",
       "تقني سامي",
       "شهادة تكوين مهني",
-      "مستوى السنة الثانية ثانوي"
+      "مستوى السنة الثانية ثانوي",
+      "دبلوم معتمد",
+      "دبلوم مهني",
+      "Accredited Diploma"
     ],
     "mandatory": [
       "شهادة إجبارية",
