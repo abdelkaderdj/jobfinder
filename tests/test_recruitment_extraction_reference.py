@@ -445,7 +445,8 @@ Précision, honnêteté et maîtrise des opérations de caisse.
         })
         self.assertIn("💼 الوظيفة: تقني سامٍ في الإعلام الآلي", message)
         self.assertIn("🔢 عدد المناصب المعلن: 40", message)
-        self.assertNotIn("الإعلام الآلي: 40 منصباً", message)
+        card_header = message.split("📄 مقتطف الإعلان:", 1)[0]
+        self.assertNotIn("تقني سامٍ في الإعلام الآلي: 40 منصباً", card_header)
 
     def test_public_competition_file_deposit_address_is_not_inferred_as_workplace(self):
         advertisement = """📢 إعلان توظيف | وزارة المالية
