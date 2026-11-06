@@ -292,6 +292,9 @@ class TelegramControlTests(unittest.TestCase):
             ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW", "REJECT"),
             ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW", "REJECT"),
             ({"job_title": "Commercial(e)", "score": 91}, "APPLY", "REJECT"),
+            # Arabic aliases for IT/computing are hard exclusions even when a recovered role starts as REVIEW.
+            ({"job_title": "تقني سامٍ في الإعلام الآلي", "score": None}, "REVIEW", "REJECT"),
+            ({"job_title": "تقني في المعلوماتية", "score": None}, "REVIEW", "REJECT"),
             # A broad generalist role is not auto-applied or hard-rejected by title alone.
             ({"job_title": "Agents Polyvalents", "score": 10}, "REJECT", "REVIEW"),
         ]
