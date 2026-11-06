@@ -4387,28 +4387,46 @@ def _extract_source_grounded_recruitment_details(source_text: str) -> dict:
     candidate_conditions = lexicon.get("candidate_conditions", {})
     if not isinstance(candidate_conditions, dict):
         candidate_conditions = {}
-    conditions = {}
+    location_lexicon = lexicon.get("location_wording", {})
+    if not isinstance(location_lexicon, dict):
+        location_lexicon = {}
+    benefits_lexicon = work_conditions.get("benefits", {})
+    if not isinstance(benefits_lexicon, dict):
+        benefits_lexicon = {}
+    salary_phrases = work_conditions.get("salary", [])
+    if not salary_phrases:
+        # Existing corpus wording historically lived under benefits.salary.
+        # Salary is a recruitment condition, not a benefit; support both shapes.
+        salary_phrases = benefits_lexicon.get("salary", [])
 
+    conditions = {}
     condition_sources = (
         ("contract_type", work_conditions.get("contract", [])),
         ("work_schedule", work_conditions.get("schedule", [])),
         ("shift_pattern", work_conditions.get("shift_patterns", [])),
-        ("salary", work_conditions.get("salary", [])),
+        ("salary", salary_phrases),
+        ("age", candidate_conditions.get("age", [])),
         ("gender", candidate_conditions.get("gender", [])),
         ("driving_license", candidate_conditions.get("driving_license", [])),
+        ("military_status", candidate_conditions.get("military_status", [])),
+        ("vehicle", candidate_conditions.get("vehicle", [])),
         ("anem_registration", candidate_conditions.get("anem", [])),
         ("nationality", candidate_conditions.get("nationality", [])),
         ("availability", candidate_conditions.get("availability", [])),
     )
     for field, phrases in condition_sources:
         phrase, evidence = _first_source_line_for_phrases(source, phrases)
-        if phrase and evidence:
-            conditions[field] = phrase
-            conditions[f"{field}_evidence"] = evidence
-
-    benefits_lexicon = work_conditions.get("benefits", {})
-    if not isinstance(benefits_lexicon, dict):
-        benefits_lexicon = {}
+        if not (phrase and evidence):
+            continue
+        if field == "age" and not re.search(r"[0-9٠-٩۰-۹]", evidence):
+            continue
+        # Keep the literal source line for fields whose useful value is usually
+        # numeric or contextual (salary, age, military status, personal vehicle).
+        conditions[field] = (
+            evidence if field in {"salary", "age", "military_status", "vehicle"}
+            else phrase
+        )
+        conditions[f"{field}_evidence"] = evidence
     benefits = {}
     benefits_evidence = {}
     benefit_specs = (
@@ -4435,6 +4453,21 @@ def _extract_source_grounded_recruitment_details(source_text: str) -> dict:
     if benefits:
         conditions["benefits"] = benefits
         conditions["benefits_evidence"] = benefits_evidence
+
+    residence_specs = (
+        ("required", location_lexicon.get("mandatory_residence_labels", [])),
+        ("preferred", location_lexicon.get("preferred_residence_labels", [])),
+        ("stated", location_lexicon.get("candidate_residence_labels", [])),
+    )
+    for residence_status, phrases in residence_specs:
+        phrase, evidence = _first_source_line_for_phrases(source, phrases)
+        if phrase and evidence:
+            details["candidate_residence"] = {
+                "status": residence_status,
+                "phrase": phrase,
+                "evidence": evidence,
+            }
+            break
 
     if conditions:
         details["conditions"] = conditions
