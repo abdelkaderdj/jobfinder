@@ -64,6 +64,7 @@ def candidate_role_policy_prompt_text() -> str:
         "- Primary target lanes: mechanical maintenance; industrial/mechanical equipment; refrigeration, froid, frigoriste, HVAC and thermal systems; thermodynamics and heat transfer; centrifugal pumps and fluid systems; junior mechanical design, CAD, SolidWorks, and technical drawings.\n"
         "- Closely adjacent junior technical/operator roles may be considered only when the duties in THAT position's own section show a genuine connection to the target lanes. A company's industry or a shared word elsewhere in the post is not evidence.\n"
         "- Hard exclusions: sales/commercial, marketing, teaching/training, administration, accounting, HR, laboratory/biology/chemistry, electrical-only, electromechanical, instrumentation/automation, civil engineering, HSE, aviation/aircraft, information technology/IT support/computer systems/networks/telecommunications, procurement/logistics/supply-chain, security, and other unrelated disciplines.\n"
+        "- Arabic IT title aliases are also hard exclusions: الإعلام الآلي، إعلام آلي، المعلوماتية، تقني/فني الإعلام الآلي، تقني سامٍ في الإعلام الآلي، علوم الحاسوب، علوم الكمبيوتر, and computer/network support roles.\n"
         "- Any position titled Ingénieur, Engineer, or مهندس is REJECT unless THAT position's own advertisement explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering degree mandatory. A generic mention of Licence elsewhere in a multi-position post is not enough.\n"
         "- Production technician/production operator positions are REVIEW only; never auto-send solely because the title is technical or the employer is industrial.\n"
         "- Broad generalist/polyvalent roles are REVIEW only when local and when their own duties do not establish a clear target-lane match. Never APPLY based only on a factory/industrial employer.\n"
@@ -99,6 +100,12 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"technicien reseaux et telecoms|reseaux informatiques|"
     r"telecommunications?|telecoms?|telecom technician|"
     r"ingenieur reseaux|ingenieur infrastructure|support it)\b",
+    # Arabic forms are normalized before matching (hamza/diacritics removed).
+    r"\\b(?:ال)?اعلام (?:ال)?الي\\b",
+    r"\\b(?:تقني|فني)\\w* (?:سام|سامي) (?:في )?(?:ال)?اعلام (?:ال)?الي\\b",
+    r"\\b(?:ال)?معلوماتية\\b", r"\\bمعلوماتي\\w*\\b",
+    r"\\bعلوم الحاسوب\\b", r"\\bعلوم الكمبيوتر\\b",
+    r"\\bتقنية الحاسوب\\b", r"\\bشبكات المعلومات\\b",
     r"\b(?:standardiste|agent de communication|communication officer|"
     r"communication and switchboard|standard operator)\b",
     r"\b(?:approvisionnement|approvisionnements|procurement|purchasing|"
