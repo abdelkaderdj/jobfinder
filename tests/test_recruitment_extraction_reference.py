@@ -230,6 +230,64 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
         self.assertGreaterEqual(len(lexicon["title_families"]), 20)
 
 
+    def test_uploaded_corpus_candidate_conditions_and_salary_are_source_grounded(self):
+        advertisement = """🚨 إعلان توظيف | شركة صناعية
+📌 المنصب المطلوب:
+Chauffeur
+يشترط الإقامة في خميس الخشنة وضواحيها.
+العمر بين 25 و40 سنة.
+يشترط بطاقة الخدمة الوطنية.
+امتلاك سيارة خاصة مطلوب.
+راتب شهري 60,000 دج.
+"""
+        details = processor._extract_source_grounded_recruitment_details(advertisement)
+
+        self.assertEqual(details["candidate_residence"]["status"], "required")
+        self.assertIn(
+            "يشترط الإقامة في خميس الخشنة وضواحيها.",
+            details["candidate_residence"]["evidence"],
+        )
+        conditions = details["conditions"]
+        self.assertIn("25 و40", conditions["age"])
+        self.assertIn("60,000", conditions["salary"])
+        self.assertIn("بطاقة الخدمة الوطنية", conditions["military_status"])
+        self.assertIn("سيارة خاصة", conditions["vehicle"])
+        for field in ("age", "salary", "military_status", "vehicle"):
+            self.assertIn(f"{field}_evidence", conditions)
+            self.assertIn(conditions[f"{field}_evidence"], advertisement)
+
+    def test_telegram_review_displays_verified_residence_age_salary_and_personal_vehicle(self):
+        advertisement = """إعلان توظيف
+يشترط الإقامة في خميس الخشنة وضواحيها.
+العمر بين 25 و40 سنة.
+راتب شهري 60,000 دج.
+امتلاك سيارة خاصة مطلوب.
+"""
+        details = processor._extract_source_grounded_recruitment_details(advertisement)
+        bot = TelegramJobBot({}, processor, lambda _reason: None)
+        message = bot._review_text({
+            "record": {
+                "job_title": "Chauffeur",
+                "application_job_title": "Chauffeur",
+                "company": "شركة صناعية",
+                "location": "خميس الخشنة",
+                "score": None,
+                "emails": [],
+                "reason": "مراجعة يدوية.",
+                "decision": "REVIEW",
+                "recruitment_details": details,
+            },
+            "advertisement": advertisement,
+            "post": {"source": "test_channel", "message_id": 456},
+            "can_auto_send": False,
+        })
+
+        self.assertIn("إقامة المترشح (شرط مطلوب)", message)
+        self.assertIn("السن: العمر بين 25 و40 سنة", message)
+        self.assertIn("الأجر: راتب شهري 60,000 دج", message)
+        self.assertIn("وسيلة النقل الشخصية: امتلاك سيارة خاصة مطلوب", message)
+
+
 
 if __name__ == "__main__":
     unittest.main()
