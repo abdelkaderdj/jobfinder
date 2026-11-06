@@ -1528,7 +1528,7 @@ def _compact_role_source_details(title: str, advertisement: str) -> dict[str, An
     # Keep the original source line for provenance while parsing the clean title.
     count_match = re.search(
         r"\s*[:：]\s*(?P<count>[0-9٠-٩۰۱۲۳۴۵۶۷۸۹]{1,4})\s*"
-        r"(?P<label>منصب\w*|مناصب|وظيفة\w*|وظائف|postes?|positions?|vacancies?)"
+        r"(?P<label>منصب(?:ين|[\u064b-\u065f]*ا?[\u064b-\u065f]*)?|مناصب|وظيفة(?:[\u064b-\u065f]*)?|وظائف|postes?|positions?|vacancies?)"
         r"\s*[.!،؛]*$",
         source_title_line,
         flags=re.IGNORECASE,
