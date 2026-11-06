@@ -328,6 +328,80 @@ Chauffeur
                 )
 
 
+    def test_gusto_style_multi_role_post_keeps_each_roles_conditions_separate(self):
+        advertisement = """📢 Gusto Distribution
+📌 Postes à pourvoir:
+1. Superviseurs des Ventes - Hommes (02)
+Lieu de travail et résidence: Alger / Boumerdès.
+Expérience confirmée en encadrement des équipes commerciales.
+2. Pré-vendeurs Terrain - Hommes (03)
+Lieu de travail et résidence: Alger.
+Âge entre 20 et 30 ans. Expérience minimum de 2 ans sur le terrain.
+Permis moto obligatoire.
+3. Gestionnaire de Stock - Homme (01)
+Lieu de travail: Boudouaou.
+Lieu de résidence: Réghaïa, Boudouaou ou environs.
+Âge entre 25 et 30 ans. Expérience minimum d'une année en gestion des stocks.
+Conduite du chariot élévateur appréciée.
+4. Assistante de Direction - Femme (01)
+Lieu de travail: Boudouaou.
+Lieu de résidence: Réghaïa, Boudouaou ou environs.
+Femme entre 25 et 35 ans. Sens commercial et traitement des commandes par téléphone.
+5. Chargé(e) RH Junior - H/F (01)
+Lieu de travail: Boudouaou.
+Lieu de résidence: Réghaïa, Boudouaou ou environs.
+Expérience minimum de 2 ans en gestion du personnel et paie.
+6. Caissières - Femmes (02)
+Lieu de travail: Boudouaou.
+Lieu de résidence: Réghaïa, Boudouaou ou environs.
+Précision, honnêteté et maîtrise des opérations de caisse.
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        self.assertEqual(len(titles), 6)
+
+        jobs, recovered_count = processor._recover_missing_compact_list_roles(
+            titles, [], advertisement
+        )
+        self.assertEqual(recovered_count, 6)
+        self.assertTrue(all(job["decision"] == "REVIEW" for job in jobs))
+        self.assertTrue(all(job["score"] is None for job in jobs))
+
+        scopes = {}
+        for job in jobs:
+            scope, matched, reason = processor.resolve_job_position_scope(
+                job, advertisement, jobs
+            )
+            self.assertTrue(matched, f"{job['job_title']}: {reason}")
+            scopes[processor.normalize_text(job["job_title"])] = scope
+
+        pre_vendor = next(
+            scope for title, scope in scopes.items()
+            if "pre vendeurs terrain" in title
+        )
+        sales_supervisor = next(
+            scope for title, scope in scopes.items()
+            if "superviseurs des ventes" in title
+        )
+        stock_manager = next(
+            scope for title, scope in scopes.items()
+            if "gestionnaire de stock" in title
+        )
+
+        pre_details = processor._extract_source_grounded_recruitment_details(pre_vendor)
+        supervisor_details = processor._extract_source_grounded_recruitment_details(sales_supervisor)
+        stock_details = processor._extract_source_grounded_recruitment_details(stock_manager)
+
+        self.assertIn("20 et 30", pre_details["conditions"]["age"])
+        self.assertIn("permis moto", processor.normalize_text(pre_details["conditions"]["driving_license"]))
+        self.assertNotIn("conditions", supervisor_details) or self.assertNotIn(
+            "age", supervisor_details.get("conditions", {})
+        )
+        self.assertNotIn("20 et 30", supervisor_details.get("conditions", {}).get("age", ""))
+        self.assertIn("25 et 30", stock_details["conditions"]["age"])
+        self.assertIn("Lieu de résidence", stock_details["candidate_residence"]["evidence"])
+        self.assertNotIn("20 et 30", stock_details["conditions"]["age"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
