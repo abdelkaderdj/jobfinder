@@ -57,6 +57,114 @@ def safe_text(value: Any, limit: int = 300) -> str:
     return text[:limit] if text else "غير محدد"
 
 
+def _source_evidence_is_present(quote: Any, source_text: Any) -> bool:
+    """Only show extracted recruitment facts when their evidence is in the source ad."""
+    quote_text = re.sub(r"\s+", " ", str(quote or "").casefold()).strip()
+    source = re.sub(r"\s+", " ", str(source_text or "").casefold()).strip()
+    return len(quote_text) >= 4 and quote_text in source
+
+
+def _review_recruitment_details_text(details: Any, source_text: Any) -> str:
+    """Render concise recruitment metadata only when its evidence is source-grounded."""
+    if not isinstance(details, dict):
+        return ""
+
+    source = str(source_text or "")
+    lines = []
+
+    experience = details.get("experience")
+    if isinstance(experience, dict) and _source_evidence_is_present(
+        experience.get("evidence"), source
+    ):
+        status = str(experience.get("status") or "").strip().lower()
+        status_labels = {
+            "required": "مطلوبة",
+            "preferred": "مفضلة",
+            "advantage": "ميزة إضافية",
+            "not_required": "غير مطلوبة",
+        }
+        value = status_labels.get(status, "")
+        minimum = experience.get("minimum_years")
+        maximum = experience.get("maximum_years")
+        try:
+            if minimum is not None:
+                minimum_text = f"{float(minimum):g}"
+                value = (value + " — " if value else "") + f"{minimum_text} سنوات على الأقل"
+            elif maximum is not None:
+                maximum_text = f"{float(maximum):g}"
+                value = (value + " — " if value else "") + f"حتى {maximum_text} سنوات"
+        except (TypeError, ValueError, OverflowError):
+            pass
+        if value:
+            lines.append("الخبرة: " + value)
+
+    education = details.get("education")
+    if isinstance(education, dict) and _source_evidence_is_present(
+        education.get("evidence"), source
+    ):
+        level = str(education.get("level") or "").strip()
+        field = str(education.get("field") or "").strip()
+        value_parts = [
+            value for value in (level, field)
+            if value and _source_evidence_is_present(value, source)
+        ]
+        if value_parts:
+            lines.append("المؤهل: " + " — ".join(value_parts))
+
+    workplace = details.get("workplace")
+    if isinstance(workplace, dict) and _source_evidence_is_present(
+        workplace.get("evidence"), source
+    ):
+        worksite = str(workplace.get("worksite") or "").strip()
+        if worksite and _source_evidence_is_present(worksite, source):
+            lines.append("مكان العمل: " + worksite)
+
+    conditions = details.get("conditions")
+    if isinstance(conditions, dict):
+        condition_labels = (
+            ("contract_type", "العقد"),
+            ("work_schedule", "نظام العمل"),
+            ("shift_pattern", "نظام المناوبة"),
+            ("salary", "الأجر"),
+            ("gender", "شرط الجنس"),
+            ("driving_license", "رخصة السياقة"),
+            ("anem_registration", "التسجيل في ANEM"),
+            ("nationality", "الجنسية"),
+            ("availability", "موعد الالتحاق"),
+        )
+        for field, label in condition_labels:
+            value = str(conditions.get(field) or "").strip()
+            evidence = conditions.get(f"{field}_evidence")
+            if value and _source_evidence_is_present(evidence, source):
+                lines.append(f"{label}: {value}")
+
+        benefits = conditions.get("benefits")
+        benefits_evidence = conditions.get("benefits_evidence")
+        if isinstance(benefits, dict) and isinstance(benefits_evidence, dict):
+            benefit_labels = {
+                "accommodation": "الإقامة",
+                "transport": "النقل",
+                "meals": "الإطعام",
+                "social_insurance": "الضمان الاجتماعي",
+            }
+            for field, label in benefit_labels.items():
+                value = str(benefits.get(field) or "").strip().lower()
+                evidence = benefits_evidence.get(field)
+                if value not in {"provided", "not_provided"}:
+                    continue
+                if not _source_evidence_is_present(evidence, source):
+                    continue
+                lines.append(
+                    f"{label}: {'متوفرة' if value == 'provided' else 'غير متوفرة'}"
+                )
+
+    if not lines:
+        return ""
+    # Keep the review card readable and comfortably below Telegram's message cap.
+    lines = list(dict.fromkeys(lines))[:8]
+    return "📋 معلومات التوظيف المستخرجة:\n" + "\n".join(lines) + "\n"
+
+
 def event_key(record: dict[str, Any]) -> str:
     raw = "|".join(
         str(record.get(key) or "")
@@ -489,6 +597,10 @@ class TelegramJobBot:
         else:
             email_text = "لا يوجد بريد واضح"
         excerpt = section[:1700]
+        details_text = _review_recruitment_details_text(
+            record.get("recruitment_details"),
+            section,
+        )
         source = str(item.get("post", {}).get("source") or "")
         message_id = item.get("post", {}).get("message_id")
         source_link = ""
@@ -551,6 +663,7 @@ class TelegramJobBot:
             f"📍 الموقع: {location}\n"
             f"📊 درجة تقييم AI للعرض: {score_text}\n"
             f"📧 جهة التقديم: {email_text}\n"
+            f"{details_text}"
             f"🧠 السبب: {reason}\n\n"
             f"{action_note}{application_note}\n\n"
             f"📄 مقتطف الإعلان:\n{excerpt}{source_link}"
