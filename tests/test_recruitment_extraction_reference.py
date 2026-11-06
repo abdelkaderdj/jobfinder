@@ -161,6 +161,75 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
         self.assertNotIn("راتب غير موجود في الإعلان", message)
 
 
+    def test_uploaded_corpus_titles_recover_across_distinct_job_families(self):
+        advertisement = """🚨 إعلان توظيف | حملة متعددة المناصب
+📌 المناصب المطلوبة:
+1. Comptable
+2. Front Office Manager
+3. Médecin Biologiste
+4. Agent d’Administration
+5. Chef de Projet SI
+6. Chef de Rang
+7. Développeur des Ventes
+8. Soudeur
+9. Opérateur KHS
+10. Agent de Réclamation
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        normalized = [processor.normalize_text(title) for title in titles]
+
+        self.assertEqual(len(titles), 10)
+        for expected in (
+            "comptable",
+            "front office manager",
+            "medecin biologiste",
+            "agent d administration",
+            "chef de projet si",
+            "chef de rang",
+            "developpeur des ventes",
+            "soudeur",
+            "operateur khs",
+            "agent de reclamation",
+        ):
+            with self.subTest(title=expected):
+                self.assertTrue(
+                    any(expected in title for title in normalized),
+                    f"Missing source-derived title: {expected}",
+                )
+
+    def test_uploaded_corpus_linova_style_roles_are_recognized(self):
+        advertisement = """🚨 إعلان توظيف | LINOVA
+📌 المناصب المطلوبة:
+1. لحام (03 مناصب)
+2. عون مبيعات خارجي (02 منصبين)
+3. مسؤول منتج (01 منصب)
+4. عون مصلحة ما بعد البيع (01 منصب)
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        normalized = [processor.normalize_text(title) for title in titles]
+
+        self.assertEqual(len(titles), 4)
+        for expected in (
+            "لحام",
+            "عون مبيعات خارجي",
+            "مسؤول منتج",
+            "عون مصلحة ما بعد البيع",
+        ):
+            with self.subTest(title=expected):
+                self.assertTrue(any(expected in title for title in normalized))
+
+    def test_uploaded_corpus_includes_non_vacancy_context_separately(self):
+        lexicon = json.loads(processor.recruitment_extraction_reference_text())
+        signals = lexicon["recruitment_signals"]
+
+        self.assertIn("Nous recherchons", signals["strong"])
+        self.assertIn("عن فتح باب التوظيف", signals["strong"])
+        self.assertIn("technical question", signals["non_vacancy_context"])
+        self.assertIn("خدمة إعداد السيرة الذاتية", signals["non_vacancy_context"])
+        self.assertIn("social discussion", signals["non_vacancy_context"])
+        self.assertGreaterEqual(len(lexicon["title_families"]), 20)
+
+
 
 if __name__ == "__main__":
     unittest.main()
