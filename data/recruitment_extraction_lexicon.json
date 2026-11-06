@@ -1058,6 +1058,19 @@
       "site du projet",
       "حاسي مسعود – مشروع",
       "mission sur site"
+    ],
+    "mandatory_residence_labels": [
+      "يشترط الإقامة في",
+      "يشترط السكن في",
+      "الإقامة إلزامية",
+      "الإقامة شرط أساسي",
+      "شرط الإقامة",
+      "الإقامة إجبارية",
+      "Résidence obligatoire",
+      "Résider obligatoirement à",
+      "doit résider à",
+      "must reside in",
+      "must live in"
     ]
   },
   "experience_wording": {
