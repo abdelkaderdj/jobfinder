@@ -292,6 +292,42 @@ Chauffeur
         self.assertIn("وسيلة النقل الشخصية: امتلاك سيارة خاصة مطلوب", message)
 
 
+    def test_uploaded_corpus_plural_feminine_and_specialized_titles_are_recovered(self):
+        advertisement = """🚨 إعلان توظيف | وظائف إضافية من العينة
+📌 المناصب المطلوبة:
+1. Chargé(e) de Casting Influence
+2. Caissière
+3. Superviseurs des Ventes
+4. Pré-vendeurs Terrain
+5. Peintres en Bâtiment
+6. Responsable d'Atelier
+7. Chargé de Remplir des Cahiers de Charge
+8. Chargé des Assurances et Sinistres Automobiles
+9. Couturière
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        normalized = [processor.normalize_text(title) for title in titles]
+
+        self.assertEqual(len(titles), 9)
+        for expected in (
+            "Chargé(e) de Casting Influence",
+            "Caissière",
+            "Superviseurs des Ventes",
+            "Pré-vendeurs Terrain",
+            "Peintres en Bâtiment",
+            "Responsable d'Atelier",
+            "Chargé de Remplir des Cahiers de Charge",
+            "Chargé des Assurances et Sinistres Automobiles",
+            "Couturière",
+        ):
+            normalized_expected = processor.normalize_text(expected)
+            with self.subTest(title=expected):
+                self.assertTrue(
+                    any(normalized_expected in title for title in normalized),
+                    f"Missing normalized title: {normalized_expected}; extracted={normalized}",
+                )
+
+
 
 if __name__ == "__main__":
     unittest.main()
