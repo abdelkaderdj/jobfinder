@@ -197,7 +197,10 @@
         "عامل تعبئة وتغليف",
         "مساعد إنتاج",
         "عامل تغليف طلبيات",
-        "مشغل خط إنتاج"
+        "مشغل خط إنتاج",
+        "Responsable d'Atelier",
+        "Responsable Atelier",
+        "Chef d'Atelier"
       ]
     },
     {
@@ -278,7 +281,15 @@
         "مساعد مشتريات",
         "مكلف بالمشتريات",
         "مسؤول المشتريات",
-        "مهندس مشتريات"
+        "مهندس مشتريات",
+        "Chargé de Remplir des Cahiers de Charge",
+        "Chargé de Remplir Cahier de Charge",
+        "Chargé des Cahiers des Charges",
+        "Chargé des Appels d'Offres",
+        "Chargé de Soumissions",
+        "Tender Dossier Officer",
+        "مكلف بتعبئة دفاتر الشروط",
+        "مكلف بملفات المناقصات"
       ]
     },
     {
@@ -431,7 +442,22 @@
         "عون تجاري عقاري",
         "مستشار زبائن",
         "مستشار بيع",
-        "مسؤول خدمة ما بعد البيع"
+        "مسؤول خدمة ما بعد البيع",
+        "Caissier",
+        "Caissière",
+        "Caissiers",
+        "Caissières",
+        "Cashier",
+        "Cashiers",
+        "Agent de Rayon",
+        "Agents de Rayon",
+        "Rayonniste",
+        "Superviseurs des Ventes",
+        "Pré-vendeurs",
+        "Pré-vendeurs Terrain",
+        "Développeurs des Ventes",
+        "Délégué Commercial",
+        "Chargé(e) RH Junior"
       ]
     },
     {
@@ -691,7 +717,10 @@
         "مقدم أمام الكاميرا",
         "مقدمة أمام الكاميرا",
         "عارض منتجات",
-        "مسؤول منتج"
+        "مسؤول منتج",
+        "Chargé(e) de Casting Influence",
+        "Chargé de Casting Influence",
+        "Influence Casting Officer"
       ]
     },
     {
@@ -817,7 +846,8 @@
         "عامل مسبك",
         "عامل تصنيع",
         "مقاول أشغال",
-        "سائق آلات"
+        "سائق آلات",
+        "Peintres en Bâtiment"
       ]
     },
     {
@@ -925,6 +955,35 @@
         "عون متعدد الخدمات",
         "عون مصلحة ما بعد البيع",
         "عامل خدمات"
+      ]
+    },
+    {
+      "family": "textile_sewing",
+      "examples": [
+        "Couturier",
+        "Couturière",
+        "Couturiers",
+        "Couturières",
+        "Tailor",
+        "Seamstress",
+        "خياطة",
+        "خياطة صناعية",
+        "عامل خياطة",
+        "عاملات خياطة",
+        "خياط"
+      ]
+    },
+    {
+      "family": "insurance_claims",
+      "examples": [
+        "Chargé des Assurances et Sinistres Automobiles",
+        "Chargé(e) des Assurances et Sinistres Automobiles",
+        "Gestionnaire Sinistres Automobiles",
+        "Gestionnaire Assurance",
+        "Automotive Claims Officer",
+        "Insurance Claims Officer",
+        "مكلف بالتأمين وحوادث السيارات",
+        "مسؤول ملفات حوادث السيارات"
       ]
     }
   ],
