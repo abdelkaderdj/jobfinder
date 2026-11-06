@@ -101,11 +101,11 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"telecommunications?|telecoms?|telecom technician|"
     r"ingenieur reseaux|ingenieur infrastructure|support it)\b",
     # Arabic forms are normalized before matching (hamza/diacritics removed).
-    r"\\b(?:ال)?اعلام (?:ال)?الي\\b",
-    r"\\b(?:تقني|فني)\\w* (?:سام|سامي) (?:في )?(?:ال)?اعلام (?:ال)?الي\\b",
-    r"\\b(?:ال)?معلوماتية\\b", r"\\bمعلوماتي\\w*\\b",
-    r"\\bعلوم الحاسوب\\b", r"\\bعلوم الكمبيوتر\\b",
-    r"\\bتقنية الحاسوب\\b", r"\\bشبكات المعلومات\\b",
+    r"\b(?:ال)?اعلام (?:ال)?الي\b",
+    r"\b(?:تقني|فني)\w* (?:سام|سامي) (?:في )?(?:ال)?اعلام (?:ال)?الي\b",
+    r"\b(?:ال)?معلوماتية\b", r"\bمعلوماتي\w*\b",
+    r"\bعلوم الحاسوب\b", r"\bعلوم الكمبيوتر\b",
+    r"\bتقنية الحاسوب\b", r"\bشبكات المعلومات\b",
     r"\b(?:standardiste|agent de communication|communication officer|"
     r"communication and switchboard|standard operator)\b",
     r"\b(?:approvisionnement|approvisionnements|procurement|purchasing|"
