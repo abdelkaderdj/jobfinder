@@ -119,6 +119,21 @@ def _review_recruitment_details_text(details: Any, source_text: Any) -> str:
         if worksite and _source_evidence_is_present(worksite, source):
             lines.append("مكان العمل: " + worksite)
 
+    candidate_residence = details.get("candidate_residence")
+    if isinstance(candidate_residence, dict) and _source_evidence_is_present(
+        candidate_residence.get("evidence"), source
+    ):
+        residence_status = str(candidate_residence.get("status") or "").strip().lower()
+        residence_labels = {
+            "required": "شرط مطلوب",
+            "preferred": "أفضلية",
+            "stated": "مذكور في الإعلان",
+        }
+        residence_evidence = str(candidate_residence.get("evidence") or "").strip()
+        if residence_evidence:
+            label = residence_labels.get(residence_status, "مذكور في الإعلان")
+            lines.append(f"إقامة المترشح ({label}): " + residence_evidence)
+
     conditions = details.get("conditions")
     if isinstance(conditions, dict):
         condition_labels = (
@@ -126,8 +141,11 @@ def _review_recruitment_details_text(details: Any, source_text: Any) -> str:
             ("work_schedule", "نظام العمل"),
             ("shift_pattern", "نظام المناوبة"),
             ("salary", "الأجر"),
+            ("age", "السن"),
             ("gender", "شرط الجنس"),
             ("driving_license", "رخصة السياقة"),
+            ("military_status", "الوضعية تجاه الخدمة الوطنية"),
+            ("vehicle", "وسيلة النقل الشخصية"),
             ("anem_registration", "التسجيل في ANEM"),
             ("nationality", "الجنسية"),
             ("availability", "موعد الالتحاق"),
