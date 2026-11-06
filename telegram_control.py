@@ -591,6 +591,12 @@ class TelegramJobBot:
             if extraction_fallback
             else safe_text(record.get("application_job_title") or record.get("job_title"), 200)
         )
+        position_count = record.get("position_count")
+        position_count_text = (
+            f"\n🔢 عدد المناصب المعلن: {position_count}"
+            if isinstance(position_count, int) and not isinstance(position_count, bool) and position_count > 0
+            else ""
+        )
         company = (
             "لم تُستخرج بيانات الشركة"
             if extraction_fallback
@@ -676,7 +682,7 @@ class TelegramJobBot:
         )
         return (
             f"{heading}\n\n"
-            f"💼 الوظيفة: {title}\n"
+            f"💼 الوظيفة: {title}{position_count_text}\n"
             f"🏢 الشركة: {company}\n"
             f"📍 الموقع: {location}\n"
             f"📊 درجة تقييم AI للعرض: {score_text}\n"
