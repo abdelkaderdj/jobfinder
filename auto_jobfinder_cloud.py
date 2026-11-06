@@ -352,6 +352,27 @@ def recruitment_extraction_reference_text() -> str:
 
 
 
+def _lexicon_compact_role_prefixes() -> tuple[str, ...]:
+    """Use curated title-family examples as conservative source-line recognizers."""
+    try:
+        lexicon = json.loads(recruitment_extraction_reference_text())
+    except (TypeError, json.JSONDecodeError):
+        return ()
+
+    prefixes = []
+    for family in lexicon.get("title_families", []):
+        if not isinstance(family, dict):
+            continue
+        examples = family.get("examples", [])
+        if not isinstance(examples, list):
+            continue
+        for example in examples:
+            normalized = normalize_text(example)
+            if len(normalized) >= 4 and normalized not in prefixes:
+                prefixes.append(normalized)
+    return tuple(prefixes)
+
+
 def _normalized_job_title_variants(job):
     """Normalize every model/localized title consistently across decision gates."""
     if not isinstance(job, dict):
@@ -1294,9 +1315,11 @@ _COMPACT_ROLE_LIST_HEADING_MARKERS = (
     "الشواغر التالية", "مناصب التوظيف", "الوظائف المطلوبة",
     "وظائف شاغرة",
 )
-_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
-    normalize_text(prefix) for prefix in _COMPACT_ROLE_PREFIXES
-)
+_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(dict.fromkeys(
+    normalize_text(prefix)
+    for prefix in (*_COMPACT_ROLE_PREFIXES, *_lexicon_compact_role_prefixes())
+    if normalize_text(prefix)
+))
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
@@ -4180,6 +4203,250 @@ def infer_explicit_work_location(advertisement: str) -> str:
             if value and len(value) <= 160:
                 return value
     return ""
+
+
+def _first_source_line_for_phrases(source_text: str, phrases: list[str] | tuple[str, ...]):
+    """Return the first lexicon phrase and exact source line that contains it."""
+    for raw_line in str(source_text or "").splitlines():
+        normalized_line = normalize_text(raw_line)
+        if not normalized_line:
+            continue
+        for phrase in phrases or ():
+            normalized_phrase = normalize_text(phrase)
+            if len(normalized_phrase) < 2:
+                continue
+            if " " in normalized_phrase:
+                matched = normalized_phrase in normalized_line
+            else:
+                matched = bool(re.search(
+                    rf"(?<!\w){re.escape(normalized_phrase)}(?!\w)",
+                    normalized_line,
+                    flags=re.IGNORECASE,
+                ))
+            if matched:
+                return str(phrase).strip(), raw_line.strip()[:300]
+    return "", ""
+
+
+def _merge_recruitment_details(existing: Any, verified: dict) -> dict:
+    """Merge source-verified fields over AI metadata without touching decision fields."""
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    for key, value in (verified or {}).items():
+        if isinstance(value, dict):
+            merged[key] = _merge_recruitment_details(merged.get(key), value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _extract_source_grounded_recruitment_details(source_text: str) -> dict:
+    """
+    Deterministically enrich one already-isolated position block.
+
+    Only facts with matching source evidence are returned. The caller must pass
+    resolve_job_position_scope() output, not the complete multi-position post.
+    These details are descriptive only and never drive candidate decisions.
+    """
+    source = str(source_text or "").strip()
+    if not source:
+        return {}
+
+    try:
+        lexicon = json.loads(recruitment_extraction_reference_text())
+    except (TypeError, json.JSONDecodeError):
+        lexicon = {}
+    if not isinstance(lexicon, dict):
+        lexicon = {}
+
+    details = {}
+
+    experience_lexicon = lexicon.get("experience_wording", {})
+    if not isinstance(experience_lexicon, dict):
+        experience_lexicon = {}
+    experience = {}
+    minimum_years = _experience_requirement_years(source)
+    experience_evidence = ""
+    if minimum_years is not None:
+        _phrase, experience_evidence = _first_source_line_for_phrases(
+            source,
+            (
+                *experience_lexicon.get("mandatory", []),
+                *experience_lexicon.get("general_or_unspecified", []),
+                "experience",
+                "expérience",
+                "خبرة",
+                "الخبرة",
+            ),
+        )
+        if not experience_evidence:
+            experience_evidence = next(
+                (
+                    line.strip()[:300]
+                    for line in source.splitlines()
+                    if re.search(r"\d", line)
+                    and re.search(r"(?:year|yr|ans?|سنوات|سنة|months?|mois)", normalize_text(line))
+                ),
+                "",
+            )
+        if experience_evidence:
+            experience = {
+                "status": "required",
+                "minimum_years": minimum_years,
+                "evidence": experience_evidence,
+            }
+    elif _advertisement_has_unquantified_mandatory_experience(source):
+        _phrase, experience_evidence = _first_source_line_for_phrases(
+            source,
+            (
+                *experience_lexicon.get("mandatory", []),
+                *experience_lexicon.get("general_or_unspecified", []),
+                "experience",
+                "expérience",
+                "خبرة",
+                "الخبرة",
+            ),
+        )
+        if experience_evidence:
+            experience = {
+                "status": "required",
+                "evidence": experience_evidence,
+            }
+    else:
+        _phrase, experience_evidence = _first_source_line_for_phrases(
+            source, experience_lexicon.get("not_required", [])
+        )
+        if experience_evidence:
+            experience = {
+                "status": "not_required",
+                "evidence": experience_evidence,
+            }
+        else:
+            _phrase, experience_evidence = _first_source_line_for_phrases(
+                source, experience_lexicon.get("preferred", [])
+            )
+            if experience_evidence:
+                experience = {
+                    "status": "preferred",
+                    "evidence": experience_evidence,
+                }
+    if experience:
+        details["experience"] = experience
+
+    qualification_lexicon = lexicon.get("qualification_wording", {})
+    if not isinstance(qualification_lexicon, dict):
+        qualification_lexicon = {}
+    education_level, education_evidence = _first_source_line_for_phrases(
+        source, qualification_lexicon.get("levels", [])
+    )
+    if education_level and education_evidence:
+        _required_phrase, required_evidence = _first_source_line_for_phrases(
+            source, qualification_lexicon.get("mandatory", [])
+        )
+        _preferred_phrase, preferred_evidence = _first_source_line_for_phrases(
+            source, qualification_lexicon.get("preferred", [])
+        )
+        _not_required_phrase, not_required_evidence = _first_source_line_for_phrases(
+            source, qualification_lexicon.get("not_required", [])
+        )
+        status = (
+            "not_required" if not_required_evidence
+            else "required" if required_evidence
+            else "preferred" if preferred_evidence
+            else "unspecified"
+        )
+        education = {
+            "status": status,
+            "level": education_level,
+            "evidence": education_evidence,
+        }
+        if required_evidence:
+            education["status_evidence"] = required_evidence
+        elif preferred_evidence:
+            education["status_evidence"] = preferred_evidence
+        elif not_required_evidence:
+            education["status_evidence"] = not_required_evidence
+        details["education"] = education
+
+    location_lexicon = lexicon.get("location_wording", {})
+    if not isinstance(location_lexicon, dict):
+        location_lexicon = {}
+    worksite = infer_explicit_work_location(source)
+    if worksite:
+        _location_phrase, location_evidence = _first_source_line_for_phrases(
+            source, location_lexicon.get("work_location_labels", [])
+        )
+        if location_evidence:
+            details["workplace"] = {
+                "worksite": worksite,
+                "evidence": location_evidence,
+            }
+
+    work_conditions = lexicon.get("work_conditions", {})
+    if not isinstance(work_conditions, dict):
+        work_conditions = {}
+    candidate_conditions = lexicon.get("candidate_conditions", {})
+    if not isinstance(candidate_conditions, dict):
+        candidate_conditions = {}
+    conditions = {}
+
+    condition_sources = (
+        ("contract_type", work_conditions.get("contract", [])),
+        ("work_schedule", work_conditions.get("schedule", [])),
+        ("shift_pattern", work_conditions.get("shift_patterns", [])),
+        ("salary", work_conditions.get("salary", [])),
+        ("gender", candidate_conditions.get("gender", [])),
+        ("driving_license", candidate_conditions.get("driving_license", [])),
+        ("anem_registration", candidate_conditions.get("anem", [])),
+        ("nationality", candidate_conditions.get("nationality", [])),
+        ("availability", candidate_conditions.get("availability", [])),
+    )
+    for field, phrases in condition_sources:
+        phrase, evidence = _first_source_line_for_phrases(source, phrases)
+        if phrase and evidence:
+            conditions[field] = phrase
+            conditions[f"{field}_evidence"] = evidence
+
+    benefits_lexicon = work_conditions.get("benefits", {})
+    if not isinstance(benefits_lexicon, dict):
+        benefits_lexicon = {}
+    benefits = {}
+    benefits_evidence = {}
+    benefit_specs = (
+        ("accommodation", "accommodation", "accommodation_not_provided"),
+        ("transport", "transport", "transport_not_provided"),
+        ("meals", "meals", ""),
+        ("social_insurance", "insurance", ""),
+    )
+    for benefit, positive_key, negative_key in benefit_specs:
+        _positive_phrase, positive_evidence = _first_source_line_for_phrases(
+            source, benefits_lexicon.get(positive_key, [])
+        )
+        negative_evidence = ""
+        if negative_key:
+            _negative_phrase, negative_evidence = _first_source_line_for_phrases(
+                source, benefits_lexicon.get(negative_key, [])
+            )
+        if negative_evidence:
+            benefits[benefit] = "not_provided"
+            benefits_evidence[benefit] = negative_evidence
+        elif positive_evidence:
+            benefits[benefit] = "provided"
+            benefits_evidence[benefit] = positive_evidence
+    if benefits:
+        conditions["benefits"] = benefits
+        conditions["benefits_evidence"] = benefits_evidence
+
+    if conditions:
+        details["conditions"] = conditions
+
+    languages_lexicon = candidate_conditions.get("languages", [])
+    language_phrase, language_evidence = _first_source_line_for_phrases(
+        source, languages_lexicon
+    )
+    if language_phrase and language_evidence:
+        details["languages"] = [language_phrase]
+
+    return details
 
 
 def job_location_category(job):
@@ -7854,6 +8121,18 @@ def process_post(
                 section_verified=(scope_matched and position_scope_matched),
             )
 
+        # Descriptive recruitment facts are extracted only after each position
+        # has a verified source scope. This cannot change APPLY / REVIEW / REJECT.
+        if position_scope_matched:
+            verified_details = _extract_source_grounded_recruitment_details(
+                position_scope_text
+            )
+            if verified_details:
+                job["recruitment_details"] = _merge_recruitment_details(
+                    job.get("recruitment_details"),
+                    verified_details,
+                )
+                print("SOURCE RECRUITMENT DETAILS: source-verified fields attached")
 
         # ====================================================
         # POSITION-SCOPED EMAILS ONLY
