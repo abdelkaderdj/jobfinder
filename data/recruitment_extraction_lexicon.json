@@ -1068,7 +1068,15 @@
       "résidant à proximité",
       "Résider dans les environs",
       "habitant à",
-      "habitant dans les environs"
+      "habitant dans les environs",
+      "مكان الإقامة",
+      "مكان سكن المترشح",
+      "محل الإقامة",
+      "Lieu de résidence",
+      "Résidence du candidat",
+      "adresse de résidence",
+      "residing in",
+      "resident in"
     ],
     "preferred_residence_labels": [
       "الأفضلية للمترشحين القاطنين",
@@ -1394,7 +1402,15 @@
       "لذكور فقط",
       "Homme uniquement",
       "Femmes uniquement",
-      "homme ou femme"
+      "homme ou femme",
+      "Hommes",
+      "Femmes",
+      "Homme(s)",
+      "Femme(s)",
+      "Men",
+      "Women",
+      "male candidates",
+      "female candidates"
     ],
     "driving_license": [
       "رخصة سياقة",
@@ -1410,7 +1426,12 @@
       "رخصة سياقة صنف A",
       "Permis A",
       "Permis moto obligatoire",
-      "Moyen de transport personnel"
+      "Moyen de transport personnel",
+      "رخصة قيادة دراجة نارية",
+      "رخصة دراجة نارية",
+      "Permis A obligatoire",
+      "permis de conduire catégorie A",
+      "رخصة سياقة دراجة نارية"
     ],
     "languages": [
       "إتقان الفرنسية",
@@ -1494,7 +1515,11 @@
       "عقد لمدة",
       "CDD renouvelable",
       "contrat à durée déterminée",
-      "contrat à durée indéterminée"
+      "contrat à durée indéterminée",
+      "عقد عمل لمدة",
+      "Contrat de prestation de services",
+      "contrat de 6 mois",
+      "contrat de six mois"
     ],
     "schedule": [
       "Temps plein",
@@ -1523,7 +1548,17 @@
       "Night shift",
       "horaires décalés",
       "08h30 – 16h00",
-      "09h00 – 17h00"
+      "09h00 – 17h00",
+      "5 أيام في الأسبوع",
+      "خمسة أيام في الأسبوع",
+      "5 jours par semaine",
+      "Dimanche – Jeudi",
+      "du dimanche au jeudi",
+      "8h00 à 17h00",
+      "08h00–17h00",
+      "8:00–17:00",
+      "9h à 17h30",
+      "09h00–17h30"
     ],
     "shift_patterns": [
       "3×8",
@@ -1605,7 +1640,14 @@
         "وجبة الغداء مضمونة",
         "الفطور متوفر",
         "الغداء والعشاء",
-        "توفير وجبة الغداء والعشاء"
+        "توفير وجبة الغداء والعشاء",
+        "الفطور",
+        "وجبة الغداء",
+        "وجبة العشاء",
+        "توفير الفطور",
+        "déjeuner fourni",
+        "dîner fourni",
+        "petit déjeuner fourni"
       ],
       "insurance": [
         "الضمان الاجتماعي",
@@ -1616,7 +1658,15 @@
         "التأمين إجباري",
         "التأمين موجود",
         "assurance obligatoire",
-        "assurance fournie"
+        "assurance fournie",
+        "تغطية اجتماعية",
+        "تغطية صحية",
+        "تأمين اجتماعي",
+        "ضمان اجتماعي",
+        "Couverture sociale",
+        "couverture santé",
+        "assurance maladie",
+        "social coverage"
       ],
       "salary": [
         "راتب شهري",
@@ -1637,7 +1687,13 @@
         "حسب الخبرة والكفاءة",
         "Salaire net",
         "Salaire mensuel",
-        "Package de rémunération"
+        "Package de rémunération",
+        "Salaire",
+        "Salary",
+        "الراتب",
+        "الأجر",
+        "راتب",
+        "أجرة"
       ]
     }
   },
