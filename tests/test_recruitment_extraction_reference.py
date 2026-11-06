@@ -401,6 +401,61 @@ Précision, honnêteté et maîtrise des opérations de caisse.
         self.assertNotIn("20 et 30", stock_details["conditions"]["age"])
 
 
+    def test_compact_recovery_separates_vacancy_count_from_arabic_job_title(self):
+        advertisement = """📢 إعلان توظيف | وزارة المالية
+📌 المناصب المطلوبة:
+1. تقني سامٍ في الإعلام الآلي: 40 منصباً.
+2. تقني صيانة: 02 منصبين.
+"""
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        target = next(
+            title for title in titles
+            if "الإعلام الآلي" in title
+        )
+        details = processor._compact_role_source_details(target, advertisement)
+
+        self.assertEqual(details["job_title"], "تقني سامٍ في الإعلام الآلي")
+        self.assertEqual(details["position_count"], 40)
+        self.assertIn("40 منصباً", details["position_count_evidence"])
+        self.assertIn("40 منصباً", details["source_title_line"])
+
+        recovered, count = processor._recover_missing_compact_list_roles(
+            [target], [], advertisement
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual(recovered[0]["job_title"], "تقني سامٍ في الإعلام الآلي")
+        self.assertEqual(recovered[0]["position_count"], 40)
+
+        bot = TelegramJobBot({}, processor, lambda _reason: None)
+        message = bot._review_text({
+            "record": {
+                "job_title": recovered[0]["job_title"],
+                "application_job_title": recovered[0]["job_title"],
+                "position_count": recovered[0]["position_count"],
+                "company": "وزارة المالية",
+                "location": "",
+                "score": None,
+                "emails": [],
+                "reason": "مراجعة.",
+                "decision": "REVIEW",
+            },
+            "advertisement": advertisement,
+            "post": {},
+            "can_auto_send": False,
+        })
+        self.assertIn("💼 الوظيفة: تقني سامٍ في الإعلام الآلي", message)
+        self.assertIn("🔢 عدد المناصب المعلن: 40", message)
+        self.assertNotIn("الإعلام الآلي: 40 منصباً", message)
+
+    def test_public_competition_file_deposit_address_is_not_inferred_as_workplace(self):
+        advertisement = """📢 إعلان توظيف | وزارة المالية
+📍 مكان إيداع ملفات الترشح:
+وزارة المالية – المديرية العامة للميزانية
+عمارة أحمد فرانسيس، حي مالكي – بن عكنون – الجزائر العاصمة.
+"""
+        self.assertEqual(processor.infer_explicit_work_location(advertisement), "")
+
+
 
 if __name__ == "__main__":
     unittest.main()
