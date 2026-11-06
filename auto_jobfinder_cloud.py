@@ -1508,27 +1508,56 @@ def _compact_role_department_before_line(advertisement: str, role_line: str) -> 
     return ""
 
 
-def _compact_role_source_details(title: str, advertisement: str) -> dict[str, str]:
-    """Attach source-exact qualification, department, and company data to a recovered title."""
+def _compact_role_source_details(title: str, advertisement: str) -> dict[str, Any]:
+    """Attach source-exact qualification, department, company, and vacancy count."""
     source = str(advertisement or "")
     cleaned_source_title = _clean_compact_role_list_line(title)
-    clean_title, inline_requirement = _split_compact_role_title_and_requirement(cleaned_source_title)
     matched_line = ""
     for raw_line in source.splitlines():
         candidate = _clean_compact_role_list_line(raw_line)
         if normalize_text(candidate) == normalize_text(cleaned_source_title):
             matched_line = candidate
             break
-    if matched_line:
-        clean_title, inline_requirement = _split_compact_role_title_and_requirement(matched_line)
-    return {
+
+    source_title_line = matched_line or cleaned_source_title
+    title_for_parsing = source_title_line
+    position_count = None
+    position_count_evidence = ""
+
+    # A count after a colon belongs to the vacancy metadata, not the role title.
+    # Keep the original source line for provenance while parsing the clean title.
+    count_match = re.search(
+        r"\s*[:：]\s*(?P<count>[0-9٠-٩۰۱۲۳۴۵۶۷۸۹]{1,4})\s*"
+        r"(?P<label>منصب\w*|مناصب|وظيفة\w*|وظائف|postes?|positions?|vacancies?)"
+        r"\s*[.!،؛]*$",
+        source_title_line,
+        flags=re.IGNORECASE,
+    )
+    if count_match:
+        digit_map = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+        try:
+            position_count = int(count_match.group("count").translate(digit_map))
+        except (TypeError, ValueError):
+            position_count = None
+        if position_count is not None:
+            position_count_evidence = source_title_line[count_match.start():].strip()
+            title_for_parsing = source_title_line[:count_match.start()].strip(" .؛;:-–—")
+
+    clean_title, inline_requirement = _split_compact_role_title_and_requirement(
+        title_for_parsing
+    )
+    details = {
         "job_title": clean_title,
         "title_evidence": clean_title,
-        "source_title_line": matched_line or cleaned_source_title,
+        "source_title_line": source_title_line,
         "requirements": inline_requirement,
-        "department": _compact_role_department_before_line(source, matched_line or cleaned_source_title),
+        "department": _compact_role_department_before_line(source, source_title_line),
         "company": _infer_company_name_from_advertisement(source),
     }
+    if position_count is not None:
+        details["position_count"] = position_count
+        details["position_count_evidence"] = position_count_evidence
+    return details
 
 
 def _recover_missing_compact_list_roles(
@@ -1562,6 +1591,8 @@ def _recover_missing_compact_list_roles(
             "department": details.get("department") or "",
             "requirements": details.get("requirements") or "",
             "source_title_line": details.get("source_title_line") or str(title),
+            "position_count": details.get("position_count"),
+            "position_count_evidence": details.get("position_count_evidence") or "",
             "decision": "REVIEW",
             "score": None,
             "reason": (
@@ -8336,6 +8367,11 @@ def process_post(
                 job.get(
                     "job_title"
                 ),
+
+            "position_count":
+                job.get("position_count")
+                if isinstance(job.get("position_count"), int) and not isinstance(job.get("position_count"), bool)
+                else None,
 
             "application_job_title":
                 application_title,
