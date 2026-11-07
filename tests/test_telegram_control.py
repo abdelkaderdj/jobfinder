@@ -2201,6 +2201,64 @@ Ouvrier Montage Panneaux PV
         ))
 
 
+    def test_inline_arabic_single_position_heading_is_recovered_and_grounded(self):
+        ad = (
+            "📢 إعلان توظيف | منصب موظفة استقبال\n"
+            "يعلن معرض تجاري (Showroom) يقع بمنطقة دالي إبراهيم، الشراقة – الجزائر العاصمة، "
+            "عن توظيف موظفتين (02) في منصب الاستقبال.\n"
+            "📍 مكان العمل:دالي إبراهيم، الشراقة – الجزائر العاصمة.\n"
+            "📧 البريد الإلكتروني: mg20005000@gmail.com"
+        )
+
+        recovered = processor.recover_explicit_single_position(ad)
+
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered["job_title"], "موظفة استقبال")
+        self.assertEqual(
+            recovered["location"],
+            "دالي إبراهيم، الشراقة – الجزائر العاصمة",
+        )
+        self.assertIsNone(recovered["score"])
+        self.assertEqual(recovered["decision"], "REVIEW")
+
+        # The model may quote the explicit label together with the exact title.
+        labelled_evidence = {
+            "job_title": "موظفة استقبال",
+            "application_title_fr": "موظفة استقبال",
+            "title_evidence": "منصب موظفة استقبال",
+        }
+        self.assertTrue(
+            processor._job_title_evidence_is_grounded(labelled_evidence, ad)
+        )
+
+    def test_extraction_fallback_card_displays_recovered_fields_without_unlocking_send(self):
+        bot, _sent = self.build_bot()
+        event = sample_event("REVIEW")
+        event["record"].update({
+            "job_title": "موظفة استقبال",
+            "application_job_title": "موظفة استقبال",
+            "company": "",
+            "location": "دالي إبراهيم، الشراقة – الجزائر العاصمة",
+            "score": None,
+            "analysis_fallback": True,
+            "emails": ["mg20005000@gmail.com"],
+        })
+        event["job"] = {
+            "job_title": "موظفة استقبال",
+            "company": "",
+            "location": "دالي إبراهيم، الشراقة – الجزائر العاصمة",
+        }
+        event["can_auto_send"] = False
+
+        rendered = bot._review_text(event)
+
+        self.assertIn("💼 الوظيفة: موظفة استقبال", rendered)
+        self.assertIn("📍 الموقع: دالي إبراهيم، الشراقة – الجزائر العاصمة", rendered)
+        self.assertIn("🏢 الشركة: اسم الشركة غير مذكور في الإعلان", rendered)
+        self.assertIn("📊 درجة تقييم AI للعرض: لم تُحتسب بسبب تعذّر الاستخراج", rendered)
+        self.assertIn("هذه بطاقة استرداد للمراجعة فقط", rendered)
+        self.assertNotIn("القبول سيرسل طلبًا بالبريد", rendered)
+
     def test_job_title_evidence_rejects_section_heading_and_preserves_real_role(self):
         source_text = (
             "Maintenance & Technique\n"
@@ -2629,7 +2687,7 @@ Ouvrier Montage Panneaux PV
 
         self.assertIn("🟠 تعذّر تحليل إعلان توظيف", rendered)
         self.assertIn("لم يُستخرج المسمى الوظيفي", rendered)
-        self.assertIn("لم تُستخرج بيانات الشركة", rendered)
+        self.assertIn("اسم الشركة غير مذكور في الإعلان", rendered)
         self.assertIn("لم يُستخرج الموقع", rendered)
         self.assertIn("هذه بطاقة استرداد للمراجعة فقط", rendered)
         self.assertNotIn("القبول سيرسل طلبًا بالبريد", rendered)

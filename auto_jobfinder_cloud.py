@@ -7288,10 +7288,17 @@ def _job_title_evidence_is_grounded(job, source_text):
         )
         if str(job.get(field) or "").strip()
     ]
+    # A grounded title may be quoted together with its explicit label, e.g.
+    # title="موظفة استقبال", title_evidence="منصب موظفة استقبال".
+    # Requiring byte-for-byte equality here discarded otherwise valid titles
+    # even though the source quote itself and its vacancy-line context matched.
     title_matches_evidence = any(
         variant
         and len(variant.replace(" ", "")) >= 4
-        and variant == normalized_quote
+        and (
+            variant == normalized_quote
+            or re.search(rf"(?<!\w){re.escape(variant)}(?!\w)", normalized_quote)
+        )
         for variant in title_variants
     )
     if not title_matches_evidence:
@@ -7364,12 +7371,15 @@ def _validated_job_records(result, source_text):
 
 
 _SINGLE_POSITION_TITLE_LABEL_RE = re.compile(
-    r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?(?:"
+    r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]\s*)?"
+    # Some Arabic posts put the role label after a short announcement headline:
+    # "📢 إعلان توظيف | منصب موظفة استقبال".
+    r"(?:[^|｜\n]{1,120}[|｜]\s*)?(?:"
     r"job title|title of the position|position title|intitul[eé] du poste|"
     r"intitule de poste|poste a pourvoir|poste propos[eé]|"
     r"المسمى الوظيفي|مسمى الوظيفة|مسمى المنصب|اسم الوظيفة|اسم المنصب|"
-    r"المنصب المطلوب|الوظيفة المطلوبة|المنصب|الوظيفة"
-    r")\s*[:：]\s*(?P<title>.+?)\s*$",
+    r"المنصب المطلوب|الوظيفة المطلوبة|المنصب|الوظيفة|منصب"
+    r")\s*[:：]?\s*(?P<title>.+?)\s*$",
     flags=re.IGNORECASE,
 )
 
