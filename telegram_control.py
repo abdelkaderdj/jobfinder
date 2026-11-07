@@ -486,6 +486,8 @@ class TelegramJobBot:
             email_text = ", ".join(str(email) for email in emails)
         elif advertised_emails:
             email_text = "عناوين ظاهرة في الإعلان لكن تعذّر ربطها بأمان بهذا المنصب: " + ", ".join(advertised_emails)
+        elif application_urls:
+            email_text = "لا يوجد بريد مباشر؛ رابط التقديم موجود أدناه"
         else:
             email_text = "لا يوجد بريد واضح"
         excerpt = section[:1700]
