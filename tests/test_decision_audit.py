@@ -324,13 +324,16 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(summary["cv_match_score_bands"]["50-69"], 1)
         self.assertEqual(summary["decision_changes_by_gate"], {"candidate_fit": 1})
         self.assertEqual(summary["delivery_outcomes"], {"sent": 1})
-        self.assertEqual(summary["ai_invocation_attempts"], 2)
+        # Both workflow runs made their own provider calls. These must remain
+        # visible in aggregate AI usage even though the decision table keeps
+        # only the latest decision for this post/position.
+        self.assertEqual(summary["ai_invocation_attempts"], 4)
         self.assertEqual(summary["ai_model_usage"], {
-            "gemini/gemini-3.8-flash": 1,
-            "groq/openai/gpt-oss-20b": 1,
+            "gemini/gemini-3.8-flash": 2,
+            "groq/openai/gpt-oss-20b": 2,
         })
-        self.assertEqual(summary["ai_successful_invocations"], 1)
-        self.assertEqual(summary["ai_invalid_json_attempts"], 1)
+        self.assertEqual(summary["ai_successful_invocations"], 2)
+        self.assertEqual(summary["ai_invalid_json_attempts"], 2)
         self.assertIn("استدعاءات AI الفعلية", report)
         self.assertIn("gemini-3.8-flash", report)
         self.assertIn("openai/gpt-oss-20b", report)
@@ -342,6 +345,74 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertIn("https://t.me/rcrdz1/123", report)
         self.assertIn("قرار البوت النهائي", report)
         self.assertIn("Relevant technical role; verify experience.", report)
+
+    def test_ai_usage_counts_retries_once_and_deduplicates_roles_within_a_run(self):
+        now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+        event = {
+            "post": {"source": "rcrdz1", "message_id": 321},
+            "record": {
+                "source": "rcrdz1",
+                "message_id": 321,
+                "job_title": "Technicien de maintenance",
+                "application_job_title": "Technicien de maintenance",
+                "company": "Industry Co",
+                "original_ai_decision": "APPLY",
+                "decision": "REVIEW",
+                "ai_call_trace": [
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "gemini",
+                        "model": "gemini-3.8-flash",
+                        "attempt": 1,
+                        "json_valid": False,
+                        "elapsed_ms": 100,
+                        "outcome": "invalid_json",
+                    },
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "groq",
+                        "model": "openai/gpt-oss-20b",
+                        "attempt": 1,
+                        "json_valid": True,
+                        "elapsed_ms": 200,
+                        "outcome": "success",
+                    },
+                ],
+            },
+        }
+        first_run_role_one = make_decision_audit_record(
+            event, run_id="run1", observed_at=now - timedelta(minutes=30)
+        )
+        other_role_event = {
+            "post": event["post"],
+            "record": {
+                **event["record"],
+                "job_title": "Dessinateur mécanique",
+                "application_job_title": "Dessinateur mécanique",
+            },
+        }
+        first_run_role_two = make_decision_audit_record(
+            other_role_event, run_id="run1", observed_at=now - timedelta(minutes=20)
+        )
+        retry = make_decision_audit_record(
+            event, run_id="run2", observed_at=now - timedelta(minutes=10)
+        )
+
+        _, summary = make_report(
+            [first_run_role_one, first_run_role_two, retry], 2, now=now
+        )
+
+        self.assertEqual(summary["decision_attempts"], 3)
+        self.assertEqual(summary["unique_post_positions"], 2)
+        # Two provider attempts in run1 (shared by two extracted roles), plus
+        # two fresh provider attempts in the later retry run.
+        self.assertEqual(summary["ai_invocation_attempts"], 4)
+        self.assertEqual(summary["ai_model_usage"], {
+            "gemini/gemini-3.8-flash": 2,
+            "groq/openai/gpt-oss-20b": 2,
+        })
 
     def test_report_excludes_records_outside_the_selected_window(self):
         now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
