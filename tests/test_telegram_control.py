@@ -287,20 +287,6 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(post["source"], "rcrdz1")
         self.assertEqual(post["message_id"], "23226")
 
-    def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
-        cases = [
-            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW", "REJECT"),
-            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW", "REJECT"),
-            ({"job_title": "Commercial(e)", "score": 91}, "APPLY", "REJECT"),
-            # A broad generalist role is not auto-applied or hard-rejected by title alone.
-            ({"job_title": "Agents Polyvalents", "score": 10}, "REJECT", "REVIEW"),
-        ]
-        for job, decision, expected in cases:
-            with self.subTest(job=job["job_title"]):
-                final, reason = processor.enforce_candidate_fit_rule(job, decision)
-                self.assertEqual(final, expected)
-                self.assertTrue(reason)
-
     def test_normalized_arabic_and_french_unrelated_titles_are_rejected(self):
         excluded_titles = (
             "أستاذ",
@@ -340,6 +326,20 @@ class TelegramControlTests(unittest.TestCase):
                 )
                 self.assertNotEqual(final, "REJECT", reason)
 
+    def test_candidate_fit_gate_rejects_low_score_and_unrelated_roles(self):
+        cases = [
+            ({"job_title": "Agent de sécurité", "score": 0}, "REVIEW", "REJECT"),
+            ({"job_title": "Spécialiste en toxicologie", "score": 60}, "REVIEW", "REJECT"),
+            ({"job_title": "Commercial(e)", "score": 91}, "APPLY", "REJECT"),
+            # A broad generalist role is not auto-applied or hard-rejected by title alone.
+            ({"job_title": "Agents Polyvalents", "score": 10}, "REJECT", "REVIEW"),
+        ]
+        for job, decision, expected in cases:
+            with self.subTest(job=job["job_title"]):
+                final, reason = processor.enforce_candidate_fit_rule(job, decision)
+                self.assertEqual(final, expected)
+                self.assertTrue(reason)
+
     def test_borderline_cnc_rejection_without_explicit_requirement_becomes_review(self):
         job = {
             "job_title": "Opérateur de Machine CNC",
@@ -361,6 +361,38 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "REVIEW")
         self.assertIn("مراجعة بشرية", reason)
         self.assertIn("مراجعة بشرية", reason)
+
+    def test_experience_range_parser_preserves_lower_endpoint_in_english_french_and_arabic(self):
+        cases = (
+            ("Experience required: between 2 and 5 years.", 2),
+            ("Expérience professionnelle obligatoire : entre 2 et 5 ans.", 2),
+            ("Expérience exigée : de 2 à 5 ans.", 2),
+            ("الخبرة المطلوبة: من 2 إلى 5 سنوات.", 2),
+            ("الخبرة المطلوبة: ما بين 2 و5 سنوات.", 2),
+            ("خبرة مهنية لا تقل عن ٤ سنوات.", 4),
+        )
+        for advertisement, expected in cases:
+            with self.subTest(advertisement=advertisement):
+                self.assertEqual(
+                    processor._experience_requirement_years(advertisement),
+                    expected,
+                )
+
+    def test_experience_upper_bounds_are_not_misread_as_minimum_requirements(self):
+        advertisements = (
+            "Experience up to 5 years.",
+            "Expérience professionnelle jusqu'à 5 ans.",
+            "الخبرة حتى 5 سنوات.",
+            "5 years maximum experience.",
+        )
+        for advertisement in advertisements:
+            with self.subTest(advertisement=advertisement):
+                self.assertIsNone(
+                    processor._experience_requirement_years(advertisement)
+                )
+                self.assertTrue(
+                    processor._advertisement_has_experience_upper_bound(advertisement)
+                )
 
     def test_two_year_experience_requirement_does_not_block_experience_only_application(self):
         job = {

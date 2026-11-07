@@ -598,7 +598,7 @@ def _advertisement_has_experience_upper_bound(advertisement: str) -> bool:
     cap = re.compile(
         r"(?:\bup to\b|\bat most\b|\bno more than\b|\bnot more than\b|"
         r"\bmaximum(?: of)?\b|\bmax\.?\b|\bau maximum\b|\bau plus\b|"
-        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|"
+        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|\bjusqu'a\b|حتى|"
         r"كحد اقصى|كحد أقصى|بحد اقصى|بحد أقصى|على الاكثر|على الأكثر|"
         r"لا يزيد عن|لا تتجاوز|اقصى حد|أقصى حد)",
         flags=re.IGNORECASE,
@@ -653,7 +653,7 @@ def _experience_requirement_years(advertisement: str):
     max_only_markers = re.compile(
         r"(?:\bup to\b|\bat most\b|\bno more than\b|\bnot more than\b|"
         r"\bmaximum(?: of)?\b|\bmax\.?\b|\bau maximum\b|\bau plus\b|"
-        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|"
+        r"\bmaximal(?:e)?(?: de)?\b|\bor less\b|\bor fewer\b|\bjusqu'a\b|حتى|"
         r"كحد اقصى|كحد أقصى|بحد اقصى|بحد أقصى|على الاكثر|على الأكثر|لا يزيد عن|لا تتجاوز|اقصى حد|أقصى حد)",
         flags=re.IGNORECASE,
     )
@@ -674,7 +674,7 @@ def _experience_requirement_years(advertisement: str):
         return value
 
     range_pattern = re.compile(
-        rf"(?P<low>{number})\s*(?:to|a|à|-)\s*(?P<high>{number})\s*(?P<unit>{unit})",
+        rf"(?:(?:between|from|entre|de|من|ما\s+بين)\s*)?(?P<low>{number})\s*(?:to|and|a|à|et|إلى|الى|و|-)\s*(?P<high>{number})\s*(?P<unit>{unit})",
         flags=re.IGNORECASE,
     )
     for match in range_pattern.finditer(raw):
