@@ -109,7 +109,7 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     # Training and administrative-writing roles are outside the candidate's target paths.
     r"\bformateur\b", r"\bformatrice\b", r"\btrainer\b", r"\btraining instructor\b",
     r"\binstructor\b", r"\bteacher\b", r"\bprofessor\b", r"\bprofesseur(?:e)?\b",
-    r"\benseignant(?:e)?\b", r"أستاذ", r"أساتذة",
+    r"\benseignant(?:e)?\b", r"أستاذ", r"أساتذة", r"استاذ", r"اساتذة",
     r"\bredaction administrative\b", r"\badministrative writing\b",
     r"\breceptionniste\b", r"\breceptionist\b",
     r"\bassistant(e)? de direction\b", r"\bassistant e de direction\b",
@@ -127,10 +127,12 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bhuman resources\b", r"\bhr officer\b", r"\bassistant administratif\b",
     r"\bserveur\b", r"\bcuisinier\b", r"\bchef de cuisine\b",
     r"\b(electrician|electricien\w*|electricite|electrical|electrique)\b",
+    r"\bكهربايي(?:ة)?\b",
     r"\b(electromechanical|electromec\w*)\b",
     r"\b(instrumentation|instrumentiste|automation|automatisation|automatisme)\b",
     r"\bgestionnaire des stocks\b", r"\bstock manager\b",
     r"\binventory\b", r"\bwarehouse\b", r"\bstorekeeper\b",
+    r"\bmagasinier\w*\b", r"\bامين (?:ال)?مخزن\b", r"\b(?:ال)?مخازن\b",
     r"\blogistics\b", r"\blogistique\b", r"\bsupply chain\b",
     r"\baircraft\b", r"\baviation\b", r"\bairframe\b",
     r"\bcivil engineer\b", r"\bgenie civil\b",
@@ -138,10 +140,10 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bتجاري\b", r"\bمبيعات\b", r"\bتسويق\b", r"\bاستقبال\b",
     r"\bحارس\b", r"\bامن\b", r"\bأمن\b", r"\bسموم\b",
     r"\bمختبر\b", r"\bمخبر\b", r"\bبيولوج\b", r"\bميكروبيولوج\b",
-    r"\bكيميائي\b", r"\bمحاسب\b", r"\bموارد بشرية\b",
+    r"\bكيميائي\b", r"\bمحاسب\b", r"\bكيميايي\b", r"\bموارد بشرية\b",
     r"\bسكرتير\b", r"\bسكرتيرة\b", r"\bكهربائي\b", r"\bكهرباء\b",
     r"\bكهروميكانيك\b", r"\bكهروميكانيكي\b", r"\bمخازن\b",
-    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
+    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b", r"\bصيانة طايرات\b",
 )
 
 # Direct maintenance-technician titles can bypass an experience-only concern
