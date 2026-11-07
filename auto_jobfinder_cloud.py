@@ -1339,6 +1339,9 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
             continue
 
         line = cleaned_line.strip()
+        # A colon-terminated bullet is a department/category heading, not a role.
+        if re.search(r"[:：]\\s*$", line):
+            continue
         if (
             not line
             or len(line) > 360
@@ -1544,16 +1547,60 @@ def _recover_missing_compact_list_roles(
     advertisement: str = "",
 ) -> tuple[list[dict], int]:
     """
-    Recover omitted roles with their source-line requirements and department.
-    These records still receive no AI score and can never auto-send merely
-    because recovery succeeded; they continue through deterministic fit,
-    location, contact, and review gates like every other position.
+    Recover omitted roles with source-line evidence.
+
+    AI matches are accepted only when they are exact or unambiguous across the
+    complete source list. A previously recovered list item is never allowed to
+    suppress a different item merely because the wording overlaps.
     """
-    recovered = list(jobs)
+    original_jobs = list(jobs)
+    recovered = list(original_jobs)
+    matched_original_indices = set()
     count = 0
+
+    def _base_title(value: str) -> str:
+        base, _details = _split_compact_role_title_and_requirement(str(value or ""))
+        return normalize_text(base)
+
+    def _job_has_exact_title(title: str, job: dict) -> bool:
+        base = _base_title(title)
+        if not base or not isinstance(job, dict):
+            return False
+        return any(
+            base == _base_title(job.get(field) or "")
+            for field in ("job_title", "application_title_fr", "application_title_en")
+        )
+
     for title in titles:
-        if any(_compact_list_title_matches(title, job) for job in recovered):
+        # Prefer exact source-title matching. This keeps e.g. "Mechanical
+        # Technician" distinct from "Maintenance Mechanical Technician".
+        exact_matches = [
+            index
+            for index, job in enumerate(original_jobs)
+            if index not in matched_original_indices and _job_has_exact_title(title, job)
+        ]
+        if exact_matches:
+            matched_original_indices.add(exact_matches[0])
             continue
+
+        # Preserve the existing multilingual/fuzzy matching only when the
+        # matched AI record cannot also represent another distinct list item.
+        fuzzy_matches = [
+            index
+            for index, job in enumerate(original_jobs)
+            if index not in matched_original_indices and _compact_list_title_matches(title, job)
+        ]
+        if len(fuzzy_matches) == 1:
+            index = fuzzy_matches[0]
+            competing_titles = [
+                other
+                for other in titles
+                if _base_title(other) != _base_title(title)
+                and _compact_list_title_matches(other, original_jobs[index])
+            ]
+            if not competing_titles:
+                matched_original_indices.add(index)
+                continue
 
         details = _compact_role_source_details(title, advertisement)
         clean_title = details.get("job_title") or str(title).strip()
@@ -1581,7 +1628,6 @@ def _recover_missing_compact_list_roles(
         })
         count += 1
     return recovered, count
-
 
 def _scope_title_tokens(value: str) -> set[str]:
     tokens = normalize_text(value).split()
