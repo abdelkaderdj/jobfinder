@@ -301,6 +301,45 @@ class TelegramControlTests(unittest.TestCase):
                 self.assertEqual(final, expected)
                 self.assertTrue(reason)
 
+    def test_normalized_arabic_and_french_unrelated_titles_are_rejected(self):
+        excluded_titles = (
+            "أستاذ",
+            "أساتذة",
+            "كيميائي",
+            "كهربائي",
+            "تقني صيانة كهربائية",
+            "صيانة طائرات",
+            "Magasinier",
+            "أمين مخزن",
+            "المخازن",
+        )
+        for title in excluded_titles:
+            with self.subTest(title=title):
+                final, reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 95},
+                    "APPLY",
+                    title,
+                    cv_match_score=95,
+                )
+                self.assertEqual(final, "REJECT", reason)
+                self.assertIn("خارج المسارات المتفق عليها", reason)
+
+    def test_mechanical_maintenance_titles_remain_eligible_after_arabic_exclusion_fix(self):
+        eligible_titles = (
+            "تقني صيانة ميكانيكية",
+            "فني صيانة ميكانيكية",
+            "Technicien de maintenance mécanique",
+        )
+        for title in eligible_titles:
+            with self.subTest(title=title):
+                final, reason = processor.enforce_candidate_fit_rule(
+                    {"job_title": title, "score": 75},
+                    "REVIEW",
+                    title,
+                    cv_match_score=65,
+                )
+                self.assertNotEqual(final, "REJECT", reason)
+
     def test_borderline_cnc_rejection_without_explicit_requirement_becomes_review(self):
         job = {
             "job_title": "Opérateur de Machine CNC",
