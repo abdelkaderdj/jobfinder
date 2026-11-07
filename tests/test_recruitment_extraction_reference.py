@@ -55,5 +55,86 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
         self.assertGreaterEqual(len(parsed["title_families"]), 10)
 
 
+    def test_veolia_explicit_vacancy_list_extracts_all_four_titles_without_lexicon_prefixes(self):
+        advertisement = (
+            "🚨 Recrutement DZ | فرص عمل بشركة VEOLIA في الجزائر\n"
+            "تعلن شركة VEOLIA، الرائدة في مجال الخدمات البيئية وإدارة الموارد، "
+            "عن توفر فرص توظيف في عدة تخصصات ومناصب مهنية...\n"
+            "📌 المناصب المطلوبة:\n"
+            "🔹 Mechanical Technician (تقني ميكانيك).\n"
+            "🔹 Operator Junior (عامل تشغيل مبتدئ).\n"
+            "🔹 Maintenance Mechanical Technician (تقني صيانة ميكانيكية).\n"
+            "🔹 Specialist – Sourcing & Procurement (أخصائي التوريد والمشتريات).\n"
+            "📍 أماكن العمل:\n"
+            "الجزائر العاصمة (Alger).\n"
+            "وهران (Oran).\n"
+            "📩 طريقة التقديم: عبر بوابة التوظيف الرسمية:\n"
+            "https://jobs.veolia.com/\n"
+            "خدمات إضافية للسيرة الذاتية وLinkedIn.\n"
+        )
+
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+
+        self.assertEqual(
+            [title.split(" (", 1)[0] for title in titles],
+            [
+                "Mechanical Technician",
+                "Operator Junior",
+                "Maintenance Mechanical Technician",
+                "Specialist – Sourcing & Procurement",
+            ],
+        )
+
+    def test_veolia_list_recovery_keeps_each_role_separate_and_review_only(self):
+        advertisement = (
+            "تعلن شركة VEOLIA عن فرص توظيف.\n"
+            "📌 المناصب المطلوبة:\n"
+            "🔹 Mechanical Technician (تقني ميكانيك).\n"
+            "🔹 Operator Junior (عامل تشغيل مبتدئ).\n"
+            "🔹 Maintenance Mechanical Technician (تقني صيانة ميكانيكية).\n"
+            "🔹 Specialist – Sourcing & Procurement (أخصائي التوريد والمشتريات).\n"
+            "📍 أماكن العمل:\n"
+            "الجزائر العاصمة (Alger).\n"
+            "وهران (Oran).\n"
+            "📩 طريقة التقديم: https://jobs.veolia.com/\n"
+        )
+
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        jobs, recovered = processor._recover_missing_compact_list_roles(
+            titles, [], advertisement
+        )
+
+        self.assertEqual(recovered, 4)
+        self.assertEqual(len(jobs), 4)
+        self.assertEqual({job["company"] for job in jobs}, {"VEOLIA"})
+        self.assertTrue(all(job["decision"] == "REVIEW" for job in jobs))
+        self.assertTrue(all(job["score"] is None for job in jobs))
+        # The two cities are advertised collectively; never assign them to every role.
+        self.assertTrue(all(job["location"] == "" for job in jobs))
+
+    def test_company_name_and_plural_multiline_work_locations_are_source_grounded(self):
+        advertisement = (
+            "تعلن شركة VEOLIA، الرائدة في الخدمات البيئية، عن توظيف.\n"
+            "📍 أماكن العمل:\n"
+            "الجزائر العاصمة (Alger).\n"
+            "وهران (Oran).\n"
+            "📩 طريقة التقديم: https://jobs.veolia.com/\n"
+        )
+
+        self.assertEqual(processor._infer_company_name_from_advertisement(advertisement), "VEOLIA")
+        self.assertEqual(
+            processor.infer_explicit_work_location(advertisement),
+            "الجزائر العاصمة (Alger)، وهران (Oran)",
+        )
+
+    def test_unknown_role_title_requires_an_explicit_vacancy_list_item(self):
+        self.assertEqual(
+            processor.extract_compact_listed_role_titles(
+                "🔹 Mechanical Technician\n🔹 Operator Junior"
+            ),
+            [],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
