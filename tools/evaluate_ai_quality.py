@@ -166,6 +166,108 @@ def _match_expected_titles(
     return matched, missing, unexpected
 
 
+def _expected_metadata_checks(
+    expected_titles: list[dict[str, Any]],
+    predicted_jobs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Check source-specific location/company/contact labels for each expected role."""
+    checks: list[dict[str, Any]] = []
+    for expected in expected_titles:
+        aliases = [str(value) for value in expected.get("aliases", [])]
+        if not any(expected.get(key) for key in (
+            "expected_location_aliases",
+            "expected_company_aliases",
+            "company_must_be_empty",
+            "expected_emails",
+        )):
+            continue
+
+        job = next(
+            (item for item in predicted_jobs if job_matches_aliases(item, aliases)),
+            None,
+        )
+        if job is None:
+            # The missing title is already counted as a title error; do not
+            # manufacture a second metadata failure for the same absent record.
+            continue
+
+        location_aliases = [
+            str(value) for value in expected.get("expected_location_aliases", [])
+        ]
+        if location_aliases:
+            actual_location = str(job.get("location") or "")
+            normalized_location = normalize_for_match(actual_location)
+            passed = any(
+                normalize_for_match(alias) in normalized_location
+                for alias in location_aliases
+                if normalize_for_match(alias)
+            )
+            checks.append({
+                "title_aliases": aliases,
+                "field": "location",
+                "expected": location_aliases,
+                "actual": actual_location,
+                "passed": passed,
+            })
+
+        company_aliases = [
+            str(value) for value in expected.get("expected_company_aliases", [])
+        ]
+        if company_aliases:
+            actual_company = str(job.get("company") or "")
+            normalized_company = normalize_for_match(actual_company)
+            passed = any(
+                normalize_for_match(alias) in normalized_company
+                for alias in company_aliases
+                if normalize_for_match(alias)
+            )
+            checks.append({
+                "title_aliases": aliases,
+                "field": "company",
+                "expected": company_aliases,
+                "actual": actual_company,
+                "passed": passed,
+            })
+
+        if expected.get("company_must_be_empty") is True:
+            actual_company = str(job.get("company") or "").strip()
+            checks.append({
+                "title_aliases": aliases,
+                "field": "company_must_be_empty",
+                "expected": "",
+                "actual": actual_company,
+                "passed": not actual_company,
+            })
+
+        expected_emails = {
+            str(value).strip().casefold()
+            for value in expected.get("expected_emails", [])
+            if str(value).strip()
+        }
+        if expected_emails:
+            actual_raw = job.get("emails")
+            if isinstance(actual_raw, str):
+                actual_values = [actual_raw]
+            elif isinstance(actual_raw, list):
+                actual_values = actual_raw
+            else:
+                actual_values = []
+            actual_emails = {
+                str(value).strip().casefold()
+                for value in actual_values
+                if str(value).strip()
+            }
+            checks.append({
+                "title_aliases": aliases,
+                "field": "emails",
+                "expected": sorted(expected_emails),
+                "actual": sorted(actual_emails),
+                "passed": expected_emails.issubset(actual_emails),
+            })
+
+    return checks
+
+
 def _default_decision_transform(
     job: dict[str, Any],
     source_text: str,
@@ -203,6 +305,8 @@ def evaluate_case(
         expected_titles, predicted_jobs
     )
     title_errors = missing_titles + unexpected_titles
+    metadata_checks = _expected_metadata_checks(expected_titles, predicted_jobs)
+    metadata_errors = [item for item in metadata_checks if not item.get("passed")]
     forbidden_aliases = [str(value) for value in (case.get("forbidden_titles") or [])]
     forbidden_hits = [
         job_title(job) for job in predicted_jobs
@@ -292,9 +396,12 @@ def evaluate_case(
         "evidence_errors": evidence_errors,
         "non_vacancy_with_jobs": non_vacancy_with_jobs,
         "decision_checks": decision_checks,
+        "metadata_checks": metadata_checks,
+        "metadata_errors": metadata_errors,
         "passed": (
             actual_post_type == expected_post_type
             and not title_errors
+            and not metadata_errors
             and not forbidden_hits
             and not evidence_errors
             and not non_vacancy_with_jobs
@@ -321,6 +428,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         for decision in item.get("decision_checks", [])
     ]
     evidence_error_count = sum(len(item.get("evidence_errors", [])) for item in results)
+    metadata_check_count = sum(len(item.get("metadata_checks", [])) for item in results)
+    metadata_error_count = sum(len(item.get("metadata_errors", [])) for item in results)
     return {
         "cases": case_count,
         "cases_passed": sum(1 for item in results if item.get("passed")),
@@ -334,6 +443,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             matched_title_count / expected_title_count, 4
         ) if expected_title_count else 1.0,
         "evidence_errors": evidence_error_count,
+        "metadata_checks": metadata_check_count,
+        "metadata_errors": metadata_error_count,
         "forbidden_title_hits": sum(len(item.get("forbidden_title_hits", [])) for item in results),
         "non_vacancy_with_jobs": sum(1 for item in results if item.get("non_vacancy_with_jobs")),
         "decision_checks": len(decision_checks),
