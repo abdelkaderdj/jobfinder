@@ -460,23 +460,41 @@ class TelegramJobBot:
     def _review_text(self, item: dict[str, Any]) -> str:
         record = item.get("record") or {}
         extraction_fallback = bool(record.get("analysis_fallback"))
+        raw_title = str(record.get("application_job_title") or record.get("job_title") or "").strip()
+        fallback_title_placeholders = {
+            "",
+            "إعلان توظيف يحتاج إلى مراجعة يدوية",
+            "لم يُستخرج المسمى الوظيفي",
+        }
         title = (
             "لم يُستخرج المسمى الوظيفي"
-            if extraction_fallback
-            else safe_text(record.get("application_job_title") or record.get("job_title"), 200)
+            if extraction_fallback and raw_title in fallback_title_placeholders
+            else safe_text(raw_title, 200)
         )
+        raw_company = str(record.get("company") or "").strip()
         company = (
-            "لم تُستخرج بيانات الشركة"
+            safe_text(raw_company, 180)
+            if raw_company
+            else "اسم الشركة غير مذكور في الإعلان"
             if extraction_fallback
-            else safe_text(record.get("company"), 180)
+            else "غير محدد"
         )
+        raw_location = str(record.get("location") or "").strip()
         location = (
-            "لم يُستخرج الموقع"
+            safe_text(raw_location, 180)
+            if raw_location
+            else "لم يُستخرج الموقع"
             if extraction_fallback
-            else safe_text(record.get("location"), 180)
+            else "غير محدد"
         )
         score = record.get("score")
-        score_text = f"{score}/100" if score is not None else "غير متوفر"
+        score_text = (
+            f"{score}/100"
+            if score is not None
+            else "لم تُحتسب بسبب تعذّر الاستخراج"
+            if extraction_fallback
+            else "غير متوفر"
+        )
         emails = record.get("emails") or []
         reason = safe_text(record.get("reason"), 600)
         section = str(item.get("advertisement") or "").strip()
