@@ -1592,18 +1592,50 @@ Expérience pratique de 2 à 5 ans en logistique.
         self.assertEqual(decision, "REVIEW")
         self.assertEqual(status, "allowed_housing")
 
-    def test_tindouf_and_gara_djebilet_are_southern_locations(self):
+    def test_known_saharan_locations_are_recognized_in_latin_and_arabic(self):
         for location in (
             "Tindouf, Algeria",
             "غارا جبيلات - ولاية تندوف",
             "Gara Djebilet, Tindouf",
             "Hassi Tiririne, South Algeria",
             "الجنوب الجزائري",
+            "أدرار",
+            "بشار",
+            "تمنراست",
+            "تامنراست",
+            "ورقلة",
+            "الوادي",
+            "غرداية",
+            "إليزي",
+            "جانت",
+            "تيميمون",
+            "برج باجي مختار",
+            "عين صالح",
+            "عين قزام",
+            "المنيعة",
+            "تقرت",
+            "توقرت",
+            "حاسي مسعود",
+            "حاسي الرمل",
+            "عين أميناس",
         ):
             with self.subTest(location=location):
                 self.assertEqual(
                     processor.job_location_category({"location": location}),
                     "south",
+                )
+
+    def test_known_northern_locations_do_not_match_southern_aliases(self):
+        for location in (
+            "الجزائر العاصمة",
+            "القليعة، ولاية تيبازة",
+            "بومرداس",
+            "سطيف",
+        ):
+            with self.subTest(location=location):
+                self.assertEqual(
+                    processor.job_location_category({"location": location}),
+                    "other",
                 )
 
     def test_algerian_employer_paid_residence_wording_is_detected(self):
