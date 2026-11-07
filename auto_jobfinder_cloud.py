@@ -1340,7 +1340,7 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
 
         line = cleaned_line.strip()
         # A colon-terminated bullet is a department/category heading, not a role.
-        if re.search(r"[:：]\\s*$", line):
+        if re.search(r"[:：]\s*$", line):
             continue
         if (
             not line
