@@ -35,6 +35,56 @@ _ALLOWED_TRACE_GATES = {
     "location", "contact_scope", "pre_send_guard", "telegram_rejection_guard",
 }
 _SAFE_CODE_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+_SAFE_AI_MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,120}$")
+_ALLOWED_AI_STAGES = {
+    "offer_analysis", "vacancy_rescue", "manual_apply_analysis",
+    "independent_verification",
+}
+_ALLOWED_AI_PROVIDERS = {"gemini", "groq", "openrouter"}
+_ALLOWED_AI_OUTCOMES = {
+    "success", "rate_limited", "overloaded", "configuration_error",
+    "invalid_json", "provider_error",
+}
+
+
+def _safe_ai_call_trace(value: Any) -> list[dict[str, Any]]:
+    """Retain model-attempt telemetry only; drop prompts, responses and arbitrary fields."""
+    if not isinstance(value, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in value[:40]:
+        if not isinstance(item, dict):
+            continue
+        stage = _safe_code(item.get("stage"), "")
+        provider = _safe_code(item.get("provider"), "")
+        model = str(item.get("model") or "").strip()
+        outcome = _safe_code(item.get("outcome"), "")
+        request = item.get("request")
+        attempt = item.get("attempt")
+        elapsed_ms = item.get("elapsed_ms")
+        json_valid = item.get("json_valid")
+        if stage not in _ALLOWED_AI_STAGES or provider not in _ALLOWED_AI_PROVIDERS:
+            continue
+        if outcome not in _ALLOWED_AI_OUTCOMES or not _SAFE_AI_MODEL_RE.fullmatch(model):
+            continue
+        if (
+            not isinstance(request, int) or isinstance(request, bool) or not 1 <= request <= 100
+            or not isinstance(attempt, int) or isinstance(attempt, bool) or not 1 <= attempt <= 100
+            or not isinstance(elapsed_ms, int) or isinstance(elapsed_ms, bool) or not 0 <= elapsed_ms <= 600000
+            or (json_valid is not None and not isinstance(json_valid, bool))
+        ):
+            continue
+        cleaned.append({
+            "request": request,
+            "stage": stage,
+            "provider": provider,
+            "model": model,
+            "attempt": attempt,
+            "json_valid": json_valid,
+            "elapsed_ms": elapsed_ms,
+            "outcome": outcome,
+        })
+    return cleaned
 
 
 def _safe_code(value: Any, default: str = "unknown") -> str:
@@ -149,6 +199,7 @@ def make_decision_audit_record(
         "delivery_status": _safe_code(record.get("delivery_status"), "not_recorded"),
         "manual_apply": bool(record.get("manual_apply")),
         "ai_verification_status": _safe_code(record.get("ai_verification_status"), "not_recorded"),
+        "ai_call_trace": _safe_ai_call_trace(record.get("ai_call_trace")),
         "score": score,
         "cv_match_score": cv_match_score,
         "cv_matched_skill_groups": matched_groups,
