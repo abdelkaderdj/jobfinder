@@ -207,6 +207,15 @@ class DecisionAuditTests(unittest.TestCase):
                 "score": 35,
                 "cv_match_score": 55,
                 "cv_matched_skill_groups": ["industrial_maintenance"],
+                "decision_trace": [
+                    {
+                        "gate": "candidate_fit",
+                        "before": "REJECT",
+                        "after": "REVIEW",
+                        "outcome": "overrode",
+                    }
+                ],
+                "delivery_status": "blocked_missing_cv",
                 "reason": "Relevant technical role; verify experience.",
             },
         }
@@ -218,6 +227,7 @@ class DecisionAuditTests(unittest.TestCase):
         )
         second["final_decision"] = "APPLY"
         second["sent"] = True
+        second["delivery_status"] = "sent"
 
         report, summary = make_report([first, second], 2, now=now)
 
@@ -227,6 +237,11 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(summary["sent"], 1)
         self.assertEqual(summary["cv_match_scores_available"], 1)
         self.assertEqual(summary["cv_match_score_bands"]["50-69"], 1)
+        self.assertEqual(summary["decision_changes_by_gate"], {"candidate_fit": 1})
+        self.assertEqual(summary["delivery_outcomes"], {"sent": 1})
+        self.assertIn("مراحل تغيير القرار", report)
+        self.assertIn("ملاءمة المنصب", report)
+        self.assertIn("تم الإرسال", report)
         self.assertIn("مؤشر CV", report)
         self.assertIn("55", report)
         self.assertIn("https://t.me/rcrdz1/123", report)
