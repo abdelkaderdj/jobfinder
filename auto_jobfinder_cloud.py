@@ -1300,11 +1300,9 @@ _COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
-    """Extract explicit title lists, including Unicode-numbered Arabic/French lists."""
+    """Extract source-listed vacancy titles without requiring a known dictionary prefix."""
     found = []
     seen = set()
-    # A two-position list is accepted only after a clear vacancy-list heading.
-    # Without that heading, retain the conservative three-title threshold.
     role_list_heading_seen = False
     role_list_end_markers = (
         "profil recherche", "profile recherche", "profil et conditions",
@@ -1314,10 +1312,24 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
         "شروط التوظيف", "الشروط المطلوبة", "شروط إضافية", "شروط اضافية",
         "المؤهلات المطلوبة", "المؤهلات", "طريقة التقديم", "طريقة الترشح",
         "كيفية التقديم", "للمهتمين", "المهام المطلوبة",
+        # These headings terminate the role list; their bullet items are not jobs.
+        "أماكن العمل", "اماكن العمل", "مواقع العمل", "موقع العمل", "مكان العمل",
+        "work locations", "places of work", "work location", "job location",
+        "lieux de travail", "lieu de travail", "site de travail",
+        "how to apply", "application procedure", "application instructions",
+        "comment postuler", "pour postuler", "candidature",
     )
+    list_item_pattern = re.compile(
+        r"^\s*(?:[-*•▪●🔹🔸📌✅➤▶]|"
+        r"[0-9٠-٩]{1,2}(?:(?:\ufe0f)?\u20e3|[.)\-:]))\s*"
+    )
+
     for raw_line in str(advertisement or "").splitlines():
-        cleaned_line = _clean_compact_role_list_line(raw_line)
+        raw = str(raw_line or "")
+        is_explicit_list_item = bool(list_item_pattern.match(raw))
+        cleaned_line = _clean_compact_role_list_line(raw)
         normalized_line = normalize_text(cleaned_line)
+
         if any(marker in normalized_line for marker in _COMPACT_ROLE_LIST_HEADING_MARKERS):
             role_list_heading_seen = True
             continue
@@ -1327,30 +1339,41 @@ def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
             continue
 
         line = cleaned_line.strip()
-        if not line or len(line) > 360 or "http://" in line.lower() or "https://" in line.lower():
-            continue
-
-        # Qualification details frequently follow the title in parentheses;
-        # some Arabic/French lists put the task description after a colon.
-        title_part = re.split(r"\s+\(", line, maxsplit=1)[0].strip(" .;,-–—")
-        title_part = re.split(r"\s*[:：]\s*", title_part, maxsplit=1)[0].strip(" .;,-–—")
-        if not title_part or len(title_part) > 120 or len(title_part.split()) > 14:
-            continue
-        normalized = normalize_text(title_part)
-        if not normalized or not any(
-            normalized == prefix or normalized.startswith(prefix + " ")
-            for prefix in _COMPACT_ROLE_PREFIXES_NORMALIZED
+        if (
+            not line
+            or len(line) > 360
+            or "http://" in line.lower()
+            or "https://" in line.lower()
         ):
             continue
+
+        # Keep the title only; retain the complete cleaned line as provenance.
+        title_part = re.split(r"\s+\(", line, maxsplit=1)[0].strip(" .;,-–—")
+        title_part = re.split(r"\s*[:：]\s*", title_part, maxsplit=1)[0].strip(" .;,-–—")
+        title_part = title_part.strip("*_ ")
+        if not title_part or len(title_part) > 120 or len(title_part.split()) > 14:
+            continue
+
+        normalized = normalize_text(title_part)
+        if not normalized:
+            continue
+
+        known_role_prefix = any(
+            normalized == prefix or normalized.startswith(prefix + " ")
+            for prefix in _COMPACT_ROLE_PREFIXES_NORMALIZED
+        )
+        # A clear vacancy-list heading plus a bullet/numbered item is direct
+        # structural evidence. Do not let a vocabulary dictionary veto an
+        # unfamiliar English, French, or Arabic job title in that position.
+        if not known_role_prefix and not (role_list_heading_seen and is_explicit_list_item):
+            continue
+
         if normalized not in seen:
             seen.add(normalized)
-            # Preserve the original (un-numbered) source line for its own
-            # parenthetical qualification, department, and evidence parsing.
             found.append(line)
 
-    # An explicit vacancy-list heading plus two role lines is sufficient.
-    # Otherwise require at least three recognized title lines to avoid turning
-    # ordinary paragraphs or profile specialties into synthetic vacancies.
+    # A clear vacancy-list heading plus two separate role items is sufficient.
+    # Without the heading, retain the conservative three-known-title threshold.
     return found if (role_list_heading_seen and len(found) >= 2) or len(found) >= 3 else []
 
 def _compact_list_title_matches(title: str, job: dict) -> bool:
@@ -1423,7 +1446,7 @@ def _split_compact_role_title_and_requirement(value: str) -> tuple[str, str]:
     return title or line, requirement
 
 def _infer_company_name_from_advertisement(advertisement: str) -> str:
-    """Recover a company name only from a legal-form/name sequence in the source."""
+    """Recover a company name from legal form or an explicit hiring introduction."""
     source = str(advertisement or "")
     patterns = (
         re.compile(
@@ -1441,6 +1464,14 @@ def _infer_company_name_from_advertisement(advertisement: str) -> str:
             r"(?P<name>[A-Z][A-Za-z0-9&.'’\-]*(?:\s+[A-Za-z][A-Za-z0-9&.'’\-]*){0,3}\s+(?:Corporation Limited|Corporation|Company Limited|Company|Limited|LLC|Ltd\.?|Inc\.?))",
             flags=re.IGNORECASE,
         ),
+        # Many genuine ads name a brand directly after "تعلن شركة", "الشركة",
+        # "la société", or "company" without appending a legal suffix.
+        re.compile(
+            r"(?:تعلن(?:\s+عن)?|أعلنت|recrute|recrutement|annonce(?:s)?)?\s*"
+            r"(?:شركة|الشركة|la\s+soci[ée]t[ée]|soci[ée]t[ée]|entreprise|company)\s+"
+            r"(?P<name>[A-Z][A-Za-z0-9&.'’\-]*(?:\s+[A-Z][A-Za-z0-9&.'’\-]*){0,3})",
+            flags=re.IGNORECASE,
+        ),
     )
     for pattern in patterns:
         match = pattern.search(source)
@@ -1454,11 +1485,10 @@ def _infer_company_name_from_advertisement(advertisement: str) -> str:
             "",
             candidate,
             flags=re.IGNORECASE,
-        ).strip()
+        ).strip(" ,،.;:؛-–—")
         if candidate:
             return candidate[:120]
     return ""
-
 
 def _compact_role_department_before_line(advertisement: str, role_line: str) -> str:
     """Return the latest explicit department heading preceding a listed role."""
@@ -4142,35 +4172,74 @@ def location_contains_any(
 
 
 def infer_explicit_work_location(advertisement: str) -> str:
-    """Recover only an explicit workplace label or employer hiring-intro location."""
+    """Recover explicitly labelled work locations, including plural/multiline lists."""
     text = str(advertisement or "")
+    lines = text.splitlines()
     transport_line = re.compile(
         r"(?:توفر\s+النقل|النقل\s+متوفر|transport(?:ation)?|navette|ramassage|pickup)",
         flags=re.IGNORECASE,
     )
     label_pattern = re.compile(
-        r"(?:lieu\s+de\s+travail|lieu\s+du\s+poste|site\s+de\s+travail|"
-        r"work\s+location|job\s+location|worksite|"
-        r"مكان\s+العمل|موقع\s+العمل|مقر\s+العمل|مكان\s+الوظيفة|مكان\s+المنصب)"
-        r"\s*[:：\-–]?\s*(.+)$",
+        r"(?:lieux?\s+de\s+travail|lieu\s+du\s+poste|site\s+de\s+travail|"
+        r"work\s+locations?|job\s+locations?|worksite|places?\s+of\s+work|"
+        r"أماكن\s+العمل|مواقع\s+العمل|مكان\s+العمل|موقع\s+العمل|"
+        r"مقر\s+العمل|مكان\s+الوظيفة|مكان\s+المنصب)"
+        r"\s*[:：\-–]?\s*(.*)$",
         flags=re.IGNORECASE,
     )
+    location_list_stop_markers = (
+        "طريقة التقديم", "طريقة الترشح", "كيفية التقديم", "للمهتمين",
+        "how to apply", "application", "comment postuler", "pour postuler",
+        "candidature", "contact", "البريد الإلكتروني", "البريد الالكتروني",
+    )
+
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line or transport_line.search(line):
+            continue
+        match = label_pattern.search(line)
+        if not match:
+            continue
+
+        value = re.sub(r"^[📍\s]+", "", match.group(1)).strip(" .؛;,-–—")
+        if not value:
+            collected = []
+            for following in lines[index + 1:index + 5]:
+                candidate_line = str(following or "").strip()
+                if not candidate_line:
+                    continue
+                normalized = normalize_text(candidate_line)
+                if any(marker in normalized for marker in location_list_stop_markers):
+                    break
+                if (
+                    "http://" in candidate_line.lower()
+                    or "https://" in candidate_line.lower()
+                    or transport_line.search(candidate_line)
+                ):
+                    break
+                # Only accept short city/site entries, not a new paragraph.
+                candidate = _clean_compact_role_list_line(candidate_line)
+                candidate = candidate.strip(" .؛;,-–—")
+                if (
+                    not candidate
+                    or len(candidate) > 120
+                    or len(candidate.split()) > 8
+                    or re.search(r"[:：]", candidate)
+                ):
+                    break
+                collected.append(candidate)
+            value = "، ".join(collected)
+
+        if value and not transport_line.search(value):
+            return value[:300]
+
     hiring_preamble = re.compile(
         r"(?:شركة|entreprise|company).{0,80}?"
         r"(?:\bà\b|\bau\b|\bdans\s+la\s+commune\s+de\b|في|بـ)\s*"
         r"([^،,\n]+?)\s*(?=تبحث|تعلن|توظف|تطلب|تستقطب|recrute|recherche|cherche)",
         flags=re.IGNORECASE,
     )
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or transport_line.search(line):
-            continue
-        match = label_pattern.search(line)
-        if match:
-            value = re.sub(r"^[📍\s]+", "", match.group(1)).strip(" .؛;,-–—")
-            if value and not transport_line.search(value):
-                return value[:160]
-    for raw_line in text.splitlines():
+    for raw_line in lines:
         line = raw_line.strip()
         if not line or transport_line.search(line):
             continue
@@ -4180,7 +4249,6 @@ def infer_explicit_work_location(advertisement: str) -> str:
             if value and len(value) <= 160:
                 return value
     return ""
-
 
 def job_location_category(job):
 
