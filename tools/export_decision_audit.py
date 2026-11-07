@@ -42,6 +42,45 @@ def _cell(value: Any, limit: int = 320) -> str:
     return text.replace("|", "\\|")[:limit]
 
 
+_AI_STAGE_LABELS = {
+    "offer_analysis": "تحليل الإعلان",
+    "vacancy_rescue": "استخراج إعلان التوظيف",
+    "manual_apply_analysis": "تحليل التقديم اليدوي",
+    "independent_verification": "التحقق المستقل",
+}
+_AI_OUTCOME_LABELS = {
+    "success": "نجح",
+    "rate_limited": "حصة محدودة",
+    "overloaded": "ضغط مؤقت",
+    "configuration_error": "خطأ إعداد",
+    "invalid_json": "JSON غير صالح",
+    "provider_error": "خطأ مزود",
+}
+
+
+def _ai_call_labels(record: dict[str, Any]) -> str:
+    items = record.get("ai_call_trace") or []
+    labels = []
+    for item in items[:12]:
+        if not isinstance(item, dict):
+            continue
+        stage = _AI_STAGE_LABELS.get(str(item.get("stage") or ""), str(item.get("stage") or ""))
+        provider = str(item.get("provider") or "").upper()
+        model = str(item.get("model") or "")
+        outcome = _AI_OUTCOME_LABELS.get(str(item.get("outcome") or ""), str(item.get("outcome") or ""))
+        json_valid = item.get("json_valid")
+        json_label = "JSON سليم" if json_valid is True else "JSON غير سليم" if json_valid is False else "JSON غير متاح"
+        elapsed = item.get("elapsed_ms")
+        elapsed_label = f"{elapsed}ms" if isinstance(elapsed, int) and not isinstance(elapsed, bool) else ""
+        attempt = item.get("attempt")
+        labels.append(
+            f"{stage}: {provider}/{model} (محاولة {attempt}؛ {outcome}؛ {json_label}؛ {elapsed_label})"
+        )
+    if len(items) > 12:
+        labels.append(f"+{len(items) - 12} محاولات أخرى")
+    return " | ".join(labels)
+
+
 _GATE_LABELS = {
     "candidate_fit": "ملاءمة المنصب",
     "manual_apply_title_validation": "التحقق من العنوان المختار يدويًا",
@@ -133,6 +172,25 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         str(record.get("delivery_status") or "not_recorded")
         for record in final_records
     )
+    unique_ai_calls: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in final_records:
+        source = str(record.get("source") or "")
+        message_id = str(record.get("message_id") or "")
+        for call in record.get("ai_call_trace") or []:
+            if not isinstance(call, dict):
+                continue
+            key = (
+                source, message_id, call.get("request"), call.get("stage"),
+                call.get("provider"), call.get("model"), call.get("attempt"),
+            )
+            unique_ai_calls[key] = call
+    ai_calls = list(unique_ai_calls.values())
+    ai_model_usage = Counter(
+        f"{call.get('provider')}/{call.get('model')}"
+        for call in ai_calls
+    )
+    ai_successful_calls = sum(call.get("outcome") == "success" for call in ai_calls)
+    ai_invalid_json_calls = sum(call.get("json_valid") is False for call in ai_calls)
 
     summary = {
         "window_start_utc": cutoff.isoformat(timespec="seconds"),
@@ -146,6 +204,10 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "decision_changed_by_rules_or_guard": transitions,
         "decision_changes_by_gate": dict(override_stage_counts),
         "delivery_outcomes": dict(delivery_status_counts),
+        "ai_invocation_attempts": len(ai_calls),
+        "ai_model_usage": dict(ai_model_usage),
+        "ai_successful_invocations": ai_successful_calls,
+        "ai_invalid_json_attempts": ai_invalid_json_calls,
         "sent": sum(bool(r.get("sent")) for r in final_records),
     }
 
@@ -162,14 +224,17 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         f"- مرات اختلاف قرار النموذج عن القرار النهائي بعد القواعد/الحواجز: {transitions}",
         f"- بوابات تغيير القرار: {json.dumps(summary['decision_changes_by_gate'], ensure_ascii=False)}",
         f"- نتائج الإرسال: {json.dumps(summary['delivery_outcomes'], ensure_ascii=False)}",
+        f"- محاولات استدعاء AI الفعلية: {summary['ai_invocation_attempts']}",
+        f"- النماذج المستعملة فعليًا: {json.dumps(summary['ai_model_usage'], ensure_ascii=False)}",
+        f"- محاولات AI الناجحة: {summary['ai_successful_invocations']} | محاولات JSON غير الصالح: {summary['ai_invalid_json_attempts']}",
         f"- طلبات إرسال مسجلة ضمن آخر قرار لكل منصب: {summary['sent']}",
         "",
         "**تنبيه منهجي:** هذا سجل القرارات التي جُمعت بعد تفعيل دفتر التدقيق المشفّر فقط؛ لا يعيد بناء قرارات تاريخية لم تكن مسجلة عند حدوثها. القرار النهائي ليس حكمًا على جودة القرار؛ يحتاج كل إعلان إلى مراجعة مقابلة مستقلة.",
         "",
         "## آخر قرار مسجّل لكل إعلان/منصب",
         "",
-        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | النموذج | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
-        "|---|---|---|---|---|---|---|---:|---:|---|---|---|---|",
+        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | آخر حالة للمسار | استدعاءات AI الفعلية | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
+        "|---|---|---|---|---|---|---|---|---:|---:|---|---|---|---|",
     ]
     for record in final_records:
         observed = _parse_time(record.get("observed_at_utc"))
@@ -189,6 +254,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
                 title,
                 _cell(record.get("company"), 100),
                 _cell((str(record.get("provider") or "") + "/" + str(record.get("model") or "")).strip("/"), 100),
+                _cell(_ai_call_labels(record), 420),
                 _cell(record.get("original_ai_decision"), 16),
                 _cell(record.get("final_decision"), 16),
                 score_text,
@@ -200,7 +266,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             ]) + " |"
         )
 
-    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد | مراحل التغيير | الإرسال |", "|---|---|---|---|---|---:|---:|---|---|---|"])
+    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | استدعاءات AI الفعلية | درجة AI | مؤشر CV | المزوّد | مراحل التغيير | الإرسال |", "|---|---|---|---|---|---|---:|---:|---|---|---|"])
     for when, record in selected:
         source_url = str(record.get("source_url") or "")
         if source_url and re.fullmatch(r"https://t\.me/[A-Za-z0-9_]{1,80}/\d+", source_url):
@@ -214,6 +280,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             _cell(record.get("application_job_title") or record.get("job_title"), 140),
             _cell(record.get("original_ai_decision"), 16),
             _cell(record.get("final_decision"), 16),
+            _cell(_ai_call_labels(record), 420),
             score_text,
             str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
             _cell(str(record.get("provider") or "") + "/" + str(record.get("model") or ""), 100),

@@ -990,5 +990,89 @@ class OpenRouterFreeFallbackTests(unittest.TestCase):
         self.assertIn("retrying the free fallback in 300s", callbacks[0][1])
 
 
+    def test_per_invocation_trace_records_failed_gemini_and_successful_groq_route(self):
+        context = {"source": "rcrdz1", "message_id": "55", "request_counter": 0, "calls": []}
+        token = processor._AI_CALL_CONTEXT.set(context)
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GEMINI_API_KEY": "gemini-test-key",
+                        "OPENROUTER_API_KEY": "",
+                        "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                    },
+                ),
+                patch.object(processor, "_configured_gemini_models", return_value=("gemini-3.8-flash",)),
+                patch.object(processor, "_gemini_json_request", side_effect=ValueError("Invalid JSON from AI")),
+                patch.object(processor, "GROQ_MODEL_FALLBACKS", ("openai/gpt-oss-20b",)),
+                patch.object(processor, "client") as groq_client,
+                patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_DISABLED_GEMINI_MODELS", set()),
+                patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+                patch.object(processor, "_UNAVAILABLE_GROQ_MODELS", set()),
+                patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", None),
+                patch.object(processor, "_pace_ai_provider"),
+            ):
+                groq_client.chat.completions.create.return_value = response_with_json('{"route":"groq"}')
+                result = processor._groq_json_request_for_stage(
+                    "offer_analysis",
+                    messages=[{"role": "user", "content": "PRIVATE PROMPT MUST NOT BE STORED"}],
+                )
+        finally:
+            processor._AI_CALL_CONTEXT.reset(token)
+
+        self.assertEqual(result, {"route": "groq"})
+        self.assertEqual(len(context["calls"]), 2)
+        gemini_call, groq_call = context["calls"]
+        self.assertEqual((gemini_call["provider"], gemini_call["model"]), ("gemini", "gemini-3.8-flash"))
+        self.assertEqual(gemini_call["outcome"], "invalid_json")
+        self.assertFalse(gemini_call["json_valid"])
+        self.assertEqual((groq_call["provider"], groq_call["model"]), ("groq", "openai/gpt-oss-20b"))
+        self.assertEqual(groq_call["outcome"], "success")
+        self.assertTrue(groq_call["json_valid"])
+        self.assertEqual(groq_call["stage"], "offer_analysis")
+        self.assertEqual(gemini_call["request"], groq_call["request"])
+        self.assertGreaterEqual(gemini_call["elapsed_ms"], 0)
+        self.assertNotIn("PRIVATE PROMPT", json.dumps(context["calls"]))
+
+    def test_independent_verification_is_logged_as_its_own_ai_stage(self):
+        context = {"source": "rcrdz1", "message_id": "56", "request_counter": 0, "calls": []}
+        token = processor._AI_CALL_CONTEXT.set(context)
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GEMINI_API_KEY": "",
+                        "OPENROUTER_API_KEY": "",
+                        "JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS": "0",
+                    },
+                ),
+                patch.object(processor, "GROQ_MODEL_FALLBACKS", ("qwen/qwen3.8-27b",)),
+                patch.object(processor, "client") as groq_client,
+                patch.object(processor, "_GEMINI_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_GROQ_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_OPENROUTER_DISABLED_FOR_RUN", False),
+                patch.object(processor, "_RATE_LIMITED_GROQ_MODELS", set()),
+                patch.object(processor, "_UNAVAILABLE_GROQ_MODELS", set()),
+                patch.object(processor, "JOB_AI_PROVIDER_STATUS_CALLBACK", None),
+                patch.object(processor, "_pace_ai_provider"),
+            ):
+                groq_client.chat.completions.create.return_value = response_with_json('{"reviews":[]}')
+                processor._groq_json_request_for_stage(
+                    "independent_verification",
+                    messages=[{"role": "user", "content": "PRIVATE REVIEW PROMPT"}],
+                )
+        finally:
+            processor._AI_CALL_CONTEXT.reset(token)
+
+        self.assertEqual(len(context["calls"]), 1)
+        self.assertEqual(context["calls"][0]["stage"], "independent_verification")
+        self.assertEqual(context["calls"][0]["provider"], "groq")
+        self.assertNotIn("PRIVATE REVIEW PROMPT", json.dumps(context["calls"]))
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ import urllib.request
 from difflib import SequenceMatcher
 from typing import Any
 from email.message import EmailMessage
+from contextvars import ContextVar
 
 from groq import Groq
 
@@ -96,6 +97,61 @@ JOB_PRE_SEND_GUARD = None
 JOB_AI_RATE_LIMIT_CALLBACK = None
 JOB_AI_PROVIDER_STATUS_CALLBACK = None
 JOB_DECISION_AUDIT_CALLBACK = None
+
+# Per-post invocation metadata. This context contains only source identity and
+# compact provider telemetry, never prompt text, model responses or credentials.
+_AI_CALL_CONTEXT = ContextVar("jobfinder_ai_call_context", default=None)
+_AI_CALL_STAGE = ContextVar("jobfinder_ai_call_stage", default="direct")
+
+
+def _current_ai_call_trace():
+    context = _AI_CALL_CONTEXT.get()
+    calls = context.get("calls") if isinstance(context, dict) else None
+    return [dict(item) for item in calls if isinstance(item, dict)] if isinstance(calls, list) else []
+
+
+def _ai_trace_failure(error):
+    if _is_rate_limit_error(error):
+        return "rate_limited", None
+    if _is_temporary_provider_overload(error):
+        return "overloaded", None
+    if _is_provider_configuration_error(error):
+        return "configuration_error", None
+    if isinstance(error, ValueError):
+        return "invalid_json", False
+    return "provider_error", None
+
+
+def _record_ai_invocation(request_id, provider, model, attempt, started_at, outcome, json_valid):
+    context = _AI_CALL_CONTEXT.get()
+    if not isinstance(context, dict):
+        return
+    calls = context.setdefault("calls", [])
+    if not isinstance(calls, list) or len(calls) >= 40:
+        return
+    try:
+        elapsed_ms = max(0, min(600000, int((time.monotonic() - started_at) * 1000)))
+    except (TypeError, ValueError, OverflowError):
+        elapsed_ms = 0
+    calls.append({
+        "request": int(request_id or 0),
+        "stage": str(_AI_CALL_STAGE.get() or "direct")[:40],
+        "provider": str(provider or "unknown").strip().lower()[:24],
+        "model": str(model or "unknown").strip()[:120],
+        "attempt": max(1, min(100, int(attempt or 1))),
+        "json_valid": json_valid if isinstance(json_valid, bool) else None,
+        "elapsed_ms": elapsed_ms,
+        "outcome": str(outcome or "provider_error")[:40],
+    })
+
+
+def _groq_json_request_for_stage(stage, **kwargs):
+    """Run one routed AI call with a named, non-sensitive processing stage."""
+    token = _AI_CALL_STAGE.set(str(stage or "unspecified")[:40])
+    try:
+        return groq_json_request(**kwargs)
+    finally:
+        _AI_CALL_STAGE.reset(token)
 
 
 def set_job_ai_rate_limit_callback(callback):
@@ -2680,6 +2736,11 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     """
     global _GEMINI_DISABLED_FOR_RUN, _GROQ_DISABLED_FOR_RUN, _OPENROUTER_DISABLED_FOR_RUN
     reasoning_level = normalize_reasoning_level(reasoning_level, default="low")
+    trace_context = _AI_CALL_CONTEXT.get()
+    request_id = None
+    if isinstance(trace_context, dict):
+        trace_context["request_counter"] = int(trace_context.get("request_counter") or 0) + 1
+        request_id = trace_context["request_counter"]
 
     common_kwargs = {
         "messages": messages,
@@ -2697,10 +2758,11 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     gemini_tried = False
 
     if gemini_configured and not _GEMINI_DISABLED_FOR_RUN:
-        for model_name in configured_gemini_models:
+        for gemini_attempt, model_name in enumerate(configured_gemini_models, 1):
             if model_name in _DISABLED_GEMINI_MODELS:
                 continue
             gemini_tried = True
+            attempt_started = time.monotonic()
             try:
                 _pace_ai_provider("gemini")
                 result = _gemini_json_request(
@@ -2725,9 +2787,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 _notify_ai_provider_status(
                     "gemini", model_name, status, reason, gemini_configured
                 )
+                _record_ai_invocation(
+                    request_id, "gemini", model_name, gemini_attempt,
+                    attempt_started, "success", True,
+                )
                 print(f"AI PROVIDER: Gemini ({model_name}) succeeded")
                 return result
             except Exception as gemini_error:
+                failure_outcome, json_valid = _ai_trace_failure(gemini_error)
+                _record_ai_invocation(
+                    request_id, "gemini", model_name, gemini_attempt,
+                    attempt_started, failure_outcome, json_valid,
+                )
                 last_error = gemini_error
                 gemini_issues.append(
                     f"{model_name}: {_safe_ai_provider_error(gemini_error)}"
@@ -2803,7 +2874,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
             _GEMINI_DISABLED_FOR_RUN = True
             print("AI GEMINI MODEL POOL EXHAUSTED: switching to Groq for this run")
 
-    for model_name in GROQ_MODEL_FALLBACKS:
+    for groq_model_attempt, model_name in enumerate(GROQ_MODEL_FALLBACKS, 1):
         if _GROQ_DISABLED_FOR_RUN:
             break
         if model_name in _RATE_LIMITED_GROQ_MODELS or model_name in _UNAVAILABLE_GROQ_MODELS:
@@ -2814,6 +2885,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
         if model_name.startswith("openai/gpt-oss-") or model_name == "qwen/qwen3.8-27b":
             model_kwargs = {"reasoning_effort": reasoning_level, "reasoning_format": "hidden"}
         request_kwargs = {**common_kwargs, **model_kwargs, "model": model_name}
+        groq_attempt_started = time.monotonic()
         try:
             _pace_ai_provider("groq")
             response = client.chat.completions.create(
@@ -2838,9 +2910,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                     "GEMINI_API_KEY is not configured.",
                     gemini_configured,
                 )
+            _record_ai_invocation(
+                request_id, "groq", model_name, 1,
+                groq_attempt_started, "success", True,
+            )
             print(f"AI PROVIDER: Groq ({model_name}) succeeded")
             return result
         except Exception as first_error:
+            failure_outcome, json_valid = _ai_trace_failure(first_error)
+            _record_ai_invocation(
+                request_id, "groq", model_name, 1,
+                groq_attempt_started, failure_outcome, json_valid,
+            )
             last_error = first_error
             if _is_rate_limit_error(first_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
@@ -2862,6 +2943,7 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 break
             print(f"JSON MODE RETRY: {model_name}; {type(first_error).__name__}")
 
+        groq_retry_started = time.monotonic()
         try:
             _pace_ai_provider("groq")
             response = client.chat.completions.create(**request_kwargs)
@@ -2883,9 +2965,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                     "GEMINI_API_KEY is not configured.",
                     gemini_configured,
                 )
+            _record_ai_invocation(
+                request_id, "groq", model_name, 2,
+                groq_retry_started, "success", True,
+            )
             print(f"AI PROVIDER: Groq ({model_name}) succeeded after JSON-mode retry")
             return result
         except Exception as second_error:
+            failure_outcome, json_valid = _ai_trace_failure(second_error)
+            _record_ai_invocation(
+                request_id, "groq", model_name, 2,
+                groq_retry_started, failure_outcome, json_valid,
+            )
             last_error = second_error
             if _is_rate_limit_error(second_error):
                 _RATE_LIMITED_GROQ_MODELS.add(model_name)
@@ -2913,7 +3004,10 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     # The free router is a single endpoint, so a failure opens a per-run circuit
     # breaker rather than spending more free requests against the same route.
     if openrouter_configured and not _OPENROUTER_DISABLED_FOR_RUN:
+        openrouter_attempt_started = time.monotonic()
+        openrouter_model_name = "unknown"
         try:
+            openrouter_model_name = _configured_openrouter_model()
             _pace_ai_provider("openrouter")
             result = _openrouter_json_request(
                 messages=messages,
@@ -2937,9 +3031,18 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
                 reason if using_fallback else "",
                 gemini_configured,
             )
+            _record_ai_invocation(
+                request_id, "openrouter", model_name, 1,
+                openrouter_attempt_started, "success", True,
+            )
             print(f"AI PROVIDER: OpenRouter ({model_name}) succeeded")
             return result
         except Exception as openrouter_error:
+            failure_outcome, json_valid = _ai_trace_failure(openrouter_error)
+            _record_ai_invocation(
+                request_id, "openrouter", openrouter_model_name, 1,
+                openrouter_attempt_started, failure_outcome, json_valid,
+            )
             last_error = openrouter_error
             _OPENROUTER_DISABLED_FOR_RUN = True
             if _is_rate_limit_error(openrouter_error):
@@ -4112,7 +4215,13 @@ or services footer become a vacancy or contact.
     # Full-post extraction is a multi-constraint reasoning task, not a lightweight
     # classification call. Use high thinking and enough output budget to avoid
     # starving either internal reasoning or multi-position JSON output.
-    result = groq_json_request(
+    analysis_stage = (
+        "vacancy_rescue" if vacancy_rescue
+        else "manual_apply_analysis" if manual_apply
+        else "offer_analysis"
+    )
+    result = _groq_json_request_for_stage(
+        analysis_stage,
         messages=messages,
         temperature=0,
         max_completion_tokens=8192,
@@ -7351,6 +7460,7 @@ def emit_unparsed_vacancy_review(post, advertisement):
         "emails": emails,
         "decision": "REVIEW",
         "original_ai_decision": "REVIEW",
+        "ai_call_trace": _current_ai_call_trace(),
         "score": None,
         "reason": (
             "تعذّر استخراج المناصب آليًا رغم وجود مؤشرات توظيف. "
@@ -7483,7 +7593,8 @@ def verify_apply_decisions(source_text, jobs, job_contexts=None):
     try:
         # Independent APPLY verification uses the same free-only Gemini -> Groq
         # -> OpenRouter Free route as analysis; no separate paid reviewer is allowed.
-        review_result = groq_json_request(
+        review_result = _groq_json_request_for_stage(
+            "independent_verification",
             messages=review_messages,
             temperature=0,
             max_completion_tokens=8192,
@@ -7532,7 +7643,7 @@ def verify_apply_decisions(source_text, jobs, job_contexts=None):
 # PROCESS ONE POST
 # ============================================================
 
-def process_post(
+def _process_post_with_ai_trace_context(
     post,
     manual_apply=False,
 ):
@@ -8140,6 +8251,9 @@ def process_post(
             "decision_trace":
                 decision_trace,
 
+            "ai_call_trace":
+                _current_ai_call_trace(),
+
             "delivery_status":
                 "pending",
 
@@ -8309,6 +8423,24 @@ def process_post(
         log_job_result_safely(record, contact_review_reason)
 
     return post_success
+
+
+
+
+def process_post(post, manual_apply=False):
+    """Attach AI invocation telemetry to this Telegram post without storing prompts."""
+    context_post = post if isinstance(post, dict) else {}
+    context = {
+        "source": str(context_post.get("source") or context_post.get("channel") or "")[:80],
+        "message_id": str(context_post.get("message_id") or "")[:40],
+        "request_counter": 0,
+        "calls": [],
+    }
+    token = _AI_CALL_CONTEXT.set(context)
+    try:
+        return _process_post_with_ai_trace_context(post, manual_apply=manual_apply)
+    finally:
+        _AI_CALL_CONTEXT.reset(token)
 
 
 # ============================================================
