@@ -7782,12 +7782,20 @@ def process_post(
         if decision not in {"APPLY", "REVIEW", "REJECT"}:
             decision = "REJECT"
         original_ai_decision = decision
+        decision_trace: list[dict[str, str]] = []
 
         if manual_apply:
+            decision_before_manual_title = decision
             cv_match_score = None
             cv_matched_skill_groups = []
             decision, role_fit_reason = enforce_manual_application_role_rule(job)
             role_fit_overrode_ai = decision != original_ai_decision
+            decision_trace.append({
+                "gate": "manual_apply_title_validation",
+                "before": decision_before_manual_title,
+                "after": decision,
+                "outcome": "accepted" if decision != "REJECT" else "rejected",
+            })
             verification_reason = ""
         else:
             cv_match_score, cv_matched_skill_groups = calculate_candidate_cv_match(
@@ -7802,11 +7810,31 @@ def process_post(
                 cv_match_score=cv_match_score,
             )
             role_fit_overrode_ai = decision != decision_before_fit
+            decision_trace.append({
+                "gate": "candidate_fit",
+                "before": decision_before_fit,
+                "after": decision,
+                "outcome": "overrode" if decision != decision_before_fit else "preserved",
+            })
+            decision_before_verification = decision
             decision, verification_reason = enforce_verification_gate(
                 decision,
                 job.get("verification_gate"),
                 job.get("verification_reason"),
             )
+            verification_status = str(job.get("verification_gate") or "not_required")
+            verification_outcome = (
+                "forced_review" if verification_reason
+                else "passed" if verification_status == "passed"
+                else "not_applicable_non_apply" if decision_before_verification != "APPLY"
+                else "not_passed"
+            )
+            decision_trace.append({
+                "gate": "independent_verification",
+                "before": decision_before_verification,
+                "after": decision,
+                "outcome": verification_outcome,
+            })
             if verification_reason:
                 role_fit_reason = verification_reason
                 role_fit_overrode_ai = True
@@ -7835,9 +7863,9 @@ def process_post(
             has_multiple_sections,
         )
 
+        decision_before_location = decision
         if manual_apply:
-            # Location is overridden only for roles that passed the hard
-            # profession/discipline exclusion gate above.
+            # The owner-selected path intentionally preserves its manual role/location override.
             if decision != "REJECT":
                 decision = "APPLY"
             location_status = "manual_owner_override"
@@ -7853,6 +7881,10 @@ def process_post(
                 position_scope_text if position_scope_matched else "",
                 section_verified=(scope_matched and position_scope_matched),
             )
+        decision_trace.append({
+            "gate": "location", "before": decision_before_location,
+            "after": decision, "outcome": location_status,
+        })
 
 
         # ====================================================
@@ -7884,31 +7916,43 @@ def process_post(
         # Automatic emailing is only permitted when both the job section
         # and exactly one email recipient are unambiguous.
         contact_review_reason = ""
+        decision_before_contact = decision
+        contact_outcome = "not_applicable_non_apply"
         if decision == "APPLY":
             if global_application_email and not manual_apply:
                 decision = "REVIEW"
+                contact_outcome = "blocked_global_email"
                 contact_review_reason = (
                     "A global application email was recovered from the complete post, "
                     "but the position-specific section is not verified; automatic sending is disabled."
                 )
             elif not scope_matched and not (manual_apply and global_application_email and len(emails) == 1):
                 decision = "REVIEW"
+                contact_outcome = "blocked_position_scope"
                 contact_review_reason = (
                     "Could not safely identify this position's own advertisement "
                     "section; automatic sending is disabled."
                 )
             elif len(emails) == 0:
                 decision = "REVIEW"
+                contact_outcome = "blocked_no_email"
                 contact_review_reason = (
                     "No email address is present in this position's own section. "
                     "The advertisement may require WhatsApp or another manual method."
                 )
             elif len(emails) > 1:
                 decision = "REVIEW"
+                contact_outcome = "blocked_multiple_emails"
                 contact_review_reason = (
                     "Multiple email addresses appear in this position's section; "
                     "the intended recipient is ambiguous, so nothing was sent."
                 )
+            else:
+                contact_outcome = "passed"
+        decision_trace.append({
+            "gate": "contact_scope", "before": decision_before_contact,
+            "after": decision, "outcome": contact_outcome,
+        })
 
         final_reason = (
             str(role_fit_reason or "").strip()
@@ -7948,7 +7992,14 @@ def process_post(
         # Check manual rejection history before any email can be sent.
         # Fail closed if the guard fails, to prevent an unsafe application.
         pre_send_guard_reason = ""
+        decision_before_pre_send = decision
+        pre_send_outcome = (
+            "not_applicable_rejected" if decision == "REJECT"
+            else "skipped_manual_owner_path" if manual_apply
+            else "not_configured"
+        )
         if not manual_apply and decision != "REJECT" and JOB_PRE_SEND_GUARD is not None:
+            pre_send_outcome = "clear"
             try:
                 pre_send_guard_reason = str(
                     JOB_PRE_SEND_GUARD(job, application_title, emails, post) or ""
@@ -7958,11 +8009,17 @@ def process_post(
                 pre_send_guard_reason = (
                     "تم منع الإرسال تلقائيًا لتعذر التحقق من سجل الرفض السابق."
                 )
+                pre_send_outcome = "blocked_check_error"
             if pre_send_guard_reason:
                 decision = "REJECT"
+                pre_send_outcome = "blocked_rejection_history"
                 final_reason = (
                     (final_reason + " ") if final_reason else ""
                 ) + pre_send_guard_reason
+        decision_trace.append({
+            "gate": "pre_send_guard", "before": decision_before_pre_send,
+            "after": decision, "outcome": pre_send_outcome,
+        })
 
         # ====================================================
         # CV
@@ -8080,6 +8137,12 @@ def process_post(
             "original_ai_decision":
                 original_ai_decision,
 
+            "decision_trace":
+                decision_trace,
+
+            "delivery_status":
+                "pending",
+
             "ai_verification_status":
                 str(job.get("verification_gate") or "not_required"),
 
@@ -8194,6 +8257,21 @@ def process_post(
             and not record["sent"]
         ):
             post_success = False
+
+        if decision != "APPLY":
+            record["delivery_status"] = "not_applicable_non_apply"
+        elif record.get("sent"):
+            record["delivery_status"] = "sent"
+        elif record.get("job_duplicate"):
+            record["delivery_status"] = "duplicate_prevented"
+        elif not cv:
+            record["delivery_status"] = "blocked_missing_cv"
+        elif not emails:
+            record["delivery_status"] = "blocked_missing_email"
+        elif send_attempted:
+            record["delivery_status"] = "send_failed"
+        else:
+            record["delivery_status"] = "not_attempted"
 
         # ====================================================
         # SAVE RESULT

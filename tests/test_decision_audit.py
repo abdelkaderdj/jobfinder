@@ -72,6 +72,56 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertNotIn("PRIVATE FULL AD TEXT", serialized)
         self.assertNotIn("/runner/cvs/private.pdf", serialized)
 
+    def test_decision_trace_keeps_only_safe_gate_codes_and_records_overrides(self):
+        event = {
+            "post": {"source": "rcrdz1", "message_id": 123},
+            "record": {
+                "job_title": "Technicien maintenance",
+                "decision": "REJECT",
+                "original_ai_decision": "APPLY",
+                "decision_trace": [
+                    {
+                        "gate": "candidate_fit",
+                        "before": "APPLY",
+                        "after": "REJECT",
+                        "outcome": "overrode",
+                        "reason": "PRIVATE ADVERTISEMENT TEXT MUST NOT BE COPIED",
+                    },
+                    {
+                        "gate": "contact_scope",
+                        "before": "APPLY",
+                        "after": "REVIEW",
+                        "outcome": "blocked_no_email",
+                        "email": "private@example.org",
+                    },
+                    {
+                        "gate": "unrecognized_gate",
+                        "before": "APPLY",
+                        "after": "APPLY",
+                        "outcome": "ignore",
+                    },
+                ],
+                "delivery_status": "blocked_missing_cv",
+                "manual_apply": False,
+                "ai_verification_status": "forced_review",
+            },
+        }
+        result = make_decision_audit_record(event)
+        self.assertEqual(
+            result["decision_trace"],
+            [
+                {"gate": "candidate_fit", "before": "APPLY", "after": "REJECT", "outcome": "overrode", "changed": True},
+                {"gate": "contact_scope", "before": "APPLY", "after": "REVIEW", "outcome": "blocked_no_email", "changed": True},
+            ],
+        )
+        self.assertEqual(result["decision_override_stages"], ["candidate_fit", "contact_scope"])
+        self.assertEqual(result["delivery_status"], "blocked_missing_cv")
+        self.assertEqual(result["ai_verification_status"], "forced_review")
+        serialized = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("PRIVATE ADVERTISEMENT TEXT", serialized)
+        self.assertNotIn("private@example.org", serialized)
+        self.assertNotIn("unrecognized_gate", serialized)
+
     def test_sidecar_is_encrypted_and_appends_distinct_decisions(self):
         fernet = Fernet(Fernet.generate_key())
         now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -157,6 +207,15 @@ class DecisionAuditTests(unittest.TestCase):
                 "score": 35,
                 "cv_match_score": 55,
                 "cv_matched_skill_groups": ["industrial_maintenance"],
+                "decision_trace": [
+                    {
+                        "gate": "candidate_fit",
+                        "before": "REJECT",
+                        "after": "REVIEW",
+                        "outcome": "overrode",
+                    }
+                ],
+                "delivery_status": "blocked_missing_cv",
                 "reason": "Relevant technical role; verify experience.",
             },
         }
@@ -168,6 +227,7 @@ class DecisionAuditTests(unittest.TestCase):
         )
         second["final_decision"] = "APPLY"
         second["sent"] = True
+        second["delivery_status"] = "sent"
 
         report, summary = make_report([first, second], 2, now=now)
 
@@ -177,6 +237,11 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(summary["sent"], 1)
         self.assertEqual(summary["cv_match_scores_available"], 1)
         self.assertEqual(summary["cv_match_score_bands"]["50-69"], 1)
+        self.assertEqual(summary["decision_changes_by_gate"], {"candidate_fit": 1})
+        self.assertEqual(summary["delivery_outcomes"], {"sent": 1})
+        self.assertIn("مراحل تغيير القرار", report)
+        self.assertIn("ملاءمة المنصب", report)
+        self.assertIn("تم الإرسال", report)
         self.assertIn("مؤشر CV", report)
         self.assertIn("55", report)
         self.assertIn("https://t.me/rcrdz1/123", report)
