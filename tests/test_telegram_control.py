@@ -1750,6 +1750,7 @@ Ouvrier Montage Panneaux PV
         rendered = bot._review_text(item)
         self.assertIn("https://www.example.com/postuler", rendered)
         self.assertIn("رابط التقديم الظاهر في الإعلان", rendered)
+        self.assertIn("لا يوجد بريد مباشر؛ رابط التقديم موجود أدناه", rendered)
 
     def test_review_is_queued_and_shows_controls(self):
         bot, sent = self.build_bot()
