@@ -143,7 +143,7 @@ UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bكيميائي\b", r"\bمحاسب\b", r"\bكيميايي\b", r"\bموارد بشرية\b",
     r"\bسكرتير\b", r"\bسكرتيرة\b", r"\bكهربائي\b", r"\bكهرباء\b",
     r"\bكهروميكانيك\b", r"\bكهروميكانيكي\b", r"\bمخازن\b",
-    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b",
+    r"\bلوجستيك\b", r"\bمخزون\b", r"\bطيران\b", r"\bصيانة طائرات\b", r"\bصيانة طايرات\b",
 )
 
 # Direct maintenance-technician titles can bypass an experience-only concern
