@@ -323,6 +323,38 @@ class TelegramControlTests(unittest.TestCase):
         self.assertIn("مراجعة بشرية", reason)
         self.assertIn("مراجعة بشرية", reason)
 
+    def test_experience_range_parser_preserves_lower_endpoint_in_english_french_and_arabic(self):
+        cases = (
+            ("Experience required: between 2 and 5 years.", 2),
+            ("Expérience professionnelle obligatoire : entre 2 et 5 ans.", 2),
+            ("Expérience exigée : de 2 à 5 ans.", 2),
+            ("الخبرة المطلوبة: من 2 إلى 5 سنوات.", 2),
+            ("الخبرة المطلوبة: ما بين 2 و5 سنوات.", 2),
+            ("خبرة مهنية لا تقل عن ٤ سنوات.", 4),
+        )
+        for advertisement, expected in cases:
+            with self.subTest(advertisement=advertisement):
+                self.assertEqual(
+                    processor._experience_requirement_years(advertisement),
+                    expected,
+                )
+
+    def test_experience_upper_bounds_are_not_misread_as_minimum_requirements(self):
+        advertisements = (
+            "Experience up to 5 years.",
+            "Expérience professionnelle jusqu'à 5 ans.",
+            "الخبرة حتى 5 سنوات.",
+            "5 years maximum experience.",
+        )
+        for advertisement in advertisements:
+            with self.subTest(advertisement=advertisement):
+                self.assertIsNone(
+                    processor._experience_requirement_years(advertisement)
+                )
+                self.assertTrue(
+                    processor._advertisement_has_experience_upper_bound(advertisement)
+                )
+
     def test_two_year_experience_requirement_does_not_block_experience_only_application(self):
         job = {
             "job_title": "Opérateur de Machine CNC",
