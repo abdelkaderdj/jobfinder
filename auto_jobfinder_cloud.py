@@ -1350,9 +1350,39 @@ _COMPACT_ROLE_LIST_HEADING_MARKERS = (
     "الشواغر التالية", "مناصب التوظيف", "الوظائف المطلوبة",
     "وظائف شاغرة",
 )
-_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(
-    normalize_text(prefix) for prefix in _COMPACT_ROLE_PREFIXES
-)
+def _curated_role_title_prefixes_from_lexicon() -> tuple[str, ...]:
+    """
+    Read occupation examples from the curated multilingual lexicon.
+
+    These examples extend the deterministic title-list vocabulary. They are
+    still only accepted inside the explicit compact-list parser; a keyword
+    match alone never proves that a post is a vacancy.
+    """
+    try:
+        lexicon = json.loads(recruitment_extraction_reference_text())
+    except (TypeError, ValueError):
+        return ()
+    if not isinstance(lexicon, dict):
+        return ()
+
+    prefixes = []
+    for family in lexicon.get("title_families", []):
+        if not isinstance(family, dict):
+            continue
+        for example in family.get("examples", []):
+            normalized = normalize_text(example)
+            if normalized and len(normalized.replace(" ", "")) >= 4:
+                prefixes.append(normalized)
+    return tuple(dict.fromkeys(prefixes))
+
+
+# The curated occupation examples and the conservative generic prefixes share
+# one deterministic inventory, instead of maintaining unrelated title lists.
+_COMPACT_ROLE_PREFIXES_NORMALIZED = tuple(dict.fromkeys(
+    normalized
+    for prefix in (*_COMPACT_ROLE_PREFIXES, *_curated_role_title_prefixes_from_lexicon())
+    if (normalized := normalize_text(prefix))
+))
 
 
 def extract_compact_listed_role_titles(advertisement: str) -> list[str]:
