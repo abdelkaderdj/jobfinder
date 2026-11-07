@@ -122,6 +122,69 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertNotIn("private@example.org", serialized)
         self.assertNotIn("unrecognized_gate", serialized)
 
+    def test_ai_invocation_trace_is_sanitized_and_rejects_prompt_fields(self):
+        event = {
+            "post": {"source": "rcrdz1", "message_id": 501},
+            "record": {
+                "job_title": "Technicien de maintenance",
+                "decision": "REVIEW",
+                "ai_call_trace": [
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "gemini",
+                        "model": "gemini-3.8-flash",
+                        "attempt": 1,
+                        "json_valid": False,
+                        "elapsed_ms": 240,
+                        "outcome": "invalid_json",
+                        "prompt": "PRIVATE ADVERTISEMENT AND CANDIDATE PROFILE",
+                        "response": "PRIVATE MODEL RESPONSE",
+                    },
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "groq",
+                        "model": "openai/gpt-oss-20b",
+                        "attempt": 1,
+                        "json_valid": True,
+                        "elapsed_ms": 410,
+                        "outcome": "success",
+                    },
+                    {
+                        "request": 2,
+                        "stage": "unknown_stage",
+                        "provider": "groq",
+                        "model": "openai/gpt-oss-20b",
+                        "attempt": 1,
+                        "json_valid": True,
+                        "elapsed_ms": 10,
+                        "outcome": "success",
+                    },
+                    {
+                        "request": 2,
+                        "stage": "offer_analysis",
+                        "provider": "gemini",
+                        "model": "gemini-3.8-flash PRIVATE TEXT",
+                        "attempt": 1,
+                        "json_valid": True,
+                        "elapsed_ms": 10,
+                        "outcome": "success",
+                    },
+                ],
+            },
+        }
+        result = make_decision_audit_record(event)
+        self.assertEqual(len(result["ai_call_trace"]), 2)
+        self.assertEqual(result["ai_call_trace"][0]["outcome"], "invalid_json")
+        self.assertFalse(result["ai_call_trace"][0]["json_valid"])
+        serialized = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("PRIVATE ADVERTISEMENT", serialized)
+        self.assertNotIn("PRIVATE MODEL RESPONSE", serialized)
+        self.assertNotIn("PRIVATE TEXT", serialized)
+        self.assertNotIn("prompt", serialized)
+        self.assertNotIn("response", serialized)
+
     def test_sidecar_is_encrypted_and_appends_distinct_decisions(self):
         fernet = Fernet(Fernet.generate_key())
         now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -216,6 +279,28 @@ class DecisionAuditTests(unittest.TestCase):
                     }
                 ],
                 "delivery_status": "blocked_missing_cv",
+                "ai_call_trace": [
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "gemini",
+                        "model": "gemini-3.8-flash",
+                        "attempt": 1,
+                        "json_valid": False,
+                        "elapsed_ms": 120,
+                        "outcome": "invalid_json",
+                    },
+                    {
+                        "request": 1,
+                        "stage": "offer_analysis",
+                        "provider": "groq",
+                        "model": "openai/gpt-oss-20b",
+                        "attempt": 1,
+                        "json_valid": True,
+                        "elapsed_ms": 320,
+                        "outcome": "success",
+                    },
+                ],
                 "reason": "Relevant technical role; verify experience.",
             },
         }
@@ -239,6 +324,16 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(summary["cv_match_score_bands"]["50-69"], 1)
         self.assertEqual(summary["decision_changes_by_gate"], {"candidate_fit": 1})
         self.assertEqual(summary["delivery_outcomes"], {"sent": 1})
+        self.assertEqual(summary["ai_invocation_attempts"], 2)
+        self.assertEqual(summary["ai_model_usage"], {
+            "gemini/gemini-3.8-flash": 1,
+            "groq/openai/gpt-oss-20b": 1,
+        })
+        self.assertEqual(summary["ai_successful_invocations"], 1)
+        self.assertEqual(summary["ai_invalid_json_attempts"], 1)
+        self.assertIn("استدعاءات AI الفعلية", report)
+        self.assertIn("gemini-3.8-flash", report)
+        self.assertIn("openai/gpt-oss-20b", report)
         self.assertIn("مراحل تغيير القرار", report)
         self.assertIn("ملاءمة المنصب", report)
         self.assertIn("تم الإرسال", report)
