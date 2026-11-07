@@ -172,16 +172,23 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         str(record.get("delivery_status") or "not_recorded")
         for record in final_records
     )
+    # Count provider calls across every recorded processing attempt, not only
+    # the latest decision per position. A single post can yield several roles,
+    # each carrying the same post-level AI trace, so de-duplicate within one
+    # workflow run while keeping retries from later runs as distinct calls.
     unique_ai_calls: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for record in final_records:
+    for _, record in selected:
         source = str(record.get("source") or "")
         message_id = str(record.get("message_id") or "")
+        run_key = str(record.get("run_id") or record.get("record_id") or "")
+        run_attempt = str(record.get("run_attempt") or "")
         for call in record.get("ai_call_trace") or []:
             if not isinstance(call, dict):
                 continue
             key = (
-                source, message_id, call.get("request"), call.get("stage"),
-                call.get("provider"), call.get("model"), call.get("attempt"),
+                source, message_id, run_key, run_attempt,
+                call.get("request"), call.get("stage"), call.get("provider"),
+                call.get("model"), call.get("attempt"),
             )
             unique_ai_calls[key] = call
     ai_calls = list(unique_ai_calls.values())
