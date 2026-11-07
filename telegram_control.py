@@ -715,17 +715,28 @@ class TelegramJobBot:
         if decision in {"APPLY", "REVIEW"} and not record.get("analysis_fallback"):
             job = event.get("job") or {}
             post = event.get("post") or {}
+            decision_before_guard = decision
             reason = self.pre_send_guard_for_job(
                 job if isinstance(job, dict) else {},
                 str(record.get("application_job_title") or record.get("job_title") or ""),
                 record.get("emails") or [],
                 post if isinstance(post, dict) else {},
             )
+            guard_outcome = "clear"
             if reason:
                 record["decision"] = "REJECT"
+                guard_outcome = "blocked_rejection_history"
                 record["reason"] = (
                     (str(record.get("reason") or "").strip() + " ") + reason
                 ).strip()
+            trace = record.setdefault("decision_trace", [])
+            if isinstance(trace, list):
+                trace.append({
+                    "gate": "telegram_rejection_guard",
+                    "before": decision_before_guard,
+                    "after": str(record.get("decision") or decision_before_guard).upper(),
+                    "outcome": guard_outcome,
+                })
         self._count_event_once(record)
         self._save("Job event counters updated")
         decision = str(record.get("decision") or "").upper()

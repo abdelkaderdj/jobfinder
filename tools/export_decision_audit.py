@@ -91,6 +91,17 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         if str(r.get("original_ai_decision") or "").upper()
         and str(r.get("original_ai_decision") or "").upper() != str(r.get("final_decision") or "").upper()
     )
+    override_stage_counts: Counter[str] = Counter()
+    for record in final_records:
+        override_stage_counts.update(
+            stage for stage in record.get("decision_override_stages", [])
+            if isinstance(stage, str)
+        )
+    delivery_status_counts = Counter(
+        str(record.get("delivery_status") or "not_recorded")
+        for record in final_records
+    )
+
     summary = {
         "window_start_utc": cutoff.isoformat(timespec="seconds"),
         "window_end_utc": current.isoformat(timespec="seconds"),
@@ -101,6 +112,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "cv_match_score_bands": cv_score_bands,
         "cv_match_scores_available": len(cv_scores),
         "decision_changed_by_rules_or_guard": transitions,
+        "decision_changes_by_gate": dict(override_stage_counts),
+        "delivery_outcomes": dict(delivery_status_counts),
         "sent": sum(bool(r.get("sent")) for r in final_records),
     }
 
@@ -115,14 +128,16 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         f"- فئات مؤشر تطابق كلمات السيرة (ليس احتمال قبول): {json.dumps(summary['cv_match_score_bands'], ensure_ascii=False)}",
         f"- عدد المناصب ذات مؤشر تطابق محفوظ: {summary['cv_match_scores_available']}",
         f"- مرات اختلاف قرار النموذج عن القرار النهائي بعد القواعد/الحواجز: {transitions}",
+        f"- بوابات تغيير القرار: {json.dumps(summary['decision_changes_by_gate'], ensure_ascii=False)}",
+        f"- نتائج الإرسال: {json.dumps(summary['delivery_outcomes'], ensure_ascii=False)}",
         f"- طلبات إرسال مسجلة ضمن آخر قرار لكل منصب: {summary['sent']}",
         "",
         "**تنبيه منهجي:** هذا سجل القرارات التي جُمعت بعد تفعيل دفتر التدقيق المشفّر فقط؛ لا يعيد بناء قرارات تاريخية لم تكن مسجلة عند حدوثها. القرار النهائي ليس حكمًا على جودة القرار؛ يحتاج كل إعلان إلى مراجعة مقابلة مستقلة.",
         "",
         "## آخر قرار مسجّل لكل إعلان/منصب",
         "",
-        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | النموذج | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | السبب المسجّل |",
-        "|---|---|---|---|---|---|---|---:|---:|---|---|",
+        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | النموذج | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
+        "|---|---|---|---|---|---|---|---:|---:|---|---|---|---|",
     ]
     for record in final_records:
         observed = _parse_time(record.get("observed_at_utc"))
@@ -147,11 +162,13 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
                 score_text,
                 str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
                 _cell(", ".join(record.get("cv_matched_skill_groups") or []), 120),
+                _cell(", ".join(record.get("decision_override_stages") or []), 100),
+                _cell(record.get("delivery_status"), 40),
                 _cell(record.get("reason"), 280),
             ]) + " |"
         )
 
-    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد |", "|---|---|---|---|---|---:|---:|---|"])
+    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | درجة AI | مؤشر CV | المزوّد | مراحل التغيير | الإرسال |", "|---|---|---|---|---|---:|---:|---|---|---|"])
     for when, record in selected:
         source_url = str(record.get("source_url") or "")
         if source_url and re.fullmatch(r"https://t\.me/[A-Za-z0-9_]{1,80}/\d+", source_url):
@@ -168,6 +185,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             score_text,
             str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
             _cell(str(record.get("provider") or "") + "/" + str(record.get("model") or ""), 100),
+            _cell(", ".join(record.get("decision_override_stages") or []), 100),
+            _cell(record.get("delivery_status"), 40),
         ]) + " |")
 
     return "\n".join(lines) + "\n", summary

@@ -29,6 +29,48 @@ def _safe_text(value: Any, limit: int = 500) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+_ALLOWED_DECISIONS = {"APPLY", "REVIEW", "REJECT"}
+_ALLOWED_TRACE_GATES = {
+    "candidate_fit", "manual_apply_title_validation", "independent_verification",
+    "location", "contact_scope", "pre_send_guard", "telegram_rejection_guard",
+}
+_SAFE_CODE_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+def _safe_code(value: Any, default: str = "unknown") -> str:
+    text = str(value or "").strip().lower()
+    return text if _SAFE_CODE_RE.fullmatch(text) else default
+
+
+def _safe_decision(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    return text if text in _ALLOWED_DECISIONS else "UNKNOWN"
+
+
+def _safe_decision_trace(value: Any) -> list[dict[str, Any]]:
+    """Keep only compact gate transitions; never copy free text or source evidence."""
+    if not isinstance(value, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in value[:16]:
+        if not isinstance(item, dict):
+            continue
+        gate = _safe_code(item.get("gate"), "")
+        if gate not in _ALLOWED_TRACE_GATES:
+            continue
+        before = _safe_decision(item.get("before"))
+        after = _safe_decision(item.get("after"))
+        outcome = _safe_code(item.get("outcome"))
+        cleaned.append({
+            "gate": gate,
+            "before": before,
+            "after": after,
+            "outcome": outcome,
+            "changed": before != after,
+        })
+    return cleaned
+
+
 def make_decision_audit_record(
     event: dict[str, Any],
     *,
@@ -100,6 +142,13 @@ def make_decision_audit_record(
         "location": _safe_text(record.get("location"), 160),
         "original_ai_decision": _safe_text(record.get("original_ai_decision"), 20).upper(),
         "final_decision": _safe_text(record.get("decision"), 20).upper(),
+        "decision_trace": _safe_decision_trace(record.get("decision_trace")),
+        "decision_override_stages": [
+            item["gate"] for item in _safe_decision_trace(record.get("decision_trace")) if item["changed"]
+        ],
+        "delivery_status": _safe_code(record.get("delivery_status"), "not_recorded"),
+        "manual_apply": bool(record.get("manual_apply")),
+        "ai_verification_status": _safe_code(record.get("ai_verification_status"), "not_recorded"),
         "score": score,
         "cv_match_score": cv_match_score,
         "cv_matched_skill_groups": matched_groups,
