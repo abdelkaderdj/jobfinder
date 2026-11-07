@@ -23,7 +23,7 @@ class AIQualityEvaluationTests(unittest.TestCase):
                 emit_live_progress(
                     "case_finished",
                     index=2,
-                    total=9,
+                    total=16,
                     case_id="case/02",
                     status="evaluated",
                     passed=False,
@@ -32,7 +32,7 @@ class AIQualityEvaluationTests(unittest.TestCase):
         self.assertIn('"event":"case_finished"', rendered)
         self.assertIn('"case_id":"case02"', rendered)
         self.assertIn('"index":2', rendered)
-        self.assertIn('"total":9', rendered)
+        self.assertIn('"total":16', rendered)
         self.assertIn('"passed":false', rendered)
         self.assertNotIn("source_text", rendered)
         self.assertNotIn("candidate", rendered)
@@ -40,7 +40,7 @@ class AIQualityEvaluationTests(unittest.TestCase):
     def test_starter_dataset_has_labelled_cases_and_historical_regressions(self):
         path = Path(__file__).resolve().parents[1] / "data" / "ai_quality_eval_cases.jsonl"
         cases = load_cases(path)
-        self.assertGreaterEqual(len(cases), 8)
+        self.assertGreaterEqual(len(cases), 16)
         self.assertTrue(any(
             item.get("provenance") == "known_historical_regression_rcrdz1_23066"
             for item in cases
@@ -51,6 +51,54 @@ class AIQualityEvaluationTests(unittest.TestCase):
         self.assertTrue(source_quote_is_grounded("Technicien de maintenance", source))
         self.assertFalse(source_quote_is_grounded("Maintenance Technician", source))
         self.assertFalse(source_quote_is_grounded("", source))
+
+    def test_expected_location_company_and_email_fields_are_measured(self):
+        case = {
+            "id": "receptionist-metadata",
+            "source_text": (
+                "📢 إعلان توظيف | منصب موظفة استقبال\\n"
+                "مكان العمل: دالي إبراهيم، الشراقة – الجزائر العاصمة.\\n"
+                "إرسال السيرة الذاتية إلى mg20005000@gmail.com."
+            ),
+            "expected_post_type": "actual_vacancy",
+            "expected_titles": [{
+                "aliases": ["موظفة استقبال", "Receptionist"],
+                "expected_location_aliases": [
+                    "دالي إبراهيم الشراقة الجزائر العاصمة",
+                    "Dely Brahim Cheraga Algiers",
+                ],
+                "company_must_be_empty": True,
+                "expected_emails": ["mg20005000@gmail.com"],
+            }],
+            "expected_decisions": [],
+        }
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["إعلان توظيف"],
+            "jobs": [{
+                "job_title": "موظفة استقبال",
+                "title_evidence": "موظفة استقبال",
+                "company": "",
+                "location": "دالي إبراهيم، الشراقة – الجزائر العاصمة",
+                "emails": ["mg20005000@gmail.com"],
+                "decision": "REVIEW",
+            }],
+        }
+        evaluated = evaluate_case(case, result)
+        self.assertEqual(evaluated["metadata_errors"], [])
+        self.assertEqual(len(evaluated["metadata_checks"]), 3)
+        self.assertTrue(evaluated["passed"])
+
+        result["jobs"][0]["company"] = "معرض تجاري"
+        failed = evaluate_case(case, result)
+        self.assertEqual(
+            [item["field"] for item in failed["metadata_errors"]],
+            ["company_must_be_empty"],
+        )
+        self.assertFalse(failed["passed"])
+        summary = summarize([failed])
+        self.assertEqual(summary["metadata_checks"], 3)
+        self.assertEqual(summary["metadata_errors"], 1)
 
     def test_metrics_separate_missing_titles_from_unexpected_titles(self):
         case = {

@@ -47,6 +47,38 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
         self.assertIn("Omit recruitment_details entirely", prompt)
         self.assertNotIn("{{RECRUITMENT_EXTRACTION_LEXICON}}", prompt)
 
+    def test_compact_list_extractor_uses_curated_role_examples(self):
+        advertisement = (
+            "المناصب الشاغرة\n"
+            "موظفة استقبال\n"
+            "أمين مخزن\n"
+            "عامل إنتاج\n"
+            "الشروط المطلوبة\n"
+            "مستوى دراسي مناسب\n"
+        )
+        titles = processor.extract_compact_listed_role_titles(advertisement)
+        self.assertEqual(titles, ["موظفة استقبال", "أمين مخزن", "عامل إنتاج"])
+
+    def test_receptionist_single_position_recovery_preserves_grounded_fields(self):
+        advertisement = (
+            "📢 إعلان توظيف | منصب موظفة استقبال\n"
+            "مطلوب موظفتان للاستقبال في معرض تجاري.\n"
+            "📍 مكان العمل: دالي إبراهيم، الشراقة – الجزائر العاصمة.\n"
+            "✅ الخبرة: سنتان على الأقل.\n"
+            "💰 الراتب: ابتداءً من 60,000 دج.\n"
+            "🕒 التوقيت: السبت إلى الخميس، من 11:00 إلى 19:00، الجمعة عطلة.\n"
+            "📧 إرسال السيرة الذاتية إلى mg20005000@gmail.com أو التواصل مباشرة عبر الرسائل الخاصة."
+        )
+        job = processor.recover_explicit_single_position(advertisement)
+        self.assertIsNotNone(job)
+        self.assertEqual(job["job_title"], "موظفة استقبال")
+        self.assertIn("دالي ابراهيم", processor.normalize_text(job["location"]))
+        self.assertIn("الشراقة", processor.normalize_text(job["location"]))
+        self.assertEqual(job["company"], "")
+        self.assertEqual(processor.extract_emails(advertisement), ["mg20005000@gmail.com"])
+        self.assertIsNone(job["score"])
+        self.assertEqual(job["decision"], "REVIEW")
+
     def test_lexicon_reference_is_loaded_from_project_data_file(self):
         path = Path(processor.PROJECT_DIR) / "data" / "recruitment_extraction_lexicon.json"
         self.assertTrue(path.is_file())
