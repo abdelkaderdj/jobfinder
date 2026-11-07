@@ -49,24 +49,24 @@ class RecruitmentExtractionReferenceTests(unittest.TestCase):
 
     def test_compact_list_extractor_uses_curated_role_examples(self):
         advertisement = (
-            "المناصب الشاغرة\\n"
-            "موظفة استقبال\\n"
-            "أمين مخزن\\n"
-            "عامل إنتاج\\n"
-            "الشروط المطلوبة\\n"
-            "مستوى دراسي مناسب\\n"
+            "المناصب الشاغرة\n"
+            "موظفة استقبال\n"
+            "أمين مخزن\n"
+            "عامل إنتاج\n"
+            "الشروط المطلوبة\n"
+            "مستوى دراسي مناسب\n"
         )
         titles = processor.extract_compact_listed_role_titles(advertisement)
         self.assertEqual(titles, ["موظفة استقبال", "أمين مخزن", "عامل إنتاج"])
 
     def test_receptionist_single_position_recovery_preserves_grounded_fields(self):
         advertisement = (
-            "📢 إعلان توظيف | منصب موظفة استقبال\\n"
-            "مطلوب موظفتان للاستقبال في معرض تجاري.\\n"
-            "📍 مكان العمل: دالي إبراهيم، الشراقة – الجزائر العاصمة.\\n"
-            "✅ الخبرة: سنتان على الأقل.\\n"
-            "💰 الراتب: ابتداءً من 60,000 دج.\\n"
-            "🕒 التوقيت: السبت إلى الخميس، من 11:00 إلى 19:00، الجمعة عطلة.\\n"
+            "📢 إعلان توظيف | منصب موظفة استقبال\n"
+            "مطلوب موظفتان للاستقبال في معرض تجاري.\n"
+            "📍 مكان العمل: دالي إبراهيم، الشراقة – الجزائر العاصمة.\n"
+            "✅ الخبرة: سنتان على الأقل.\n"
+            "💰 الراتب: ابتداءً من 60,000 دج.\n"
+            "🕒 التوقيت: السبت إلى الخميس، من 11:00 إلى 19:00، الجمعة عطلة.\n"
             "📧 إرسال السيرة الذاتية إلى mg20005000@gmail.com أو التواصل مباشرة عبر الرسائل الخاصة."
         )
         job = processor.recover_explicit_single_position(advertisement)
