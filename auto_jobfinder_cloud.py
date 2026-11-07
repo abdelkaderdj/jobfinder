@@ -3005,8 +3005,9 @@ def groq_json_request(messages, temperature=0, max_completion_tokens=1000, reaso
     # breaker rather than spending more free requests against the same route.
     if openrouter_configured and not _OPENROUTER_DISABLED_FOR_RUN:
         openrouter_attempt_started = time.monotonic()
-        openrouter_model_name = _configured_openrouter_model()
+        openrouter_model_name = "unknown"
         try:
+            openrouter_model_name = _configured_openrouter_model()
             _pace_ai_provider("openrouter")
             result = _openrouter_json_request(
                 messages=messages,
@@ -8428,10 +8429,10 @@ def _process_post_with_ai_trace_context(
 
 def process_post(post, manual_apply=False):
     """Attach AI invocation telemetry to this Telegram post without storing prompts."""
-    post = post if isinstance(post, dict) else {}
+    context_post = post if isinstance(post, dict) else {}
     context = {
-        "source": str(post.get("source") or post.get("channel") or "")[:80],
-        "message_id": str(post.get("message_id") or "")[:40],
+        "source": str(context_post.get("source") or context_post.get("channel") or "")[:80],
+        "message_id": str(context_post.get("message_id") or "")[:40],
         "request_counter": 0,
         "calls": [],
     }
