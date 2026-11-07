@@ -726,6 +726,8 @@ class TelegramJobBot:
             if reason:
                 record["decision"] = "REJECT"
                 guard_outcome = "blocked_rejection_history"
+                if not record.get("sent"):
+                    record["delivery_status"] = "blocked_rejection_history"
                 record["reason"] = (
                     (str(record.get("reason") or "").strip() + " ") + reason
                 ).strip()
