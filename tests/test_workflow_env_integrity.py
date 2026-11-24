@@ -146,10 +146,11 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
             WORKFLOWS_DIR / "jobfinder-cloud.yml",
             WORKFLOWS_DIR / "telegram-webhook-event.yml",
         )
-        expected_block = re.compile(
-            r"git add cloud_private/state\\.enc\\s+"
-            r"if \\[ -f cloud_private/decision_audit\\.enc \\]; then\\s+"
-            r"git add cloud_private/decision_audit\\.enc\\s+fi"
+        expected_block = (
+            "          git add cloud_private/state.enc\n"
+            "          if [ -f cloud_private/decision_audit.enc ]; then\n"
+            "            git add cloud_private/decision_audit.enc\n"
+            "          fi\n"
         )
         for path in paths:
             with self.subTest(workflow=path.name):
