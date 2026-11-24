@@ -427,7 +427,7 @@ def _normalized_job_title_variants(job):
 
 def calculate_candidate_cv_match(job, advertisement=""):
     """
-    Explainable overlap against this specific position, not the whole Telegram post.
+    Explainable keyword overlap between this specific position and the candidate's curated target-skill groups; this is not a direct comparison with the full CV document.
 
     The caller must pass only the position-specific block. Explicitly excluded
     disciplines and Ingénieur/Engineer titles cannot become a match due to
@@ -1054,7 +1054,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
     ):
         return (
             "REJECT",
-            f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر مطابقة السيرة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
+            f"رُفضت الوظيفة لأن درجة AI منخفضة جدًا ({ai_score:g}/100) ومؤشر تداخل الكلمات مع مجموعات المهارات المستهدفة ضعيف ({cv_match_score}/100)؛ لا توجد أدلة كافية تبرر إحالتها للمراجعة.",
         )
 
     if is_production_role:
@@ -1132,7 +1132,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         if potentially_relevant:
             return (
                 "REVIEW",
-                f"الدور قريب من مسار المرشح (مؤشر CV {cv_match_score}/100) لكن الإعلان ضمن هذا القسم لا يثبت شرطًا إلزاميًا مفقودًا؛ لذلك حُوّل إلى مراجعة بشرية بدل الرفض الآلي. لا إرسال تلقائي.",
+                f"الدور قريب من مسار المرشح (مؤشر الكلمات المستهدفة {cv_match_score}/100) لكن الإعلان ضمن هذا القسم لا يثبت شرطًا إلزاميًا مفقودًا؛ لذلك حُوّل إلى مراجعة بشرية بدل الرفض الآلي. لا إرسال تلقائي.",
             )
         return "REJECT", "رُفضت الوظيفة لأن المسمى ومهارات المنصب المحددة لا يثبتان ارتباطًا كافيًا بسيرة المرشح."
 
@@ -1140,12 +1140,12 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         if not potentially_relevant:
             return (
                 "REJECT",
-                f"رُفضت الوظيفة لأن تخصص المنصب لا يطابق المسارات المتفق عليها (مؤشر CV {cv_match_score}/100).",
+                f"رُفضت الوظيفة لأن تخصص المنصب لا يطابق المسارات المتفق عليها (مؤشر الكلمات المستهدفة {cv_match_score}/100).",
             )
         if cv_match_score < 30:
             return (
                 "REVIEW",
-                f"المسمى قريب تقنيًا لكن الأدلة الخاصة بهذا المنصب ضعيفة (مؤشر CV {cv_match_score}/100)؛ يلزم تحقق يدوي قبل أي تقديم.",
+                f"المسمى قريب تقنيًا لكن الأدلة الخاصة بهذا المنصب ضعيفة (مؤشر الكلمات المستهدفة {cv_match_score}/100)؛ يلزم تحقق يدوي قبل أي تقديم.",
             )
         if ai_score is not None and ai_score < 35 and not experience_only_override:
             return (
@@ -1159,7 +1159,7 @@ def enforce_candidate_fit_rule(job, decision, advertisement="", cv_match_score=N
         ):
             return (
                 "REVIEW",
-                f"المنصب صناعي/تقني عام وليس تطابقًا مباشرًا واضحًا (مؤشر CV {cv_match_score}/100)؛ لا إرسال آلي.",
+                f"المنصب صناعي/تقني عام وليس تطابقًا مباشرًا واضحًا (مؤشر الكلمات المستهدفة {cv_match_score}/100)؛ لا إرسال آلي.",
             )
 
     if decision == "REVIEW":
@@ -8125,8 +8125,8 @@ def _process_post_with_ai_trace_context(
             final_reason = (
                 (final_reason + " ") if final_reason else ""
             ) + (
-                f"مؤشر تطابق السيرة: {cv_match_score}/100 (مؤشر كلمات قابل للتفسير وليس احتمال قبول). "
-                f"المجموعات المطابقة: {matched_text}. لا إرسال آلي قبل المراجعة."
+                f"مؤشر تداخل الكلمات مع المهارات المستهدفة: {cv_match_score}/100 (مؤشر كلمات محدود، وليس مقارنة مباشرة بكامل ملف السيرة أو احتمال قبول). "
+                f"مجموعات المهارات المطابقة: {matched_text}. لا إرسال آلي قبل المراجعة."
             )
 
         # ====================================================
