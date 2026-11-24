@@ -226,7 +226,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         f"- العروض/المناصب الفريدة بعد إزالة تكرار المحاولات: {summary['unique_post_positions']}",
         f"- قرار النموذج الأصلي: {json.dumps(summary['original_ai_decisions'], ensure_ascii=False)}",
         f"- قرار البوت النهائي: {json.dumps(summary['final_bot_decisions'], ensure_ascii=False)}",
-        f"- فئات مؤشر تطابق كلمات السيرة (ليس احتمال قبول): {json.dumps(summary['cv_match_score_bands'], ensure_ascii=False)}",
+        f"- فئات مؤشر تداخل الكلمات مع المهارات المستهدفة (ليس احتمال قبول): {json.dumps(summary['cv_match_score_bands'], ensure_ascii=False)}",
         f"- عدد المناصب ذات مؤشر تطابق محفوظ: {summary['cv_match_scores_available']}",
         f"- مرات اختلاف قرار النموذج عن القرار النهائي بعد القواعد/الحواجز: {transitions}",
         f"- بوابات تغيير القرار: {json.dumps(summary['decision_changes_by_gate'], ensure_ascii=False)}",
@@ -240,7 +240,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "",
         "## آخر قرار مسجّل لكل إعلان/منصب",
         "",
-        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | آخر حالة للمسار | استدعاءات AI الفعلية | قرار AI | قرار البوت | درجة AI | مؤشر CV | مهارات CV المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
+        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | آخر حالة للمسار | استدعاءات AI الفعلية | قرار AI | قرار البوت | درجة AI | مؤشر الكلمات المستهدفة | مجموعات المهارات المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
         "|---|---|---|---|---|---|---|---|---:|---:|---|---|---|---|",
     ]
     for record in final_records:
@@ -273,7 +273,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
             ]) + " |"
         )
 
-    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | استدعاءات AI الفعلية | درجة AI | مؤشر CV | المزوّد | مراحل التغيير | الإرسال |", "|---|---|---|---|---|---|---:|---:|---|---|---|"])
+    lines.extend(["", "## سجل المحاولات", "", "| وقت UTC | الإعلان | المنصب | AI الأصلي | القرار النهائي | استدعاءات AI الفعلية | درجة AI | مؤشر الكلمات المستهدفة | المزوّد | مراحل التغيير | الإرسال |", "|---|---|---|---|---|---|---:|---:|---|---|---|"])
     for when, record in selected:
         source_url = str(record.get("source_url") or "")
         if source_url and re.fullmatch(r"https://t\.me/[A-Za-z0-9_]{1,80}/\d+", source_url):
