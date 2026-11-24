@@ -155,7 +155,7 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
         for path in paths:
             with self.subTest(workflow=path.name):
                 workflow = path.read_text(encoding="utf-8")
-                self.assertRegex(workflow, expected_block)
+                self.assertIn(expected_block, workflow)
 
 
 
