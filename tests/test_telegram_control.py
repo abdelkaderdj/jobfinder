@@ -1787,7 +1787,8 @@ Ouvrier Montage Panneaux PV
         rendered = bot._review_text(item)
         self.assertIn("ciberodz@gmail.com", rendered)
         self.assertIn("بريد التقديم العام المعلن صراحةً", rendered)
-        self.assertIn("مراجعة يدوية فقط", rendered)
+        self.assertIn("عند قبولك يدويًا", rendered)
+        self.assertIn("سيرسل JobFinder", rendered)
         self.assertNotIn("تعذّر ربط أيٍّ منها", rendered)
 
     def test_global_application_email_never_enables_auto_send_when_section_scope_is_unverified(self):
