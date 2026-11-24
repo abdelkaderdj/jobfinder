@@ -8487,8 +8487,8 @@ def process_post(post, manual_apply=False):
 # MANUALLY APPROVED REVIEW APPLICATION
 # ============================================================
 
-def send_approved_review(item):
-    """Send only a validated, explicitly approved real job review."""
+def _send_review_application(item, *, manual_override: bool):
+    """Send an explicitly approved review while preserving recipient and duplicate guards."""
     if not isinstance(item, dict):
         raise RuntimeError("Review item is invalid")
     record = item.get("record")
@@ -8496,25 +8496,41 @@ def send_approved_review(item):
     post = item.get("post")
     if not isinstance(record, dict) or not isinstance(job, dict) or not isinstance(post, dict):
         raise RuntimeError("Review data is incomplete")
-    # This is a recovery card for an unparsed advertisement, not an extracted job.
-    # Keep this invariant in the sending layer, even if persisted review fields change.
+
+    # Extraction-recovery cards do not identify a source-grounded position.
     if record.get("analysis_fallback") is True:
         raise RuntimeError("An extraction-fallback card cannot be submitted as a job application")
+
     emails = record.get("emails") or []
     title = str(record.get("application_job_title") or "").strip()
     cv_path = str(record.get("cv") or "").strip()
-    if item.get("can_auto_send") is not True:
-        raise RuntimeError("This review is not safe for automatic email submission")
-    if record.get("contact_scope_matched") is not True:
-        raise RuntimeError("The job's advertisement section was not matched safely")
+
+    if manual_override:
+        # The owner's click is the explicit authorization to proceed despite
+        # uncertain location/fit. It is NOT authorization to guess a recipient:
+        # require either a verified position-scoped contact or an explicitly
+        # declared sole global application address.
+        contact_is_safe = (
+            record.get("contact_scope_matched") is True
+            or record.get("global_application_email") is True
+        )
+        if not contact_is_safe:
+            raise RuntimeError("The email recipient is not safely associated with this position")
+    else:
+        if item.get("can_auto_send") is not True:
+            raise RuntimeError("This review is not safe for automatic email submission")
+        if record.get("contact_scope_matched") is not True:
+            raise RuntimeError("The job's advertisement section was not matched safely")
+        if not str(record.get("location_status") or "").startswith("allowed_"):
+            raise RuntimeError("Location eligibility must be confirmed before sending")
+
     if len(emails) != 1 or not str(emails[0]).strip():
         raise RuntimeError("A single unambiguous email recipient is required")
-    if not str(record.get("location_status") or "").startswith("allowed_"):
-        raise RuntimeError("Location eligibility must be confirmed before sending")
     if not cv_path or not os.path.isfile(cv_path):
         raise RuntimeError("The selected CV is unavailable")
     if not title:
         raise RuntimeError("Job title is missing")
+
     email_address = str(emails[0]).strip()
     key = application_key(post, job, email_address)
     offer_fingerprint = application_offer_fingerprint(
@@ -8530,10 +8546,12 @@ def send_approved_review(item):
             "sent": False,
             "job_duplicate": True,
             "manual_approval": True,
+            "manual_approval_mode": "owner_review_manual" if manual_override else "owner_review_auto",
             "manual_approval_status": "duplicate_skipped",
         })
         save_result(duplicate_record)
         return {"status": "duplicate"}
+
     send_application(
         email_address,
         job,
@@ -8541,6 +8559,10 @@ def send_approved_review(item):
         str(record.get("application_language") or "fr"),
         str(item.get("advertisement") or ""),
         title,
+    )
+    location_status = str(record.get("location_status") or "")
+    location_override_used = bool(
+        manual_override and not location_status.startswith("allowed_")
     )
     save_sent(key, {
         "source": post.get("source"),
@@ -8555,6 +8577,8 @@ def send_approved_review(item):
         "identity_key": record.get("identity_key"),
         "offer_fingerprint": offer_fingerprint,
         "manual_approval": True,
+        "manual_approval_mode": "owner_review_manual" if manual_override else "owner_review_auto",
+        "manual_location_override": location_override_used,
     })
     sent_record = dict(record)
     sent_record.update({
@@ -8562,12 +8586,23 @@ def send_approved_review(item):
         "sent": True,
         "job_duplicate": False,
         "manual_approval": True,
+        "manual_approval_mode": "owner_review_manual" if manual_override else "owner_review_auto",
+        "manual_location_override": location_override_used,
         "manual_approval_status": "sent",
         "manual_approval_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     })
     save_result(sent_record)
     return {"status": "sent"}
 
+
+def send_approved_review(item):
+    """Send a review already cleared for automatic approval."""
+    return _send_review_application(item, manual_override=False)
+
+
+def send_manually_approved_review(item):
+    """Send only after the owner presses Accept on a pending review card."""
+    return _send_review_application(item, manual_override=True)
 
 # ============================================================
 # MONITOR

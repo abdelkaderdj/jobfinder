@@ -515,43 +515,58 @@ class TelegramJobBot:
         if record.get("analysis_fallback"):
             action_note = (
                 "🛑 تعذّر استخراج وظيفة محددة من الإعلان. هذه بطاقة استرداد للمراجعة فقط، "
-                "وليست وظيفة مؤكدة؛ لن يُرسل أي طلب تلقائيًا. راجع نص الإعلان الأصلي."
+                "وليست وظيفة مؤكدة؛ لن يُرسل أي طلب حتى يُستخرج منصب وبريد واضحان."
             )
         elif item.get("can_auto_send"):
             action_note = "✅ القبول سيرسل طلبًا بالبريد بعد إعادة فحص التكرار."
-        elif record.get("global_application_email") and len(emails) == 1:
+        elif (
+            len(emails) == 1
+            and (
+                record.get("contact_scope_matched") is True
+                or record.get("global_application_email") is True
+            )
+            and str(record.get("cv") or "").strip()
+        ):
+            recipient_note = (
+                "بريد التقديم العام المعلن في الإعلان"
+                if record.get("global_application_email")
+                else "البريد المرتبط بهذا المنصب"
+            )
             action_note = (
-                "📧 هذا هو بريد التقديم العام المعلن صراحةً في الإعلان: "
-                f"{safe_text(emails[0], 200)}. "
-                "لكن ربط المسمى بقسم وظيفي محدد ما زال غير مؤكد؛ هذه مراجعة يدوية فقط "
-                "ولا يؤدي قبول البطاقة إلى إرسال تلقائي."
+                f"✅ عند قبولك يدويًا، سيرسل JobFinder السيرة الذاتية ورسالة الترشح إلى "
+                f"{recipient_note}: {safe_text(emails[0], 200)}. "
+                "موافقتك تتجاوز عدم اليقين الذي أحال الوظيفة للمراجعة، مثل عدم وضوح الموقع، "
+                "مع بقاء التحقق من المستلم ومنع التقديم المكرر."
+            )
+        elif len(emails) == 1 and not str(record.get("cv") or "").strip():
+            action_note = (
+                "⚠️ البريد مستخرج، لكن ملف السيرة الذاتية غير متاح لهذه البطاقة؛ "
+                "لن يُرسل طلب ناقص. تحقّق من إعدادات السيرة ثم أعد المحاولة."
             )
         elif len(emails) == 1:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ هذا الزر لا يرسل بريدًا. "
-                f"البريد المستخرج: {safe_text(emails[0], 200)}. "
-                "الإرسال التلقائي غير متاح لهذه البطاقة؛ راجع السبب أعلاه."
+                "⚠️ البريد المستخرج موجود، لكن لم يستطع البوت تأكيد ارتباطه بهذا المنصب "
+                "أو ببريد تقديم عام معلن. لن نرسل إلى مستلم غير مؤكد."
             )
         elif len(emails) > 1:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لن يُرسل بريد تلقائي لأن الإعلان "
-                "يحتوي على عدة عناوين، ويجب التحقق من العنوان الصحيح."
+                "⚠️ يحتوي الإعلان على عدة عناوين بريد؛ لم يُرسل أي طلب لأن المستلم الصحيح "
+                "غير محسوم. يلزم تحديد بريد هذا المنصب قبل التقديم."
             )
         elif advertised_emails:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ يحتوي نص الإعلان على عناوين بريد، "
-                "لكن تعذّر ربط أيٍّ منها بشكل موثوق بهذا المنصب. لن يُرسل البريد تلقائيًا؛ "
-                "تحقّق من القسم الصحيح في الإعلان."
+                "⚠️ يحتوي نص الإعلان على عناوين بريد، لكن تعذّر ربط أيٍّ منها بأمان بهذا المنصب. "
+                "لن يُرسل البريد إلى عنوان غير مؤكد؛ تحقّق من القسم الصحيح في الإعلان."
             )
         elif application_urls:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُذكر بريد واضح لهذا المنصب. "
-                "يوجد رابط تقديم ظاهر أدناه، ولن يُرسل أي بريد تلقائيًا."
+                "⚠️ لم يُستخرج بريد واضح لهذا المنصب. يوجد رابط تقديم ظاهر أدناه؛ "
+                "يلزم التقديم عبر الرابط بدل إرسال بريد تخميني."
             )
         else:
             action_note = (
-                "⚠️ القبول هنا للمراجعة اليدوية فقط؛ لم يُعثر على بريد أو رابط تقديم "
-                "واضح مرتبط بهذه الوظيفة. راجع الإعلان الأصلي لتحديد طريقة التقديم."
+                "⚠️ لم يُعثر على بريد أو رابط تقديم واضح مرتبط بهذه الوظيفة. "
+                "لا يمكن إرسال طلب قبل تحديد وسيلة التقديم."
             )
         application_note = (
             "\n📨 رابط التقديم الظاهر في الإعلان: " + " | ".join(application_urls)
@@ -1237,71 +1252,68 @@ class TelegramJobBot:
             )
             return
 
-        if action == "manual":
-            record = item.get("record") or {}
-            emails = record.get("emails") or []
-            advertisement = str(item.get("advertisement") or "")
-            advertised_emails = _extract_ad_emails(advertisement)
-            application_urls = _extract_application_urls(advertisement)
-            if len(emails) == 1 and record.get("global_application_email"):
-                contact_note = (
-                    "📧 بريد التقديم العام المعلن في الإعلان: "
-                    f"{safe_text(emails[0], 200)}. "
-                    "ربط المنصب بالقسم المحدد ما زال غير مؤكد؛ هذا قبول للمراجعة فقط.\n"
+        manual_approval = action == "manual"
+        if manual_approval:
+            sender = getattr(self.processor, "send_manually_approved_review", None)
+            if not callable(sender):
+                self._answer_callback(query_id, "مسار الإرسال اليدوي غير متاح حاليًا.", True)
+                self._send_owner(
+                    "⚠️ تعذّر بدء الإرسال اليدوي لهذه الوظيفة بسبب عدم توفر مسار الإرسال. "
+                    "بقيت المراجعة معلقة ولم يُرسل أي بريد."
                 )
-            elif len(emails) == 1:
-                contact_note = f"📧 البريد الذي استخرجه البوت: {safe_text(emails[0], 200)}.\n"
-            elif len(emails) > 1:
-                contact_note = f"📧 استخرج البوت {len(emails)} عناوين مرتبطة بالوظيفة؛ يلزم التحقق يدويًا.\n"
-            elif advertised_emails:
-                contact_note = (
-                    "📧 عناوين موجودة في نص الإعلان لكن لم يستطع البوت ربطها بأمان بهذا المنصب: "
-                    + ", ".join(advertised_emails) + ".\n"
-                )
-            else:
-                contact_note = "📧 لم يُعثر على بريد توظيف واضح مرتبط بهذه الوظيفة.\n"
-            if application_urls:
-                contact_note += "📨 رابط التقديم الظاهر في الإعلان: " + " | ".join(application_urls) + "\n"
-            self._resolve_review(pending_id, "accepted_manual")
-            self._answer_callback(query_id, "تم القبول للمراجعة اليدوية.")
-            self._edit_message(
-                query,
-                "✅ تم قبول الوظيفة للمراجعة اليدوية.\n"
-                + contact_note
-                + "لم يُرسل بريد لأن زر «قبول يدوي» يسجل المراجعة فقط ولا يرسل طلبًا تلقائيًا.\n\n"
-                + safe_text(record.get("application_job_title") or record.get("job_title"), 200),
-            )
+                self._save("Manual review sender unavailable; review retained")
+                return
+        elif action == "approve" and item.get("can_auto_send"):
+            sender = self.processor.send_approved_review
+        else:
+            self._answer_callback(query_id, "لا يمكن إرسال هذه الوظيفة بهذا الإجراء.", True)
             return
 
-        if action != "approve" or not item.get("can_auto_send"):
-            self._answer_callback(query_id, "لا يمكن إرسال هذه الوظيفة تلقائيًا.", True)
-            return
-
-        self._answer_callback(query_id, "جارٍ تنفيذ التقديم والتحقق من التكرار…")
+        self._answer_callback(
+            query_id,
+            "جارٍ إرسال السيرة الذاتية ورسالة الترشح بعد موافقتك…"
+            if manual_approval
+            else "جارٍ تنفيذ التقديم والتحقق من التكرار…",
+        )
         try:
-            result = self.processor.send_approved_review(item)
+            result = sender(item)
         except Exception as exc:
             # Keep the review pending and its button active for a deliberate retry.
             self._send_owner(
-                "⚠️ تعذّر إرسال الطلب بعد موافقتك.\n"
+                "⚠️ تعذّر إرسال طلب التوظيف بعد موافقتك.\n"
                 f"الوظيفة: {safe_text((item.get('record') or {}).get('application_job_title'), 200)}\n"
                 f"نوع الخطأ: {type(exc).__name__}\n"
-                "بقيت الوظيفة معلقة؛ يمكنك إعادة المحاولة من زر الرسالة."
+                "بقيت البطاقة معلقة وزر القبول متاحًا؛ لم تُسجّل الوظيفة كطلب مُرسل."
             )
             self._save("Approved application failed; review retained")
             return
 
         status = str(result.get("status") or "")
-        title = safe_text((item.get("record") or {}).get("application_job_title"), 200)
+        record = item.get("record") or {}
+        title = safe_text(record.get("application_job_title") or record.get("job_title"), 200)
         if status == "sent":
             self._resolve_review(pending_id, "sent")
             stats = self._today_stats()
             stats["sent"] = int(stats.get("sent", 0)) + 1
-            self._answer_callback(query_id, "تم إرسال الطلب.")
+            self._answer_callback(
+                query_id,
+                "تم إرسال الطلب بعد موافقتك اليدوية." if manual_approval else "تم إرسال الطلب.",
+            )
+            success_note = (
+                "✅ تمت الموافقة اليدوية وإرسال السيرة الذاتية ورسالة الترشح.\n"
+                if manual_approval
+                else "✅ تمت الموافقة وإرسال طلب التوظيف.\n"
+            )
+            emails = record.get("emails") or []
+            recipient_note = (
+                f"📧 المستلم: {safe_text(emails[0], 200)}\n"
+                if len(emails) == 1 else ""
+            )
             self._edit_message(
                 query,
-                "✅ تمت الموافقة وإرسال طلب التوظيف.\n"
-                "خادم البريد قبل الرسالة؛ هذا لا يضمن وصولها إلى صندوق الوارد.\n\n"
+                success_note
+                + recipient_note
+                + "خادم البريد قبل الرسالة؛ هذا لا يضمن وصولها إلى صندوق الوارد.\n\n"
                 + title,
             )
         elif status == "duplicate":
@@ -1313,7 +1325,7 @@ class TelegramJobBot:
                 + title,
             )
         else:
-            self._answer_callback(query_id, "تعذر تنفيذ الموافقة. بقيت الوظيفة معلقة.", True)
+            self._answer_callback(query_id, "تعذر تأكيد الإرسال. بقيت الوظيفة معلقة.", True)
         self._save("Review approval result processed")
 
     def dismiss_non_job_reviews_for_post(

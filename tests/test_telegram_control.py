@@ -38,6 +38,24 @@ class FakeProcessor:
         self.calls.append(item)
         return {"status": self.status}
 
+    def send_manually_approved_review(self, item):
+        self.manual_calls.append(item)
+        record = item.get("record") or {}
+        if record.get("analysis_fallback"):
+            raise RuntimeError("An extraction-fallback card cannot be submitted")
+        if not (
+            record.get("contact_scope_matched") is True
+            or record.get("global_application_email") is True
+        ):
+            raise RuntimeError("The email recipient is not safely associated with this position")
+        if len(record.get("emails") or []) != 1:
+            raise RuntimeError("A single unambiguous email recipient is required")
+        if not record.get("cv") or not (
+            record.get("application_job_title") or record.get("job_title")
+        ):
+            raise RuntimeError("The selected CV or job title is unavailable")
+        return {"status": self.status}
+
     def process_post(self, post, manual_apply=False):
         self.manual_calls.append((post, manual_apply))
         return True
@@ -1768,8 +1786,9 @@ Ouvrier Montage Panneaux PV
         }
         rendered = bot._review_text(item)
         self.assertIn("ciberodz@gmail.com", rendered)
-        self.assertIn("بريد التقديم العام المعلن صراحةً", rendered)
-        self.assertIn("مراجعة يدوية فقط", rendered)
+        self.assertIn("بريد التقديم العام المعلن في الإعلان", rendered)
+        self.assertIn("عند قبولك يدويًا", rendered)
+        self.assertIn("سيرسل JobFinder", rendered)
         self.assertNotIn("تعذّر ربط أيٍّ منها", rendered)
 
     def test_global_application_email_never_enables_auto_send_when_section_scope_is_unverified(self):
@@ -1808,9 +1827,9 @@ Ouvrier Montage Panneaux PV
         self.assertIn("تعذّر ربط", rendered)
         self.assertNotIn("لم يُعثر على بريد واضح مرتبط بهذه الوظيفة", rendered)
 
-    def test_manual_accept_reports_unscoped_emails_and_does_not_send(self):
+    def test_manual_accept_keeps_review_pending_when_recipient_is_unscoped(self):
         processor = FakeProcessor()
-        bot, _sent = self.build_bot(processor)
+        bot, sent_messages = self.build_bot(processor)
         event = sample_event("REVIEW")
         event["record"]["emails"] = []
         event["record"]["contact_scope_matched"] = False
@@ -1820,8 +1839,6 @@ Ouvrier Montage Panneaux PV
         )
         bot.on_job_event(event)
         pending_id = next(iter(bot.state["pending_reviews"]))
-        edits = []
-        bot._edit_message = lambda _query, text: edits.append(text)
         bot._handle_callback({
             "id": "manual-unscoped-emails",
             "from": {"id": 12345},
@@ -1829,10 +1846,13 @@ Ouvrier Montage Panneaux PV
             "data": f"jf:manual:{pending_id}",
         })
         self.assertEqual(processor.calls, [])
-        self.assertIn("hiring-a@example.org", edits[0])
-        self.assertIn("hiring-b@example.org", edits[0])
-        self.assertIn("لم يستطع البوت ربطها بأمان", edits[0])
-        self.assertIn("لم يُرسل بريد", edits[0])
+        self.assertEqual(len(processor.manual_calls), 1)
+        self.assertIn(pending_id, bot.state["pending_reviews"])
+        self.assertNotIn(pending_id, bot.state["review_history"])
+        self.assertTrue(any(
+            "بقيت البطاقة معلقة" in message
+            for _chat, message, _keyboard in sent_messages
+        ))
 
     def test_review_shows_explicit_application_form_url_when_no_email_is_available(self):
         bot, _sent = self.build_bot()
@@ -1988,20 +2008,27 @@ Ouvrier Montage Panneaux PV
         self.assertEqual(bot.state["review_history"][pending_id]["status"], "rejected")
         self.assertEqual(len(bot.state["rejected_job_history"]), 1)
 
-    def test_manual_review_message_reports_extracted_email_without_claiming_it_was_missing(self):
+    def test_manual_review_accept_sends_cv_and_email_when_location_is_uncertain(self):
         processor = FakeProcessor()
         bot, _sent = self.build_bot(processor)
         event = sample_event("REVIEW")
-        event["can_auto_send"] = False
+        event["record"]["location_status"] = "unknown_location"
 
-        rendered = bot._review_text(event)
-        self.assertIn("البريد المستخرج: jobs@example.org", rendered)
-        self.assertNotIn("بيانات الاتصال أو طريقة التقديم غير مؤكدة", rendered)
+        rendered = bot._review_text({
+            "record": event["record"],
+            "can_auto_send": False,
+            "advertisement": event["advertisement"],
+            "post": event["post"],
+        })
+        self.assertIn("عند قبولك يدويًا", rendered)
+        self.assertIn("jobs@example.org", rendered)
+        self.assertIn("تتجاوز عدم اليقين", rendered)
 
         edits = []
         bot._edit_message = lambda _query, text: edits.append(text)
         bot.on_job_event(event)
         pending_id = next(iter(bot.state["pending_reviews"]))
+        self.assertFalse(bot.state["pending_reviews"][pending_id]["can_auto_send"])
         bot._handle_callback({
             "id": "manual-accept-with-email",
             "from": {"id": 12345},
@@ -2010,10 +2037,11 @@ Ouvrier Montage Panneaux PV
         })
 
         self.assertEqual(processor.calls, [])
-        self.assertEqual(bot.state["review_history"][pending_id]["status"], "accepted_manual")
-        self.assertIn("البريد الذي استخرجه البوت: jobs@example.org", edits[0])
-        self.assertIn("زر «قبول يدوي»", edits[0])
-        self.assertNotIn("بيانات الاتصال أو طريقة التقديم غير مؤكدة", edits[0])
+        self.assertEqual(len(processor.manual_calls), 1)
+        self.assertEqual(bot.state["review_history"][pending_id]["status"], "sent")
+        self.assertIn(pending_id, bot.state["review_history"])
+        self.assertIn("إرسال السيرة الذاتية ورسالة الترشح", edits[0])
+        self.assertIn("jobs@example.org", edits[0])
 
     def test_previously_rejected_job_is_blocked_across_reposts(self):
         bot, sent = self.build_bot()
@@ -2926,6 +2954,92 @@ Ouvrier Montage Panneaux PV
     def test_processor_blocks_unsafe_review_before_any_send(self):
         with self.assertRaisesRegex(RuntimeError, "not safe"):
             processor.send_approved_review(self.sample_review_item(False))
+
+    def test_manual_review_sender_overrides_uncertain_location_after_owner_acceptance(self):
+        item = self.sample_review_item(False)
+        item["record"]["location_status"] = "unknown_location"
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_sent") as save_sent,
+            patch.object(processor, "save_result") as save_result,
+        ):
+            result = processor.send_manually_approved_review(item)
+
+        self.assertEqual(result["status"], "sent")
+        send.assert_called_once_with(
+            "jobs@example.org",
+            item["job"],
+            "/tmp/cv_ats_fr.pdf",
+            "fr",
+            item["advertisement"],
+            "Technicien de Maintenance",
+        )
+        saved = save_sent.call_args.args[1]
+        self.assertTrue(saved["manual_approval"])
+        self.assertEqual(saved["manual_approval_mode"], "owner_review_manual")
+        self.assertTrue(saved["manual_location_override"])
+        sent_record = save_result.call_args.args[0]
+        self.assertTrue(sent_record["sent"])
+        self.assertTrue(sent_record["manual_location_override"])
+
+    def test_manual_review_sender_allows_explicit_global_application_email(self):
+        item = self.sample_review_item(False)
+        item["record"]["contact_scope_matched"] = False
+        item["record"]["global_application_email"] = True
+        item["record"]["location_status"] = "unknown_location"
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "already_sent_same_offer", return_value=(False, None)),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_sent"),
+            patch.object(processor, "save_result"),
+        ):
+            result = processor.send_manually_approved_review(item)
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(send.call_args.args[0], "jobs@example.org")
+
+    def test_manual_review_sender_refuses_unscoped_or_ambiguous_recipients(self):
+        item = self.sample_review_item(False)
+        item["record"]["contact_scope_matched"] = False
+        item["record"]["global_application_email"] = False
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "send_application") as send,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not safely associated"):
+                processor.send_manually_approved_review(item)
+            item["record"]["contact_scope_matched"] = True
+            item["record"]["emails"] = ["first@example.org", "second@example.org"]
+            with self.assertRaisesRegex(RuntimeError, "single unambiguous"):
+                processor.send_manually_approved_review(item)
+        send.assert_not_called()
+
+    def test_manual_review_sender_skips_duplicate_without_sending(self):
+        item = self.sample_review_item(False)
+        item["record"]["location_status"] = "unknown_location"
+        with (
+            patch.object(processor.os.path, "isfile", return_value=True),
+            patch.object(processor, "already_sent_same_offer", return_value=(True, {})),
+            patch.object(processor, "send_application") as send,
+            patch.object(processor, "save_result") as save_result,
+        ):
+            result = processor.send_manually_approved_review(item)
+        self.assertEqual(result["status"], "duplicate")
+        send.assert_not_called()
+        self.assertEqual(
+            save_result.call_args.args[0]["manual_approval_status"],
+            "duplicate_skipped",
+        )
+
+    def test_manual_review_sender_refuses_extraction_fallback_cards(self):
+        item = self.sample_review_item(False)
+        item["record"]["analysis_fallback"] = True
+        with patch.object(processor, "send_application") as send:
+            with self.assertRaisesRegex(RuntimeError, "extraction-fallback"):
+                processor.send_manually_approved_review(item)
+        send.assert_not_called()
 
     def test_processor_skips_already_sent_duplicate(self):
         item = self.sample_review_item(True)
