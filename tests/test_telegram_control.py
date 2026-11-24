@@ -1786,7 +1786,7 @@ Ouvrier Montage Panneaux PV
         }
         rendered = bot._review_text(item)
         self.assertIn("ciberodz@gmail.com", rendered)
-        self.assertIn("بريد التقديم العام المعلن صراحةً", rendered)
+        self.assertIn("بريد التقديم العام المعلن في الإعلان", rendered)
         self.assertIn("عند قبولك يدويًا", rendered)
         self.assertIn("سيرسل JobFinder", rendered)
         self.assertNotIn("تعذّر ربط أيٍّ منها", rendered)
@@ -2022,7 +2022,7 @@ Ouvrier Montage Panneaux PV
         })
         self.assertIn("عند قبولك يدويًا", rendered)
         self.assertIn("jobs@example.org", rendered)
-        self.assertIn("يتجاوز عدم اليقين", rendered)
+        self.assertIn("تتجاوز عدم اليقين", rendered)
 
         edits = []
         bot._edit_message = lambda _query, text: edits.append(text)
