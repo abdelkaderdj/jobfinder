@@ -141,5 +141,23 @@ class WorkflowEnvIntegrityTests(unittest.TestCase):
                 self.assertIn("git rebase origin/master", workflow)
 
 
+    def test_all_state_writers_persist_decision_audit_sidecar(self):
+        paths = (
+            WORKFLOWS_DIR / "jobfinder-cloud.yml",
+            WORKFLOWS_DIR / "telegram-webhook-event.yml",
+        )
+        expected_block = (
+            "          git add cloud_private/state.enc\n"
+            "          if [ -f cloud_private/decision_audit.enc ]; then\n"
+            "            git add cloud_private/decision_audit.enc\n"
+            "          fi\n"
+        )
+        for path in paths:
+            with self.subTest(workflow=path.name):
+                workflow = path.read_text(encoding="utf-8")
+                self.assertIn(expected_block, workflow)
+
+
+
 if __name__ == "__main__":
     unittest.main()
