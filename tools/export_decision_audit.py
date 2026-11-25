@@ -113,6 +113,19 @@ def _delivery_label(record: dict[str, Any]) -> str:
     status = str(record.get("delivery_status") or "not_recorded")
     return _DELIVERY_LABELS.get(status, status)
 
+def _decision_trace_label(record: dict[str, Any]) -> str:
+    trace = record.get("decision_trace") or []
+    labels = []
+    for step in trace:
+        if not isinstance(step, dict):
+            continue
+        gate = _GATE_LABELS.get(str(step.get("gate") or ""), str(step.get("gate") or ""))
+        before = str(step.get("before") or "UNKNOWN")
+        after = str(step.get("after") or "UNKNOWN")
+        outcome = str(step.get("outcome") or "")
+        labels.append(f"{gate}: {before} → {after}" + (f" ({outcome})" if outcome else ""))
+    return "; ".join(labels[:12])
+
 
 def make_report(records: list[dict[str, Any]], days: int, now: datetime | None = None) -> tuple[str, dict[str, Any]]:
     current = now or datetime.now(timezone.utc)
@@ -241,8 +254,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
         "",
         "## آخر قرار مسجّل لكل إعلان/منصب",
         "",
-        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | آخر حالة للمسار | استدعاءات AI الفعلية | قرار AI | قرار البوت | درجة AI | مؤشر الكلمات المستهدفة | مجموعات المهارات المطابقة | مراحل تغيير القرار | حالة الإرسال | السبب المسجّل |",
-        "|---|---|---|---|---|---|---|---|---:|---:|---|---|---|---|",
+        "| تاريخ المعالجة UTC | الإعلان الأصلي | المنصب | الشركة | مكان العمل المستخرج | حالة الموقع | آخر حالة للمسار | استدعاءات AI الفعلية | قرار AI | قرار البوت | درجة AI | مؤشر الكلمات المستهدفة | مجموعات المهارات المطابقة | مراحل تغيير القرار | انتقالات القرار | حالة الإرسال | السبب المسجّل |",
+        "|---|---|---|---|---|---|---|---|---|---|---:|---:|---|---|---|---|---|",
     ]
     for record in final_records:
         observed = _parse_time(record.get("observed_at_utc"))
@@ -261,6 +274,8 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
                 post_link,
                 title,
                 _cell(record.get("company"), 100),
+                _cell(record.get("location"), 100),
+                _cell(record.get("location_status"), 80),
                 _cell((str(record.get("provider") or "") + "/" + str(record.get("model") or "")).strip("/"), 100),
                 _cell(_ai_call_labels(record), 420),
                 _cell(record.get("original_ai_decision"), 16),
@@ -269,6 +284,7 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
                 str(record.get("cv_match_score")) if record.get("cv_match_score") is not None else "—",
                 _cell(", ".join(record.get("cv_matched_skill_groups") or []), 120),
                 _cell(_gate_labels(record), 120),
+                _cell(_decision_trace_label(record), 220),
                 _cell(_delivery_label(record), 80),
                 _cell(record.get("reason"), 280),
             ]) + " |"
