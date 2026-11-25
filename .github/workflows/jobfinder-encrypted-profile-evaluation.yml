@@ -1,6 +1,9 @@
 name: JobFinder Encrypted-Profile AI Evaluation
 
 on:
+  push:
+    paths:
+      - ".github/workflows/jobfinder-encrypted-profile-evaluation.yml"
   workflow_dispatch:
     inputs:
       max_cases:
@@ -78,6 +81,6 @@ jobs:
           JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
         run: >-
           python tools/evaluate_encrypted_profile.py
-          --start-index "${{ inputs.start_case }}"
-          --limit "${{ inputs.max_cases }}"
+          --start-index "${{ inputs.start_case || '1' }}"
+          --limit "${{ inputs.max_cases || '16' }}"
           --strict
