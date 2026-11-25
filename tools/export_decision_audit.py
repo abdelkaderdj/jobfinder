@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import re
 import sys
@@ -20,6 +21,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from decision_audit import read_encrypted_decision_audit
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 AUDIT_PATH = ROOT / "cloud_private" / "decision_audit.enc"
 
 
@@ -351,7 +353,7 @@ def write_encrypted_private_artifact(markdown: str, summary: dict[str, Any]) -> 
     if not encoded_key:
         return
     try:
-        public_pem = __import__("base64").b64decode(encoded_key, validate=True)
+        public_pem = base64.b64decode(encoded_key, validate=True)
         public_key = serialization.load_pem_public_key(public_pem)
     except Exception as exc:
         raise RuntimeError("Audit export public key is invalid") from exc
@@ -377,11 +379,11 @@ def write_encrypted_private_artifact(markdown: str, summary: dict[str, Any]) -> 
     )
     package = {
         "version": 1,
-        "algorithm": "RSA-OAEP-SHA256+A​​ES-256-GCM".replace("\u200b", ""),
-        "aad": __import__("base64").b64encode(aad).decode("ascii"),
-        "wrapped_key": __import__("base64").b64encode(wrapped_key).decode("ascii"),
-        "nonce": __import__("base64").b64encode(nonce).decode("ascii"),
-        "ciphertext": __import__("base64").b64encode(ciphertext).decode("ascii"),
+        "algorithm": "RSA-OAEP-SHA256+AES-256-GCM",
+        "aad": base64.b64encode(aad).decode("ascii"),
+        "wrapped_key": base64.b64encode(wrapped_key).decode("ascii"),
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
     }
     output_dir = Path(os.getenv("RUNNER_TEMP") or "/tmp")
     output_dir.mkdir(parents=True, exist_ok=True)
