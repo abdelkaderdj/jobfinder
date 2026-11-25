@@ -34,6 +34,10 @@ on:
           - "14"
           - "15"
           - "16"
+  push:
+    paths:
+      - ".github/workflows/jobfinder-encrypted-profile-evaluation.yml"
+      - "tools/evaluate_encrypted_profile.py"
 
 permissions:
   contents: read
@@ -76,8 +80,18 @@ jobs:
           JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS: ${{ vars.JOBFINDER_AI_MIN_REQUEST_INTERVAL_SECONDS || '3' }}
           JOBFINDER_AI_OUTAGE_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_OUTAGE_RETRY_SECONDS || '300' }}
           JOBFINDER_AI_CONFIG_RETRY_SECONDS: ${{ vars.JOBFINDER_AI_CONFIG_RETRY_SECONDS || '900' }}
+          JOBFINDER_EVAL_EXPORT_PUBLIC_KEY_B64: "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF2amNvTFlSZGNHRTF2VWExejNteQpuZlBkY2duY2JxRUNpN3AySUhBV21QUHQwdTBNSWJHUEltakRYZEJlemRucDl4WGkzSWk4Qk1Xai9OeEVvSHgrCnVhdkUrSldNT2xlakFLRzZydTZHZ1dlWFJYN09rYVlKWndUSVRGMUpPY29NYUhLOVdjMnNTSjRuMUlrVnJFNEkKR0tVR2VOSDhpbkVBRDkwSW81OEtyeWpVRWFJTEUyOURFQi9nWXBFWm9UZWczYTFpTFhaZnBSZmRzMXBsZStNRwpBL2dySW9vaEc4bTY2TGxybDJkTys4cTBGclV5VUV4clVHUThhODNxdUdsQmxuT1o0RnJMdEVOaW5jV21JU0RzCkZ2S3ZiV3F1QjZoYnNFNE5xTC9CeWJjZzU5Y1lzNHBQeE5OeXo4WCtwd25GcWl6TW5kTHFSMjVvMGxaaHJtNkcKc1FJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=="
         run: >-
           python tools/evaluate_encrypted_profile.py
-          --start-index "${{ inputs.start_case }}"
-          --limit "${{ inputs.max_cases }}"
+          --start-index "${{ inputs.start_case || '10' }}"
+          --limit "${{ inputs.max_cases || '2' }}"
           --strict
+
+      - name: Upload one-time encrypted labelled-evaluation diagnostics
+        if: always() && hashFiles('${{ runner.temp }}/jobfinder-labelled-evaluation.encrypted.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobfinder-labelled-evaluation-${{ github.run_id }}
+          path: ${{ runner.temp }}/jobfinder-labelled-evaluation.encrypted.json
+          if-no-files-found: ignore
+          retention-days: 1
