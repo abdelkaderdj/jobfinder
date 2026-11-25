@@ -473,7 +473,7 @@ def calculate_candidate_cv_match(job, advertisement=""):
         r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
         r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
         r"\bmecanique\b", r"\bmaintenance\b", r"\bmaintenancier\w*\b",
-        r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b",
+        r"\bpump\w*\b", r"\bpomp(?:e|es|age|ages)\b", r"\bcompressor\w*\b",
         r"\bcompresseur\w*\b", r"\bsolidworks\b", r"\bcad\b",
         r"\bconception mecanique\b", r"\bmechanical design\b",
         r"\bdessinateur industriel\b", r"\bprojeteur mecanique\b",
