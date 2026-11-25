@@ -38,6 +38,8 @@ from jobfinder_candidate_policy import (
     CV_MATCH_SKILL_GROUPS,
     LOCAL_LOCATION_MARKERS,
     SOUTH_LOCATION_MARKERS,
+    REMOTE_WORK_LOCATION_MARKERS,
+    ALGERIA_COUNTRY_MARKERS,
     ACCOMMODATION_MARKERS,
 )
 
@@ -4449,6 +4451,15 @@ def job_location_category(job):
     ):
 
         return "south"
+
+    # A stated 100% remote base in Algeria means the employee works from their
+    # own eligible local area; the client's French/service region is not a worksite.
+    if location_contains_any(location, REMOTE_WORK_LOCATION_MARKERS):
+        if location_contains_any(location, ALGERIA_COUNTRY_MARKERS):
+            return "local"
+        # Remote without a named country is geographically ambiguous, not a
+        # known out-of-area worksite. Preserve REVIEW rather than hard-rejecting it.
+        return "unknown"
 
     return "other"
 
