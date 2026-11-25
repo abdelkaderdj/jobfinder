@@ -13,6 +13,10 @@ on:
           - "2"
           - "7"
           - "14"
+  push:
+    paths:
+      - ".github/workflows/jobfinder-decision-audit-export.yml"
+      - "tools/export_decision_audit.py"
 
 permissions:
   contents: read
@@ -49,6 +53,16 @@ jobs:
           JOBFINDER_FERNET_KEY: ${{ secrets.JOBFINDER_FERNET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_CHAT_ID: ${{ secrets.TELEGRAM_BOT_CHAT_ID }}
-          JOBFINDER_AUDIT_DAYS: ${{ inputs.days }}
+          JOBFINDER_AUDIT_DAYS: ${{ inputs.days || '2' }}
+          JOBFINDER_AUDIT_EXPORT_PUBLIC_KEY_B64: "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF2amNvTFlSZGNHRTF2VWExejNteQpuZlBkY2duY2JxRUNpN3AySUhBV21QUHQwdTBNSWJHUEltakRYZEJlemRucDl4WGkzSWk4Qk1Xai9OeEVvSHgrCnVhdkUrSldNT2xlakFLRzZydTZHZ1dlWFJYN09rYVlKWndUSVRGMUpPY29NYUhLOVdjMnNTSjRuMUlrVnJFNEkKR0tVR2VOSDhpbkVBRDkwSW81OEtyeWpVRWFJTEUyOURFQi9nWXBFWm9UZWczYTFpTFhaZnBSZmRzMXBsZStNRwpBL2dySW9vaEc4bTY2TGxybDJkTys4cTBGclV5VUV4clVHUThhODNxdUdsQmxuT1o0RnJMdEVOaW5jV21JU0RzCkZ2S3ZiV3F1QjZoYnNFNE5xTC9CeWJjZzU5Y1lzNHBQeE5OeXo4WCtwd25GcWl6TW5kTHFSMjVvMGxaaHJtNkcKc1FJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=="
         run: python tools/export_decision_audit.py
+
+      - name: Upload one-time encrypted private decision audit
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobfinder-private-decision-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/jobfinder-decision-audit.encrypted.json
+          if-no-files-found: error
+          retention-days: 1
 
