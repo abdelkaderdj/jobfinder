@@ -16,6 +16,7 @@ on:
   push:
     paths:
       - ".github/workflows/jobfinder-decision-audit-export.yml"
+      - "tools/export_decision_audit.py"
 
 permissions:
   contents: read
