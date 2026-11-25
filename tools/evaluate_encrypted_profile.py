@@ -8,6 +8,7 @@ or writes decrypted profile/CV files to the repository.
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
@@ -19,6 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -294,6 +298,55 @@ def safe_summary_from_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def write_encrypted_evaluation_artifact(
+    report: dict[str, Any],
+    safe_report: dict[str, Any],
+) -> bool:
+    """Write raw labelled predictions only as a one-time public-key encrypted artifact."""
+    encoded_key = os.getenv("JOBFINDER_EVAL_EXPORT_PUBLIC_KEY_B64", "").strip()
+    if not encoded_key:
+        return False
+    try:
+        public_pem = base64.b64decode(encoded_key, validate=True)
+        public_key = serialization.load_pem_public_key(public_pem)
+    except Exception as exc:
+        raise RuntimeError("Evaluation export public key is invalid") from exc
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise RuntimeError("Evaluation export public key must be RSA")
+
+    aad = b"JobFinder-Labelled-Evaluation-v1"
+    plaintext = json.dumps(
+        {"safe_summary": safe_report, "full_report": report},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    content_key = os.urandom(32)
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(content_key).encrypt(nonce, plaintext, aad)
+    wrapped_key = public_key.encrypt(
+        content_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=aad,
+        ),
+    )
+    package = {
+        "version": 1,
+        "algorithm": "RSA-OAEP-SHA256+AES-256-GCM",
+        "aad": base64.b64encode(aad).decode("ascii"),
+        "wrapped_key": base64.b64encode(wrapped_key).decode("ascii"),
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+    }
+    output_dir = Path(os.getenv("RUNNER_TEMP") or tempfile.gettempdir())
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "jobfinder-labelled-evaluation.encrypted.json"
+    output_path.write_text(json.dumps(package, separators=(",", ":")), encoding="utf-8")
+    print("Encrypted labelled-evaluation artifact prepared; raw model predictions were not printed.")
+    return True
+
+
 def build_evaluation_args(
     output_path: Path,
     limit: int,
@@ -372,6 +425,9 @@ def main(argv: list[str] | None = None) -> int:
 
             safe_report = safe_summary_from_report(report)
             safe_report["status"] = "completed" if exit_code == 0 else "regression_cases_failed"
+            safe_report["encrypted_detail_artifact_created"] = write_encrypted_evaluation_artifact(
+                report, safe_report
+            )
             safe_report["git_commit"] = _safe_id(os.getenv("GITHUB_SHA", "unknown"))
             # Do not print captured stdout/stderr or the full private evaluation report.
             print(json.dumps(safe_report, ensure_ascii=False, indent=2))
