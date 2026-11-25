@@ -80,6 +80,8 @@ def candidate_location_policy_prompt_text() -> str:
         "- Oran, Mostaganem, and the explicitly configured nearby local areas are eligible.\n"
         "- Southern/Saharan Algerian locations are eligible.\n"
         "- Other known Algerian locations require explicit employer-provided accommodation for THAT position; residency, transport pickup points, or a company address are not accommodation.\n"
+        "- A role explicitly marked 100% remote/telework from Algeria is geographically eligible as home-based work from the candidate's already-eligible local area; do not mistake the client's service region or headquarters for the employee's physical worksite.\n"
+        "- Remote work with no explicit country of work base is REVIEW, never rejected solely because its geography is unclear.\n"
         "- Unknown or ambiguous work location is REVIEW, never an automatic APPLY.\n"
         "- Do not infer accommodation, residence, transport, or worksite from unrelated lines or another position."
     )
@@ -430,6 +432,16 @@ SOUTH_LOCATION_MARKERS = [
     "in amenas",
     "عين أميناس"
 ]
+
+
+# Remote-work geography is only eligible when the advertisement explicitly names
+# Algeria as the employee's remote work base. A client's service region is not a worksite.
+REMOTE_WORK_LOCATION_MARKERS = [
+    "remote", "remotely", "telework", "teleworking", "teletravail", "work from home",
+    "home based", "a distance", "à distance", "عن بعد", "عمل عن بعد", "العمل عن بعد",
+    "من المنزل",
+]
+ALGERIA_COUNTRY_MARKERS = ["algeria", "algérie", "الجزائر"]
 
 
 # These are positive evidence phrases, not generic housing/residency nouns.
