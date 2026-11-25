@@ -6863,14 +6863,14 @@ def log_job_result_safely(record, contact_review_reason=None):
 VACANCY_SIGNAL_RE = re.compile(
     r"(?:"
     r"offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
-    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|we\s+are\s+hiring|"
+    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|recrute\s+(?:un|une|des)|recrute\b|we\s+are\s+hiring|"
     r"job\s+opening|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|poste[s]?\s+à\s+pourvoir|"
     r"profil\s+recherché|"
     r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
     r"فتح\s+باب\s+التوظيف|"
-    r"نبحث\s+عن\s+.{0,40}(?:تقني|مهندس|عامل|موظف|منصب)|"
+    r"عن\s+توظيف|توظف\s+(?:تقني|كهربائي|عامل|سائق|ميكانيكي|فني)|نبحث\s+عن\s+.{0,80}(?:تقني|مهندس|عامل|موظف|منصب)|"
     r"مطلوب\s+(?:تقني|مهندس|عامل|موظف|سائق|ميكانيكي|فني|محاسب)|"
-    r"تعلن.{0,80}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)"
+    r"(?:تعلن.{0,120}(?:توظيف|منصب|مناصب|عمال|عامل|موظف|تقني|مهندس)|عن\s+توظيف|توظف\s+(?:تقني|كهربائي|عامل|سائق|ميكانيكي|فني))"
     r")",
     flags=re.IGNORECASE | re.DOTALL,
 )
@@ -6933,7 +6933,7 @@ _SERVICE_PROMOTION_SIGNAL_RE = re.compile(
 
 _ACTUAL_HIRING_INTENT_RE = re.compile(
     r"(?:offre\s+d['’ ]?emploi|offre\s+de\s+recrutement|avis\s+de\s+recrutement|"
-    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|we\s+are\s+hiring|"
+    r"nous\s+recrutons|recrutons\s+(?:un|une|des)|recrute\s+(?:un|une|des)|recrute\b|we\s+are\s+hiring|"
     r"job\s+opening|vacanc(?:y|ies)|position[s]?\s+à\s+pourvoir|poste[s]?\s+à\s+pourvoir|"
     r"profil\s+recherché|"
     r"إعلان\s+توظيف|اعلان\s+توظيف|عرض\s+عمل|وظيفة\s+شاغرة|وظائف\s+شاغرة|"
@@ -7084,7 +7084,7 @@ _CONCRETE_VACANCY_TITLE_RE = re.compile(
     r"\bengineer\w*\b|ing[ée]nieur\w*|\boperator\w*\b|op[ée]rateur\w*|"
     r"\bagent de conditionnement\b|\bcuisinier\w*\b|\bchauffeur\b|"
     r"\bplombier\w*\b|\bélectricien\w*\b|\belectrician\w*\b|"
-    r"\bmagasinier\w*\b|\bsoudeur\w*\b|"
+    r"\bmagasinier\w*\b|\bsoudeur\w*\b|\bcariste\w*\b|"
     r"مهندس|تقني|فني|ميكانيكي|صيانة|كهربائي|سباك|عامل(?:ة)?|سائق|محاسب|مشرف|مسؤول|ممرض|طباخ)"
     ,
     flags=re.IGNORECASE,
