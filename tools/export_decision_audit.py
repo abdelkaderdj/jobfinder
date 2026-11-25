@@ -18,10 +18,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from decision_audit import read_encrypted_decision_audit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from decision_audit import read_encrypted_decision_audit
 AUDIT_PATH = ROOT / "cloud_private" / "decision_audit.enc"
 
 
