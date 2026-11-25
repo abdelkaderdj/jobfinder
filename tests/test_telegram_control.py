@@ -1685,6 +1685,32 @@ Expérience pratique de 2 à 5 ans en logistique.
                     "other",
                 )
 
+    def test_remote_work_explicitly_based_in_algeria_is_local_eligible(self):
+        for location in (
+            "Algeria (100% Remote)",
+            "الجزائر - عمل عن بعد 100%",
+            "100% télétravail depuis l'Algérie",
+        ):
+            with self.subTest(location=location):
+                job = {"location": location, "accommodation_provided": "unknown"}
+                self.assertEqual(processor.job_location_category(job), "local")
+                final, status, _reason = processor.enforce_location_rule(
+                    job, "REVIEW", location
+                )
+                self.assertEqual(final, "REVIEW")
+                self.assertEqual(status, "allowed_local")
+
+    def test_remote_work_without_a_stated_country_is_review_not_rejected(self):
+        for location in ("100% remote", "Télétravail", "عمل عن بعد"):
+            with self.subTest(location=location):
+                job = {"location": location, "accommodation_provided": "unknown"}
+                self.assertEqual(processor.job_location_category(job), "unknown")
+                final, status, _reason = processor.enforce_location_rule(
+                    job, "APPLY", location
+                )
+                self.assertEqual(final, "REVIEW")
+                self.assertEqual(status, "unknown_location")
+
     def test_algerian_employer_paid_residence_wording_is_detected(self):
         advertisement = "الإقامة والإطعام على عاتق الشركة بالكامل."
         self.assertTrue(processor.accommodation_signal_in_text(advertisement))
