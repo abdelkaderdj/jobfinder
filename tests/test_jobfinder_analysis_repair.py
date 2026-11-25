@@ -142,5 +142,91 @@ class GroundedOfferRecoveryTests(unittest.TestCase):
         self.assertFalse(processor._job_title_evidence_is_grounded(job, source))
 
 
+    def test_actual_vacancy_evidence_filters_unquoted_model_paraphrases(self):
+        source = (
+            "Maintenance & Technique\\n"
+            "🔹 رئيس فريق صيانة\\n"
+            "🔹 كهربائي\\n"
+            "إرسال السيرة الذاتية إلى jobs@example.org"
+        )
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": [
+                "The author is advertising maintenance vacancies.",
+            ],
+            "jobs": [],
+        }
+
+        repaired = processor._postprocess_analysis_result(source, result)
+
+        self.assertTrue(repaired["post_type_evidence"])
+        for quote in repaired["post_type_evidence"]:
+            self.assertTrue(processor._source_quote_is_grounded_for_analysis(quote, source))
+
+    def test_missing_type_and_empty_jobs_recover_explicit_cariste_as_review_only(self):
+        source = (
+            "SM MOBILIER، أولاد موسى – بومرداس، recrute un CARISTE. "
+            "Expérience dans un poste similaire souhaitée. "
+            "Maîtrise de la conduite du chariot élévateur. "
+            "Disponibilité immédiate. Envoyer CV à +213563000790."
+        )
+        result = {"jobs": []}
+
+        recovered = processor._postprocess_analysis_result(source, result)
+
+        self.assertEqual(recovered["post_type"], "actual_vacancy")
+        self.assertEqual(len(recovered["jobs"]), 1)
+        job = recovered["jobs"][0]
+        self.assertEqual(job["job_title"], "CARISTE")
+        self.assertEqual(job["title_evidence"], "CARISTE")
+        self.assertEqual(job["decision"], "REVIEW")
+        self.assertIsNone(job["score"])
+        self.assertEqual(job["company"], "")
+
+    def test_missing_type_and_empty_jobs_recover_ets_south_project_positions_as_review_only(self):
+        source = (
+            "تعلن شركة SARL Equipment Technology and Services (ETS)، "
+            "الكائن مقرها بالقيدي، برج الكيفان – الجزائر العاصمة، عن توظيف "
+            "تقنيين وكهربائيين وعمال ومناولي أشغال للمشاركة في مشروع هام بجنوب الجزائر. "
+            "الراتب ابتداء من 95,000 دج. نظام العمل 45 يوم عمل / 15 يوم راحة. "
+            "الإقامة والإطعام متكفل بهما بالكامل. إرسال CV إلى etsm@yahoo.com."
+        )
+        result = {"jobs": []}
+
+        recovered = processor._postprocess_analysis_result(source, result)
+
+        self.assertEqual(recovered["post_type"], "actual_vacancy")
+        jobs = recovered["jobs"]
+        self.assertEqual(len(jobs), 3)
+        titles = {job["job_title"] for job in jobs}
+        self.assertEqual(titles, {"تقنيين", "كهربائيين", "عمال ومناولي أشغال"})
+        self.assertEqual({job["decision"] for job in jobs}, {"REVIEW"})
+        self.assertTrue(all(job["score"] is None for job in jobs))
+        self.assertTrue(all(job["location"] == "" for job in jobs))
+        self.assertTrue(all(job["emails"] == ["etsm@yahoo.com"] for job in jobs))
+
+    def test_generic_showroom_descriptor_is_not_a_company_name(self):
+        source = (
+            "📢 إعلان توظيف | منصب موظفة استقبال\\n"
+            "مطلوب موظفتان للاستقبال في معرض تجاري.\\n"
+            "📍 مكان العمل: دالي إبراهيم، الشراقة – الجزائر العاصمة.\\n"
+            "📧 إرسال السيرة الذاتية إلى mg20005000@gmail.com"
+        )
+        result = {
+            "post_type": "actual_vacancy",
+            "post_type_evidence": ["منصب موظفة استقبال"],
+            "jobs": [{
+                "job_title": "موظفة استقبال",
+                "title_evidence": "موظفة استقبال",
+                "company": "معرض تجاري",
+                "decision": "REVIEW",
+            }],
+        }
+
+        repaired = processor._postprocess_analysis_result(source, result)
+
+        self.assertEqual(repaired["jobs"][0]["company"], "")
+
+
 if __name__ == "__main__":
     unittest.main()
