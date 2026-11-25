@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import re
 import sys
@@ -13,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -315,6 +319,51 @@ def make_report(records: list[dict[str, Any]], days: int, now: datetime | None =
     return "\n".join(lines) + "\n", summary
 
 
+def write_encrypted_private_artifact(markdown: str, summary: dict[str, Any]) -> None:
+    """Encrypt the private decision report to a one-time reviewer public key."""
+    encoded_key = os.getenv("JOBFINDER_AUDIT_EXPORT_PUBLIC_KEY_B64", "").strip()
+    if not encoded_key:
+        return
+    try:
+        public_pem = base64.b64decode(encoded_key, validate=True)
+        public_key = serialization.load_pem_public_key(public_pem)
+    except Exception as exc:
+        raise RuntimeError("Audit export public key is invalid") from exc
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise RuntimeError("Audit export public key must be RSA")
+
+    aad = b"JobFinder-Decision-Audit-v1"
+    plaintext = json.dumps(
+        {"summary": summary, "markdown": markdown},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    content_key = os.urandom(32)
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(content_key).encrypt(nonce, plaintext, aad)
+    wrapped_key = public_key.encrypt(
+        content_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=aad,
+        ),
+    )
+    package = {
+        "version": 1,
+        "algorithm": "RSA-OAEP-SHA256+AES-256-GCM",
+        "aad": base64.b64encode(aad).decode("ascii"),
+        "wrapped_key": base64.b64encode(wrapped_key).decode("ascii"),
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+    }
+    output_dir = Path(os.getenv("RUNNER_TEMP") or "/tmp")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "jobfinder-decision-audit.encrypted.json"
+    output_path.write_text(json.dumps(package, separators=(",", ":")), encoding="utf-8")
+    print("Encrypted private decision-audit artifact prepared; plaintext was not uploaded.")
+
+
 def send_private_report(markdown: str, summary: dict[str, Any]) -> None:
     token = required_env("TELEGRAM_BOT_TOKEN")
     chat_id = required_env("TELEGRAM_BOT_CHAT_ID")
@@ -371,6 +420,7 @@ def main() -> int:
             days = 2
         days = max(1, min(14, days))
         report, summary = make_report(rows, days)
+        write_encrypted_private_artifact(report, summary)
         send_private_report(report, summary)
     except Exception as exc:
         print(json.dumps({"decision_audit_export_failed": True, "error_type": type(exc).__name__}))
