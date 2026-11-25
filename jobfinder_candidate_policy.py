@@ -64,6 +64,7 @@ def candidate_role_policy_prompt_text() -> str:
         "- Primary target lanes: mechanical maintenance; industrial/mechanical equipment; refrigeration, froid, frigoriste, HVAC and thermal systems; thermodynamics and heat transfer; centrifugal pumps and fluid systems; junior mechanical design, CAD, SolidWorks, and technical drawings.\n"
         "- Closely adjacent junior technical/operator roles may be considered only when the duties in THAT position's own section show a genuine connection to the target lanes. A company's industry or a shared word elsewhere in the post is not evidence.\n"
         "- Hard exclusions: sales/commercial, marketing, teaching/training, administration, accounting, HR, laboratory/biology/chemistry, electrical-only, electromechanical, instrumentation/automation, civil engineering, HSE, aviation/aircraft, information technology/IT support/computer systems/networks/telecommunications, procurement/logistics/supply-chain, security, and other unrelated disciplines.\n"
+        "- Fuel-station attendants/cashiers (pompiste, pompiste encaisseur) are NOT mechanical pump roles; exclude them unless that position explicitly involves maintenance of industrial pumps or fluid equipment.\n"
         "- Any position titled Ingénieur, Engineer, or مهندس is REJECT unless THAT position's own advertisement explicitly accepts Licence/Bac+3 as sufficient and does not make a higher engineering degree mandatory. A generic mention of Licence elsewhere in a multi-position post is not enough.\n"
         "- Production technician/production operator positions are REVIEW only; never auto-send solely because the title is technical or the employer is industrial.\n"
         "- Broad generalist/polyvalent roles are REVIEW only when local and when their own duties do not establish a clear target-lane match. Never APPLY based only on a factory/industrial employer.\n"
@@ -89,6 +90,7 @@ def candidate_location_policy_prompt_text() -> str:
 UNRELATED_ROLE_TITLE_PATTERNS = (
     r"\bcommercial\b", r"\btechnico commercial\b", r"\bsales?\b",
     r"\bvente\b", r"\bmarketing\b", r"\bbusiness developer\b",
+    r"\bpompiste\w*\b", r"\bfuel station attendant\b",
     # Information technology, helpdesk, computer systems, networks and telecoms
     # are outside the candidate's mechanical/energy engineering target paths.
     r"\b(?:it support|support informatique|technicien support informatique|"
@@ -193,7 +195,7 @@ STRONG_RELEVANT_ROLE_PATTERNS = (
     r"\bfroid\b", r"\bfrigoriste\w*\b", r"\brefrigeration\b", r"\brefroidissement\b",
     r"\bthermique\b", r"\btransfert de chaleur\b", r"\bheat transfer\b",
     r"\bthermodynamique\b", r"\bthermal systems\b", r"\bcooling\b", r"\bhvac\b", r"\bclimatisation\b",
-    r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
+    r"\bpump\w*\b", r"\bpomp(?:e|es|age|ages)\b", r"\bcompressor\w*\b", r"\bcompresseur\w*\b",
     r"\bturbine\b", r"\brotating equipment\b", r"\bequipment maintenance\b",
     r"\bequipement mecanique\b", r"\bequipements mecaniques\b",
     r"\bsolidworks\b", r"\bconception mecanique\b", r"\bmechanical design\b",
@@ -242,7 +244,7 @@ CV_MATCH_SKILL_GROUPS = (
         "pumps_fluids_hydraulics",
         15,
         (
-            r"\bpump\w*\b", r"\bpomp\w*\b", r"\bcentrifug\w*\b",
+            r"\bpump\w*\b", r"\bpomp(?:e|es|age|ages)\b", r"\bcentrifug\w*\b",
             r"\bfluid\w*\b", r"\bhydraulic\w*\b", r"\bhydraulique\b",
             r"\bcompresseur\w*\b", r"\bcompressor\w*\b",
             r"\btuyauterie\b", r"\bpiping\b", r"\bمضخ\w*\b",
