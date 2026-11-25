@@ -612,6 +612,35 @@ class TelegramControlTests(unittest.TestCase):
         self.assertEqual(final, "APPLY")
         self.assertIn("خبرة", reason)
 
+    def test_fuel_station_pompiste_does_not_match_industrial_pump_skill_group(self):
+        job = {
+            "job_title": "Pompiste Encaisseur",
+            "score": 10,
+        }
+        advertisement = (
+            "Station-service; distribution de carburant; encaissement des paiements; "
+            "service aux clients."
+        )
+
+        score, groups = processor.calculate_candidate_cv_match(job, advertisement)
+        self.assertEqual(score, 0)
+        self.assertEqual(groups, [])
+
+        decision, _reason = processor.enforce_candidate_fit_rule(
+            job, "REVIEW", advertisement, cv_match_score=score
+        )
+        self.assertEqual(decision, "REJECT")
+
+        pump_job = {"job_title": "Technicien des pompes"}
+        pump_advertisement = (
+            "Maintenance des pompes centrifuges et des circuits hydrauliques."
+        )
+        pump_score, pump_groups = processor.calculate_candidate_cv_match(
+            pump_job, pump_advertisement
+        )
+        self.assertGreaterEqual(pump_score, 30)
+        self.assertIn("pumps_fluids_hydraulics", pump_groups)
+
     def test_engineer_maintenance_title_can_be_reviewed_when_ad_explicitly_accepts_licence(self):
         advertisement = """🔸 هندسة صيانة (Maintenance)
 ✅ شروط التوظيف :
