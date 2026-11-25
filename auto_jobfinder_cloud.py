@@ -3254,10 +3254,24 @@ def _source_grounded_post_type_evidence(post_type: Any, source_text: str) -> str
         ),
     }
     markers = patterns.get(kind, ())
+    segments = re.split(r"(?<=[.!?؟؛])|[,،;؛\n]+", source)
+
+    if kind == "actual_vacancy":
+        if not _APPLICATION_ROUTE_RE.search(source):
+            return None
+        for segment in segments:
+            candidate = segment.strip(" \t\r\n:؛,،-")
+            if (
+                len(normalize_text(candidate).replace(" ", "")) >= 8
+                and _CONCRETE_VACANCY_TITLE_RE.search(candidate)
+                and _source_quote_is_grounded_for_analysis(candidate, source)
+            ):
+                return candidate
+        return None
+
     if not markers:
         return None
 
-    segments = re.split(r"(?<=[.!?؟؛])|[,،;؛\n]+", source)
     for segment in segments:
         candidate = segment.strip(" \t\r\n:؛,،-")
         if len(normalize_text(candidate).replace(" ", "")) < 8:
@@ -3328,25 +3342,51 @@ def _postprocess_analysis_result(source_text: str, result: Any) -> Any:
     if not isinstance(result, dict):
         return result
 
-    post_type = str(result.get("post_type") or "").strip()
+    post_type = str(result.get("post_type") or "").strip().lower()
+
+    # Recover an omitted or mistaken non-vacancy label only when three independent
+    # source signals agree: explicit current hiring, a concrete occupational title,
+    # and an actionable employer application route. Rumour-only posts stay excluded.
+    if (
+        post_type != "actual_vacancy"
+        and not looks_like_unconfirmed_recruitment_rumor(source_text)
+        and _ACTUAL_HIRING_INTENT_RE.search(str(source_text or ""))
+        and _CONCRETE_VACANCY_TITLE_RE.search(str(source_text or ""))
+        and _APPLICATION_ROUTE_RE.search(str(source_text or ""))
+    ):
+        result["post_type"] = "actual_vacancy"
+        post_type = "actual_vacancy"
+
     post_type_evidence = result.get("post_type_evidence")
-    has_grounded_type_evidence = (
-        isinstance(post_type_evidence, list)
-        and any(
-            _source_quote_is_grounded_for_analysis(quote, source_text)
-            for quote in post_type_evidence
-        )
-    )
-    if not has_grounded_type_evidence:
+    if isinstance(post_type_evidence, list):
+        grounded_type_evidence = [
+            quote for quote in post_type_evidence
+            if _source_quote_is_grounded_for_analysis(quote, source_text)
+        ]
+    else:
+        grounded_type_evidence = []
+    if grounded_type_evidence:
+        # Do not let one paraphrased/ungrounded extra quote invalidate otherwise
+        # valid evidence; retain only exact source-backed clauses.
+        result["post_type_evidence"] = grounded_type_evidence
+    else:
         replacement_evidence = _source_grounded_post_type_evidence(post_type, source_text)
         if replacement_evidence:
             result["post_type_evidence"] = [replacement_evidence]
 
     jobs = result.get("jobs")
     if isinstance(jobs, list):
+        generic_company_descriptors = {
+            "معرض", "معرض تجاري", "showroom", "show room",
+            "commercial exhibition", "exposition commerciale",
+            "exhibition hall", "sales showroom",
+        }
         for job in jobs:
             if not isinstance(job, dict):
                 continue
+            company_value = str(job.get("company") or "").strip()
+            if normalize_text(company_value) in generic_company_descriptors:
+                job["company"] = ""
             title_evidence = str(job.get("title_evidence") or "")
             normalized_evidence = normalize_text(title_evidence)
             variants = [
