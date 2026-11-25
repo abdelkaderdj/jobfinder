@@ -73,7 +73,13 @@ class ExperienceRequirementPolicyTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), role.lower())
 
-        for phrase in ("Oran", "Mostaganem", "Southern/Saharan", "accommodation"):
+        for phrase in (
+            "Oran",
+            "Mostaganem",
+            "Southern/Saharan",
+            "accommodation",
+            "100% remote/telework from Algeria",
+        ):
             self.assertIn(phrase.lower(), location.lower())
 
     def test_analysis_and_independent_reviewer_share_the_canonical_policy_blocks(self):
